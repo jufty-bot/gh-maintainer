@@ -6,6 +6,7 @@ from datetime import datetime
 from gh_maintainer.github import GitHubError
 from gh_maintainer.schemas import (
     AccountSnapshot,
+    CommentSnapshot,
     ItemSnapshot,
     JsonObject,
     RepositorySnapshot,
@@ -53,6 +54,35 @@ class FakeSource:
         self.signal_head = "abc"
         self.accounts: dict[str, AccountSnapshot] = {}
         self.aliases: dict[str, str] = {}
+        self.conversation: list[CommentSnapshot] = []
+        self.comment_windows: list[datetime | None] = []
+        self.fail_comments = False
+        self.fail_reviews = False
+
+    async def issue(self, repo: RepositorySnapshot, number: int) -> ItemSnapshot:
+        self.calls += 1
+        return ItemSnapshot.from_github(issue(number), repo.id)
+
+    async def comments(
+        self, _repo: RepositorySnapshot, since: datetime | None
+    ) -> AsyncIterator[list[CommentSnapshot]]:
+        self.calls += 1
+        self.comment_windows.append(since)
+        yield [comment for comment in self.conversation if comment.kind != "review"]
+        if self.fail_comments:
+            raise GitHubError("Comment page failed.")
+
+    async def reviews(
+        self, _repo: RepositorySnapshot, number: int
+    ) -> AsyncIterator[list[CommentSnapshot]]:
+        self.calls += 1
+        if self.fail_reviews:
+            raise GitHubError("Review page failed.")
+        yield [
+            comment
+            for comment in self.conversation
+            if comment.kind == "review" and comment.number == number
+        ]
 
     async def account(self, login: str | None = None) -> AccountSnapshot:
         self.calls += 1

@@ -7,8 +7,8 @@ rankings, and triage in additional tables. After this baseline is complete, the 
 focus shifts to agent skills for operating the CLI and maintaining repositories on behalf
 of humans.
 
-This document describes intended scope and completion criteria. Planned capabilities
-and table names below are proposals, not commands or schemas available today.
+This document tracks baseline scope, completion criteria, and the next focus on skills.
+The status table distinguishes implemented functionality from future work.
 Agents track task status and validation evidence in the [implementation checklist](checklist.md)
 and update this roadmap's scope and current-status table as relevant changes land.
 
@@ -18,17 +18,18 @@ and update this roadmap's scope and current-status table as relevant changes lan
 | --- | --- | --- |
 | Select an explicit repository list | Implemented: repeatable `sync --repo` / `watch --repo` resolves repositories directly across owners | Coverage remains limited to accessible repositories |
 | Select all repositories belonging to an owner | Implemented: `--owner` accepts users and organizations; default is the authenticated user | Other users' inventories are public-only; use explicit lists for accessible private repositories |
-| Ingest all issues and PRs | Implemented within the current inventory scope, including closed and merged items | Preserve coverage when expanding repository selection |
-| Ingest their comments | Missing: bodies and PR signal rollups are stored, comments are not | Backfill and incrementally refresh conversations and PR review content |
-| Incremental SQLite storage | Implemented for items: repository checkpoints, overlap, reconciliation, atomic commits, migrations | Extend those guarantees to comments and additional selection scopes |
-| Efficient querying through the CLI | Partial: SQL-backed dashboard queries and JSON/Markdown report exports | Expose filtered, paginated list/detail queries without a running web server |
-| Additional tables for analysis and triage | Partial: `triage` stores local decisions; ranking is computed at query time | Persist summaries, classifications, and rankings with provenance and freshness |
+| Ingest all issues and PRs | Implemented within the selected scope, including closed and merged items | Credential-limited polling coverage |
+| Ingest their comments | Implemented: issue conversations, inline review comments, and review bodies, including replies and raw line context | GraphQL thread resolution state is a later extension |
+| Incremental SQLite storage | Implemented for items and comments: checkpoints, overlap, reconciliation, atomic commits, migrations | Review bodies require a full per-PR listing each sync |
+| Efficient querying through the CLI | Implemented: repositories, PRs/issues, details, comments, status, and activity with SQL pagination and JSON | Keep public contracts stable as skills are added |
+| Additional tables for analysis and triage | Implemented: persisted summaries, classifications, rankings, triage, and processing checkpoints | Analysis is supplied by humans/agents; no built-in model provider |
+| Track processing and later activity | Implemented: source revisions, pending/changed filters, activity kinds, and guarded acknowledgements | Only observed activity can be recorded |
 | Agent skills for repository maintenance | Future focus | Build against the completed CLI baseline |
 
-The current tables are `metadata`, `owners`, `repo_owners`, `repos`, `items`, `changes`,
-`triage`, and `runs`, plus Alembic's schema version table. There are no comment, summary, classification, or
-ranking tables yet. The dashboard and reports are useful consumers of the index; the
-baseline must also be usable entirely through the CLI.
+The current tables are `metadata`, `owners`, `repo_owners`, `repos`, `items`, `comments`,
+`changes`, `triage`, `runs`, `processing`, `summaries`, `classifications`, and `rankings`,
+plus Alembic's schema version table. The baseline is usable entirely through the CLI;
+the dashboard and reports also consume the index. See [CLI workflows](cli.md).
 
 ## Baseline delivery sequence
 
@@ -65,6 +66,12 @@ Add versioned migrations and source adapters for these records. Store stable sou
 parent item links, authors, bodies, creation/update times, URLs, and raw payloads. Include
 open, closed, and merged items in historical backfills.
 
+Implemented in migration `0003`. Repository comment feeds use an independent overlapped
+checkpoint. Review bodies are refreshed for all available PRs on every sync, since their
+endpoint has no incremental timestamp filter. Comment failures roll back the repository's
+item/comment changes and preserve both checkpoints. REST reply and line context is retained;
+GraphQL thread identity/resolution is deferred.
+
 Completion criteria:
 
 - Listing follows pagination to exhaustion, and repeat syncs upsert records without
@@ -82,8 +89,8 @@ Completion criteria:
 ### 3. Query the index through the CLI
 
 Expose repository inventory, item lists, item details, comments, and synchronization
-coverage through CLI commands. Reuse the SQL query layer and provide stable JSON output
-alongside readable output. Exact command names can be chosen during implementation.
+coverage through CLI commands. The implemented `repos`, `prs`, `issues`, `show`, `comments`,
+`status`, and `changes` commands reuse the SQL query layer and provide JSON and text output.
 
 Completion criteria:
 
@@ -107,6 +114,12 @@ explicit evaluation time and refresh policy.
 The initial schema should support CLI-written results from rules or agents. A built-in
 model provider is not required to establish the storage and query contract.
 
+Implemented through `classify`, `summarize`, `rank`, `triage`, and `mark-processed`.
+Records retain producer, reason, source revision, and save time. Comment/item changes mark
+analysis stale and make previously processed items pending again. Fixed ranks have no time
+decay; producers explicitly refresh any time-dependent score. Built-in priority rules still
+evaluate elapsed time on each query. See [analysis and processing contracts](cli.md).
+
 Completion criteria:
 
 - CLI operations can write and query summaries, classifications, and ranked queues.
@@ -124,6 +137,10 @@ or an owner, backfill their issues, PRs, and conversations, run a safe increment
 query that data efficiently, and write/read persisted analysis and local triage. That path
 must have documented output contracts and tests for interruption, partial coverage,
 reconciliation, and upgrades from existing databases.
+
+The automated baseline path is implemented and validated by the offline CLI workflow,
+SDK pagination, processing freshness, interruption/retry, and legacy migration tests.
+The [checklist](checklist.md) records validation. Agent skills are the next milestone.
 
 ## Agent skills after the baseline
 

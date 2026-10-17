@@ -63,6 +63,9 @@ uv run gh-maintainer --db .data/demo.sqlite serve
 
 ## A maintenance process
 
+See [CLI workflows](cli.md) for item/status queries, comments, analysis, processing queues,
+and changes since the last check.
+
 1. **Discover and index.** Select repositories directly or discover a user/organization
    inventory, including visible forks, private repositories, and archives within its coverage.
 2. **Refresh regularly.** Run `uv run gh-maintainer watch --interval 900` in a worker,
@@ -94,7 +97,7 @@ uv run gh-maintainer triage I_EXAMPLE done
 ```
 
 `done` is a local triage decision, separate from GitHub's open/closed status. An item
-returns to the inbox when its source `updated_at` advances after that decision.
+returns to the inbox when new observed source activity advances its revision after that decision.
 Snoozes expire automatically. The dashboard currently displays decisions; edits use
 these CLI commands. The app never merges PRs, closes issues, sends messages, or changes
 GitHub labels.
@@ -104,10 +107,14 @@ GitHub labels.
 - Repository identity, ownership, visibility, archive/fork flags, and raw API metadata.
 - Every listed issue and PR, including open, closed, draft, and merged PR states.
 - Titles, bodies, authors, labels, assignees, timestamps, URLs, and raw issue payloads.
+- Conversation comments, inline review comments, and PR review bodies, including raw
+  reply/path context, per-repository comment checkpoints, and retained availability history.
 - PR detail payloads, current-head check rollups, review decisions, mergeability, and
   the separate time at which PR signals were successfully observed.
 - An append-only log of observed source changes, per-repository checkpoints and errors,
   run history, and local triage notes.
+- Source revisions, processing checkpoints, summaries, classifications, and ranks supplied
+  by humans or agents, with producer, timestamp, and freshness.
 
 Issue IDs and PR IDs are different in GitHub. Items use the **issue node ID** as their
 local identity; the PR's own node ID is retained separately for GraphQL enrichment.
@@ -119,6 +126,14 @@ REST listing follows `Link` pagination to exhaustion and avoids the search API's
 1,000-result ceiling. Incremental issue queries use `state=all`, a checkpoint taken
 **before** fetching, and a five-minute overlap. Every previously open PR is refreshed
 on every sync: CI and review changes need not advance the issue timestamp.
+
+Repository-level comment feeds use a separate checkpoint and the same five-minute overlap;
+the initial comment backfill and periodic full sync reconcile availability. Every known
+available PR, including merged and closed PRs, has its review bodies listed on each sync
+because that endpoint has no incremental timestamp filter. This adds one paginated review
+listing per PR. Comment/review fetch failures roll back the repository's item and comment
+updates together, retaining both checkpoints. Existing databases backfill comments on their
+next successful sync. `sync --full` also reconciles missing comments immediately.
 
 A repository's item updates, observations, and checkpoint commit in one SQLite
 transaction. Failed repositories keep their previous checkpoint and data. Failed
@@ -138,9 +153,9 @@ Existing GitHub CLI credentials work without being copied into configuration fil
 This is a polling index, not a complete GitHub event archive. It cannot reconstruct
 transitions that happened entirely between syncs or before the first backfill. GitHub
 pagination is not a snapshot; overlap and periodic reconciliation help recover concurrent
-changes. PR reviews/check rollups are retained, but individual review threads, issue
-comments, commits, workflow history, releases, discussions, and security alerts are not
-backfilled yet. A null or unavailable check result is **unknown**, never a passing check.
+changes. Comments and review bodies are retained, but GraphQL review-thread resolution
+state, commits, workflow history, releases, discussions, and security alerts are not
+backfilled. A null or unavailable check result is **unknown**, never a passing check.
 Green checks and approval do not establish that branch rules permit merging.
 
 The first backfill fetches details for every PR and can take time on large repositories.

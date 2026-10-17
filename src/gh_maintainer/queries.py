@@ -10,17 +10,31 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from gh_maintainer.clock import now, timestamp
 from gh_maintainer.models import (
+    Classification,
+    Comment,
     Item,
     Observation,
     Owner,
+    Processing,
+    Ranking,
     Repository,
+    Summary,
     SyncRun,
     TriageDecision,
 )
 from gh_maintainer.policies import STALE_DAYS, present_item
-from gh_maintainer.repositories import item_snapshot, repo_snapshot, triage_snapshot
+from gh_maintainer.repositories import (
+    item_snapshot,
+    repo_snapshot,
+    resolve_item,
+    triage_snapshot,
+)
 from gh_maintainer.schemas import (
     AccountSnapshot,
+    AnalysisView,
+    ChangePage,
+    CommentPage,
+    CommentSnapshot,
     Counts,
     ItemDetail,
     ItemFilters,
@@ -84,7 +98,10 @@ class QueueExpressions:
             (
                 and_(
                     TriageDecision.disposition == "done",
-                    Item.updated_at > TriageDecision.updated_at,
+                    or_(
+                        Item.updated_at > TriageDecision.updated_at,
+                        Item.revision > TriageDecision.source_revision,
+                    ),
                 ),
                 "inbox",
             ),
@@ -93,6 +110,7 @@ class QueueExpressions:
         self.open = and_(
             Item.state == "open", Item.available.is_(True), Repository.present.is_(True)
         )
+        self.disposition = disposition
         self.queue = and_(
             self.open,
             Repository.archived.is_(False),
@@ -138,18 +156,78 @@ class CatalogQueries:
         self.at = at or now()
         self.rules = QueueExpressions(self.at)
 
-    def _items_statement(self) -> Select[tuple[Item, Repository, TriageDecision]]:
+    def _items_statement(
+        self,
+    ) -> Select[
+        tuple[
+            Item,
+            Repository,
+            TriageDecision,
+            Processing,
+            Summary,
+            Classification,
+            Ranking,
+        ]
+    ]:
         return (
-            select(Item, Repository, TriageDecision)
-            .join(Repository)
+            select(
+                Item,
+                Repository,
+                TriageDecision,
+                Processing,
+                Summary,
+                Classification,
+                Ranking,
+            )
+            .join(Repository, Repository.id == Item.repo_id)
             .outerjoin(TriageDecision, TriageDecision.item_id == Item.id)
+            .outerjoin(Processing, Processing.item_id == Item.id)
+            .outerjoin(Summary, Summary.item_id == Item.id)
+            .outerjoin(Classification, Classification.item_id == Item.id)
+            .outerjoin(Ranking, Ranking.item_id == Item.id)
         )
 
     def _view(
-        self, item: Item, repo: Repository, triage: TriageDecision | None
+        self,
+        item: Item,
+        repo: Repository,
+        triage: TriageDecision | None,
+        processed: Processing | None,
+        summary: Summary | None,
+        classification: Classification | None,
+        ranking: Ranking | None,
     ) -> ItemView:
-        return present_item(
+        view = present_item(
             item_snapshot(item), repo_snapshot(repo), triage_snapshot(triage), self.at
+        )
+        analysis = {}
+        for key, record in (
+            ("summary", summary),
+            ("classification", classification),
+            ("ranking", ranking),
+        ):
+            if record:
+                value = AnalysisView.model_validate(record, from_attributes=True)
+                analysis[key] = value.model_copy(
+                    update={
+                        "stale": record.source_revision != item.revision
+                        or bool(repo.error)
+                        or repo.comments_synced_at is None
+                    }
+                )
+        return view.model_copy(
+            update={
+                **analysis,
+                "processing_state": "unprocessed"
+                if not processed
+                else (
+                    "processed" if processed.revision == item.revision else "changed"
+                ),
+                "processed_revision": processed.revision if processed else None,
+                "processed_by": processed.actor if processed else None,
+                "checked_at": processed.checked_at if processed else None,
+                "comments_synced_at": repo.comments_synced_at,
+            }
         )
 
     async def overview(self) -> Overview:
@@ -258,23 +336,71 @@ class CatalogQueries:
         if filters.state:
             statement = statement.where(Item.state == filters.state.value)
         if filters.repo:
-            statement = statement.where(Repository.name == filters.repo)
+            statement = statement.where(
+                func.lower(Repository.name) == filters.repo.lower()
+            )
         if filters.queue:
             statement = statement.where(self.rules.queue)
+        if filters.disposition:
+            statement = statement.where(
+                self.rules.disposition == filters.disposition.value
+            )
+        if filters.processing:
+            conditions = {
+                "unprocessed": Processing.item_id.is_(None),
+                "changed": Processing.revision < Item.revision,
+                "processed": Processing.revision == Item.revision,
+                "pending": or_(
+                    Processing.item_id.is_(None), Processing.revision < Item.revision
+                ),
+            }
+            statement = statement.where(conditions[filters.processing])
+        if filters.classification:
+            labels = func.json_each(Classification.labels).table_valued("value")
+            statement = statement.where(
+                Classification.source_revision == Item.revision,
+                Repository.error.is_(None),
+                Repository.comments_synced_at.is_not(None),
+                select(labels.c.value)
+                .where(labels.c.value == filters.classification)
+                .exists(),
+            )
         total = await self.session.scalar(
             select(func.count()).select_from(statement.subquery())
         )
-        statement = (
-            statement.order_by(
-                self.rules.score.desc(), Item.updated_at, Repository.name, Item.number
+        ordering = [
+            self.rules.score.desc(),
+            Item.updated_at,
+            Repository.name,
+            Item.number,
+        ]
+        if filters.sort == "updated":
+            ordering = [Item.updated_at.desc(), Repository.name, Item.number]
+        elif filters.sort == "rank":
+            current_rank = case(
+                (
+                    and_(
+                        Ranking.source_revision == Item.revision,
+                        Repository.error.is_(None),
+                        Repository.comments_synced_at.is_not(None),
+                    ),
+                    Ranking.score,
+                ),
+                else_=None,
             )
-            .limit(filters.limit)
-            .offset(filters.offset)
+            ordering = [
+                current_rank.desc().nulls_last(),
+                self.rules.score.desc(),
+                Repository.name,
+                Item.number,
+            ]
+        statement = (
+            statement.order_by(*ordering).limit(filters.limit).offset(filters.offset)
         )
         return ItemPage(
             total=total or 0,
             items=[
-                self._view(row[0], row[1], row[2])
+                self._view(*row)
                 for row in (await self.session.execute(statement)).all()
             ],
         )
@@ -299,7 +425,7 @@ class CatalogQueries:
             )
             for record in observations
         ]
-        return ItemDetail(item=self._view(row[0], row[1], row[2]), changes=changes)
+        return ItemDetail(item=self._view(*row), changes=changes)
 
     async def portfolio(self) -> Portfolio:
         overview = await self.overview()
@@ -307,7 +433,84 @@ class CatalogQueries:
             self.rules.score.desc(), Item.updated_at, Repository.name, Item.number
         )
         items = [
-            self._view(row[0], row[1], row[2])
-            for row in (await self.session.execute(statement)).all()
+            self._view(*row) for row in (await self.session.execute(statement)).all()
         ]
         return Portfolio(**overview.model_dump(), items=items)
+
+    async def comments(
+        self,
+        reference: str,
+        limit: int = 100,
+        offset: int = 0,
+        include_unavailable: bool = False,
+    ) -> CommentPage:
+        ItemFilters(limit=limit, offset=offset)
+        item = await resolve_item(self.session, reference)
+        repo = await self.session.get(Repository, item.repo_id)
+        statement = select(Comment).where(
+            Comment.repo_id == item.repo_id, Comment.number == item.number
+        )
+        if not include_unavailable:
+            statement = statement.where(Comment.available.is_(True))
+        total = await self.session.scalar(
+            select(func.count()).select_from(statement.subquery())
+        )
+        records = await self.session.scalars(
+            statement.order_by(Comment.created_at, Comment.id)
+            .limit(limit)
+            .offset(offset)
+        )
+        return CommentPage(
+            total=total or 0,
+            comments_synced_at=repo.comments_synced_at if repo else None,
+            coverage_error=repo.error if repo else "Repository unavailable",
+            comments=[
+                CommentSnapshot.model_validate(row, from_attributes=True)
+                for row in records
+            ],
+        )
+
+    async def changes(
+        self,
+        reference: str | None = None,
+        since: datetime | None = None,
+        since_check: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> ChangePage:
+        ItemFilters(limit=limit, offset=offset)
+        statement = select(Observation).outerjoin(
+            Processing, Processing.item_id == Observation.item_id
+        )
+        if reference:
+            item = await resolve_item(self.session, reference)
+            statement = statement.where(Observation.item_id == item.id)
+        if since:
+            statement = statement.where(Observation.observed_at > since)
+        if since_check:
+            statement = statement.where(
+                or_(
+                    Processing.item_id.is_(None),
+                    Observation.revision > Processing.revision,
+                )
+            )
+        total = await self.session.scalar(
+            select(func.count()).select_from(statement.subquery())
+        )
+        records = await self.session.scalars(
+            statement.order_by(Observation.id.desc()).limit(limit).offset(offset)
+        )
+        return ChangePage(
+            total=total or 0,
+            changes=[
+                ObservationView.model_validate(row, from_attributes=True)
+                for row in records
+            ],
+        )
+
+    async def show(self, reference: str) -> ItemDetail:
+        item = await resolve_item(self.session, reference)
+        detail = await self.detail(item.id)
+        if detail is None:
+            raise ValueError("Unknown item.")
+        return detail

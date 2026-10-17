@@ -166,6 +166,7 @@ class ItemSnapshot(Contract):
     pr: JsonObject | None = None
     signals: JsonObject | None = None
     signals_at: AwareDatetime | None = None
+    revision: int = Field(default=1, ge=1)
 
     @classmethod
     def from_github(
@@ -204,6 +205,7 @@ class RepositoryStatus(RepositorySnapshot):
     reconciled_at: AwareDatetime | None = None
     signals_at: AwareDatetime | None = None
     error: str | None = None
+    comments_synced_at: AwareDatetime | None = None
 
 
 class TriageSnapshot(Contract):
@@ -211,6 +213,74 @@ class TriageSnapshot(Contract):
     note: str = ""
     snoozed_until: AwareDatetime | None = None
     updated_at: AwareDatetime | None = None
+    source_revision: int | None = None
+
+
+class AnalysisInput(Contract):
+    producer: str = Field(default="manual", min_length=1)
+    reason: str = ""
+    text: str | None = Field(default=None, min_length=1)
+    labels: list[str] | None = None
+    score: float | None = Field(default=None, allow_inf_nan=False)
+
+
+class AnalysisView(AnalysisInput):
+    source_revision: int
+    updated_at: AwareDatetime
+    stale: bool = False
+
+
+class CommentPayload(BaseModel):
+    node_id: str = Field(min_length=1)
+    body: str | None = None
+    user: Person | None = None
+    html_url: str
+    created_at: AwareDatetime | None = None
+    updated_at: AwareDatetime | None = None
+    submitted_at: AwareDatetime | None = None
+
+
+class CommentSnapshot(Contract):
+    id: str
+    repo_id: str
+    number: int = Field(gt=0)
+    kind: Literal["issue", "inline", "review"]
+    body: str
+    author: str | None
+    url: str
+    created_at: AwareDatetime | None
+    updated_at: AwareDatetime | None
+    available: bool = True
+    raw: JsonObject
+
+    @classmethod
+    def from_github(
+        cls,
+        raw: JsonObject,
+        repo_id: str,
+        number: int,
+        kind: Literal["issue", "inline", "review"],
+    ) -> CommentSnapshot:
+        data = CommentPayload.model_validate(raw)
+        return cls(
+            id=data.node_id,
+            repo_id=repo_id,
+            number=number,
+            kind=kind,
+            body=data.body or "",
+            author=data.user.login if data.user else None,
+            url=data.html_url,
+            created_at=data.created_at or data.submitted_at,
+            updated_at=data.updated_at or data.submitted_at,
+            raw=raw,
+        )
+
+
+class CommentPage(Contract):
+    total: int
+    comments_synced_at: AwareDatetime | None
+    coverage_error: str | None
+    comments: list[CommentSnapshot]
 
 
 class Assessment(Contract):
@@ -237,6 +307,14 @@ class ItemView(ItemSnapshot, Assessment):
     labels: list[str]
     assignees: list[str]
     author: str
+    processing_state: Literal["unprocessed", "changed", "processed"] = "unprocessed"
+    processed_revision: int | None = None
+    processed_by: str | None = None
+    checked_at: AwareDatetime | None = None
+    comments_synced_at: AwareDatetime | None = None
+    summary: AnalysisView | None = None
+    classification: AnalysisView | None = None
+    ranking: AnalysisView | None = None
 
 
 class RepositoryView(RepositoryStatus):
@@ -287,6 +365,10 @@ class ItemFilters(Contract):
     state: State | None = None
     repo: str = ""
     queue: bool = False
+    disposition: Disposition | None = None
+    processing: Literal["unprocessed", "changed", "processed", "pending"] | None = None
+    classification: str | None = None
+    sort: Literal["priority", "updated", "rank"] = "priority"
     limit: int = Field(default=100, ge=1, le=500)
     offset: int = Field(default=0, ge=0)
 
@@ -297,6 +379,20 @@ class ObservationView(Contract):
     observed_at: AwareDatetime
     before_json: JsonObject | None
     after_json: JsonObject
+    kind: str = "updated"
+    revision: int | None = None
+
+
+class ChangePage(Contract):
+    total: int
+    changes: list[ObservationView]
+
+
+class ProcessingView(Contract):
+    item_id: str
+    revision: int
+    checked_at: AwareDatetime
+    actor: str = Field(min_length=1)
 
 
 class ItemDetail(Contract):

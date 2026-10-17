@@ -85,14 +85,17 @@ async def test_adopt_legacy_preserves_every_value_and_is_idempotent(
             await database.close()
         with closing(sqlite3.connect(path)) as connection, connection:
             assert before == {
-                table: connection.execute(
-                    f"SELECT * FROM {table}"  # noqa: S608 - frozen fixture table names
-                ).fetchall()
+                table: [
+                    row[: len(before[table][0])]
+                    for row in connection.execute(
+                        f"SELECT * FROM {table}"  # noqa: S608 - frozen fixture table names
+                    ).fetchall()
+                ]
                 for table in TABLES
             }
             assert connection.execute(
                 "SELECT version_num FROM alembic_version"
-            ).fetchone() == ("0002",)
+            ).fetchone() == ("0003",)
             assert connection.execute("SELECT * FROM owners").fetchall() == [
                 ("77", "owner", "User")
             ]

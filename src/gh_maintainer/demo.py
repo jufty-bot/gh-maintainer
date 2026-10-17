@@ -132,7 +132,7 @@ async def seed_demo(database: Database) -> None:
                 if number == MERGED_PR:
                     row = row.model_copy(update={"state": State.MERGED})
             rows.append(row)
-        await catalog.commit_repo(str(repo["id"]), rows, at, True, None)
+        await catalog.commit_repo(str(repo["id"]), rows, at, True, None, comments=[])
 
     async with SyncLease(database) as lease:
         journal = SyncJournal(database)

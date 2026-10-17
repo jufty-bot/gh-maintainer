@@ -8,7 +8,9 @@ from typing import ClassVar
 from sqlalchemy import (
     JSON,
     Boolean,
+    Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Text,
@@ -73,6 +75,7 @@ class Repository(Base):
     reconciled_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     signals_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     error: Mapped[str | None]
+    comments_synced_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
 
 class Item(Base):
@@ -94,6 +97,26 @@ class Item(Base):
     pr: Mapped[JsonObject | None] = mapped_column(JSON(none_as_null=True))
     signals: Mapped[JsonObject | None] = mapped_column(JSON(none_as_null=True))
     signals_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    revision: Mapped[int] = mapped_column(default=1, server_default="1")
+
+
+class Comment(Base):
+    __tablename__ = "comments"
+    __table_args__ = (
+        ForeignKeyConstraint(["repo_id", "number"], ["items.repo_id", "items.number"]),
+        Index("comments_item", "repo_id", "number", "created_at", "id"),
+    )
+    id: Mapped[str] = mapped_column(primary_key=True)
+    repo_id: Mapped[str]
+    number: Mapped[int]
+    kind: Mapped[str]
+    body: Mapped[str]
+    author: Mapped[str | None]
+    url: Mapped[str]
+    created_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    updated_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    available: Mapped[bool] = mapped_column(Boolean)
+    raw: Mapped[JsonObject] = mapped_column(JSON)
 
 
 class Observation(Base):
@@ -103,6 +126,8 @@ class Observation(Base):
     observed_at: Mapped[datetime] = mapped_column(UTCDateTime)
     before_json: Mapped[JsonObject | None] = mapped_column(JSON(none_as_null=True))
     after_json: Mapped[JsonObject] = mapped_column(JSON)
+    kind: Mapped[str] = mapped_column(default="updated", server_default="updated")
+    revision: Mapped[int | None]
 
 
 class TriageDecision(Base):
@@ -112,6 +137,38 @@ class TriageDecision(Base):
     note: Mapped[str] = mapped_column(default="")
     snoozed_until: Mapped[datetime | None] = mapped_column(UTCDateTime)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    source_revision: Mapped[int | None]
+
+
+class Processing(Base):
+    __tablename__ = "processing"
+    item_id: Mapped[str] = mapped_column(ForeignKey("items.id"), primary_key=True)
+    revision: Mapped[int]
+    checked_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    actor: Mapped[str]
+
+
+class AnalysisRecord:
+    item_id: Mapped[str] = mapped_column(ForeignKey("items.id"), primary_key=True)
+    source_revision: Mapped[int]
+    producer: Mapped[str]
+    reason: Mapped[str]
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime)
+
+
+class Summary(AnalysisRecord, Base):
+    __tablename__ = "summaries"
+    text: Mapped[str]
+
+
+class Classification(AnalysisRecord, Base):
+    __tablename__ = "classifications"
+    labels: Mapped[list[str]] = mapped_column(JSON)
+
+
+class Ranking(AnalysisRecord, Base):
+    __tablename__ = "rankings"
+    score: Mapped[float] = mapped_column(Float)
 
 
 class SyncRun(Base):

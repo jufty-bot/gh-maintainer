@@ -9,10 +9,11 @@ import requests_mock
 from github import Auth, Github
 from urllib3.response import HTTPResponse
 
+from gh_maintainer.clock import parse_date
 from gh_maintainer.github import BoundedGitHubRetry, GitHubError, PyGithubSource
 from gh_maintainer.schemas import RepositorySnapshot
 
-from .fakes import REPO, issue
+from .fakes import AT, REPO, issue
 
 pytestmark = pytest.mark.anyio
 
@@ -219,5 +220,112 @@ async def test_sdk_explicit_repository_uses_direct_endpoint() -> None:
             repo = await adapter.repository("team/another")
             assert repo.id == "1" and repo.name == "team/another"
             assert len(mock.request_history) == 1
+    finally:
+        await adapter.close()
+
+
+async def test_sdk_conversations_pagination_incremental_and_review_bodies() -> None:
+    adapter = source()
+    raw = {
+        "node_id": "IC_1",
+        "body": "Context",
+        "user": None,
+        "html_url": "https://github.com/owner/project/issues/2#issuecomment-1",
+        "created_at": AT,
+        "updated_at": AT,
+        "issue_url": "https://api.github.com/repos/owner/project/issues/2",
+    }
+    try:
+        with requests_mock.Mocker() as mock:
+            mock.get(
+                "https://api.github.com:443/repos/owner/project/issues/comments",
+                json=[{**raw, "node_id": f"IC_{number}"} for number in range(100)],
+                headers={
+                    "Link": "<https://api.github.com/repos/owner/project/issues/"
+                    'comments?page=2>; rel="next"'
+                },
+            )
+            mock.get(
+                "https://api.github.com:443/repos/owner/project/issues/comments?page=2",
+                json=[{**raw, "node_id": "IC_100"}],
+            )
+            mock.get(
+                "https://api.github.com:443/repos/owner/project/pulls/comments",
+                json=[
+                    {
+                        **raw,
+                        "node_id": "RC_1",
+                        "pull_request_url": "https://api.github.com/repos/owner/project/pulls/2",
+                        "path": "example.py",
+                        "in_reply_to_id": 4,
+                    }
+                ],
+            )
+            repo = RepositorySnapshot.from_github(REPO)
+            comments = [
+                comment
+                async for batch in adapter.comments(repo, parse_date(AT))
+                for comment in batch
+            ]
+            assert len(comments) == 102
+            assert (
+                comments[-1].kind == "inline"
+                and comments[-1].raw["in_reply_to_id"] == 4
+            )
+            assert comments[0].author is None
+            assert mock.request_history[0].qs["sort"] == ["updated"]
+            assert "since" in mock.request_history[0].qs
+            review = {
+                **raw,
+                "node_id": "RV_1",
+                "submitted_at": AT,
+                "state": "APPROVED",
+                "body": "Looks good",
+            }
+            review.pop("created_at")
+            review.pop("updated_at")
+            mock.get(
+                "https://api.github.com:443/repos/owner/project/pulls/2/reviews",
+                json=[review],
+            )
+            reviews = [
+                review async for batch in adapter.reviews(repo, 2) for review in batch
+            ]
+            assert reviews[0].body == "Looks good" and reviews[0].kind == "review"
+            assert reviews[0].updated_at == parse_date(AT)
+            assert len(mock.request_history) == 4
+    finally:
+        await adapter.close()
+
+
+async def test_sdk_comment_with_missing_parent_fails_coverage() -> None:
+    adapter = source()
+    try:
+        with requests_mock.Mocker() as mock:
+            mock.get(
+                "https://api.github.com:443/repos/owner/project/issues/comments",
+                json=[{"node_id": "broken"}],
+            )
+            with pytest.raises(ValueError, match="parent"):
+                _ = [
+                    batch
+                    async for batch in adapter.comments(
+                        RepositorySnapshot.from_github(REPO), None
+                    )
+                ]
+    finally:
+        await adapter.close()
+
+
+async def test_sdk_fetches_missing_comment_parent_as_issue_identity() -> None:
+    adapter = source()
+    try:
+        with requests_mock.Mocker() as mock:
+            mock.get(
+                "https://api.github.com:443/repos/owner/project/issues/8",
+                json=issue(8, True),
+            )
+            parent = await adapter.issue(RepositorySnapshot.from_github(REPO), 8)
+            assert parent.id == "I_8" and parent.kind.value == "pr"
     finally:
         await adapter.close()

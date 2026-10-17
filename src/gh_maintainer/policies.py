@@ -32,7 +32,13 @@ def assess(
     if (
         disposition == Disposition.DONE
         and triage.updated_at
-        and item.updated_at > triage.updated_at
+        and (
+            item.updated_at > triage.updated_at
+            or (
+                triage.source_revision is not None
+                and item.revision > triage.source_revision
+            )
+        )
     ):
         disposition = Disposition.INBOX
     age = max(0, int((at - item.updated_at).total_seconds() / SECONDS_PER_DAY))

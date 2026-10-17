@@ -11,6 +11,7 @@ flowchart LR
     S --> R[Catalog repository + journal]
     R --> D[(SQLAlchemy + aiosqlite)]
     D --> Q[SQL-backed catalog queries]
+    Q --> C[CLI lists / details / conversations / activity]
     Q --> A[Async FastAPI dashboard]
     Q --> E[Typed Markdown / JSON export]
     T[Triage service] --> D
@@ -26,7 +27,7 @@ flowchart LR
 | `migrations/`       | Packaged, versioned schema changes and legacy adoption                                           |
 | `github.py`         | Source protocol and PyGithub adapter; SDK owns transport, retries, authentication and pagination |
 | `sync.py`           | Discovery, backfill windows, reconciliation, PR refresh and error policy                         |
-| `repositories.py`   | Catalog writes, fenced sync lease, run journal and local triage decisions                        |
+| `repositories.py`   | Catalog writes, fenced sync lease, run journal, local analysis and processing decisions          |
 | `queries.py`        | SQL filtering, totals, queue ranking, pagination and targeted detail loading                     |
 | `policies.py`       | Pure priority and queue rules over typed snapshots                                               |
 | `report.py`         | Markdown rendering over a typed portfolio; no SQL or SDK access                                  |
@@ -59,11 +60,17 @@ hydrating every listed issue/repository with another request. Adapter tests veri
 1,001 issues require 11 listing requests and that SDK work leaves the event loop responsive.
 
 GitHub batches are staged as validated snapshots. The catalog commits one repository's
-items, observations, availability and checkpoint in one short transaction. A failed page
+items, comments, observations, availability and checkpoints in one short transaction. A failed page
 or detail fetch leaves that repository's checkpoint unchanged. Failed GraphQL enrichment
 can commit usable item data while retaining the original signal timestamp and marking
 coverage incomplete. Effective signals become unknown when their head or repository
 freshness is invalid.
+
+Issue/inline comment feeds use their own overlapped checkpoint. Review bodies are listed
+for every known available PR on each sync, including closed and merged PRs; their endpoint
+has no incremental filter. Full reconciliation retains missing comments as unavailable.
+Raw comment payloads preserve reply IDs and line context. Failed conversation fetches do
+not advance either repository checkpoint. GraphQL thread resolution is outside this index.
 
 The SQLite lease uses an atomic conditional upsert, a heartbeat in an independent session,
 and a token check inside catalog write transactions. An expired worker cannot overwrite a
@@ -86,6 +93,24 @@ Local triage notes survive synchronization. A snooze requires a future aware tim
 expires in both SQL and presentation rules. An item marked locally done returns to the
 inbox when its source update time advances. GitHub state is never changed by local triage.
 
+Each item also has a monotonic source revision. Meaningful item/signal changes and comment
+changes increment it once per sync; freshness-only polling does not. Observations retain
+their event kind, revision, and before/after snapshots. A local done decision records its
+source revision and returns to the inbox on later source activity, including a push or
+comment edit without a parent timestamp change. Legacy triage keeps its timestamp fallback.
+
+`summaries`, `classifications`, and `rankings` each store one current caller-supplied result
+per item with producer, reason, source revision, and save time. Stale results remain visible
+in item details; stale ranks and classifications do not drive current ranking/filtering.
+Fixed caller-supplied scores have no implicit time decay. Pure priority rules still evaluate
+elapsed time on each query. `processing` stores a shared per-item acknowledged revision,
+actor, and time. Reads and analysis writes do not advance it. Optional revision guards reject
+stale writes; marking processed requires complete repository coverage.
+
+The CLI reuses the SQL query layer for lists, details, comments, and activity history.
+Processing, triage, and classification filters and rank sorting execute in SQLite with
+deterministic pagination. All local query and maintenance commands work without credentials.
+
 ## Migration contract
 
 The baseline recognizes the original six-table schema, checks every column name, and
@@ -96,6 +121,10 @@ of every legacy table value.
 
 Migration `0002` adds `owners` and `repo_owners` and backfills membership from raw repository
 ownership or the legacy owner metadata. Existing tables and their values are preserved.
+
+Migration `0003` adds conversations, analysis, processing, source revisions, and comment
+checkpoints. Added columns preserve original values and legacy observations; old activity
+has no inferred revision. Original notes, source documents, and checkpoints are retained.
 
 SQLite permits legacy TEXT JSON, integer booleans, and primary-key declarations that do
 not explicitly repeat NOT NULL. Alembic comparison hooks recognize those existing storage
@@ -112,8 +141,7 @@ can perform multiple HTTP requests; old counts remain stored in the original col
 
 Coverage is limited to repositories visible to the credential. This is a polling index;
 observations do not reconstruct transitions between polls or events before the first sync.
-Issue comments/review content, CLI queries, and persisted analysis are remaining baseline
-work. Other users' named inventories use GitHub's public listing; explicit repository lists
+Other users' named inventories use GitHub's public listing; explicit repository lists
 can index accessible private repositories across owners. Webhooks, releases and security
 findings are later extensions. Initial staging is
 still per repository; resumable disk-backed staging should precede very large backfills.

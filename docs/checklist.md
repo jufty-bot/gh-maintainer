@@ -47,43 +47,64 @@ Strict MkDocs build, `uv build`, and Alembic's schema comparison also passed.
 
 Acceptance criteria: [roadmap milestone 2](roadmap.md#2-complete-issue-and-pr-conversations).
 
-- [ ] Add migrations and validated records for issue comments, review bodies, and inline
+- [x] Add migrations and validated records for issue comments, review bodies, and inline
   review comments with parent/reply/thread context.
-- [ ] Backfill all conversation pages, including closed issues and merged PRs.
-- [ ] Add incremental refresh/checkpoints that capture edits independently of parent timestamps.
-- [ ] Reconcile availability and retain history without treating partial listings as deletion.
-- [ ] Expose conversation coverage and preserve checkpoints on failed fetches.
-- [ ] Test pagination, edits, replies, idempotence, partial failure, and reconciliation.
-- [ ] Document working commands and update the roadmap status.
+- [x] Backfill all conversation pages, including closed issues and merged PRs.
+- [x] Add incremental refresh/checkpoints that capture edits independently of parent timestamps.
+- [x] Reconcile availability and retain history without treating partial listings as deletion.
+- [x] Expose conversation coverage and preserve checkpoints on failed fetches.
+- [x] Test pagination, edits, replies, idempotence, partial failure, and reconciliation.
+- [x] Document working commands and update the roadmap status.
+
+Evidence: migration `0003`, [SDK conversation tests](https://github.com/jufty-bot/gh-maintainer/blob/main/tests/test_github.py),
+and [maintenance contracts](https://github.com/jufty-bot/gh-maintainer/blob/main/tests/test_maintenance.py).
+Raw REST reply/path context is retained; GraphQL thread resolution remains a later extension.
 
 ## 3. CLI queries
 
 Acceptance criteria: [roadmap milestone 3](roadmap.md#3-query-the-index-through-the-cli).
 
-- [ ] Expose repository, item, conversation, and sync coverage list/detail commands.
-- [ ] Add SQL-backed filters and deterministic pagination, including triage disposition.
-- [ ] Specify readable output, JSON contracts, identifiers, freshness, and exit codes.
-- [ ] Test offline queries without credentials, empty results, and failures.
-- [ ] Document working commands and update the roadmap status.
+- [x] Expose repository, item, conversation, and sync coverage list/detail commands.
+- [x] Add SQL-backed filters and deterministic pagination, including triage disposition.
+- [x] Specify readable output, JSON contracts, identifiers, freshness, and exit codes.
+- [x] Test offline queries without credentials, empty results, and failures.
+- [x] Document working commands and update the roadmap status.
+
+Evidence: [CLI workflows and output contracts](cli.md), the offline workflow in
+[maintenance tests](https://github.com/jufty-bot/gh-maintainer/blob/main/tests/test_maintenance.py),
+and existing SQL pagination/parity tests.
 
 ## 4. Persisted analysis and triage
 
 Acceptance criteria: [roadmap milestone 4](roadmap.md#4-persist-summaries-classifications-rankings-and-triage).
 
-- [ ] Add summary, classification, and ranking tables with source links and provenance.
-- [ ] Define freshness for item/comment changes and time-dependent rankings.
-- [ ] Expose CLI write/query operations for analysis results and ranked queues.
-- [ ] Preserve source records and human triage decisions when recomputing analysis.
-- [ ] Test upgrades, repeatable writes, provenance, freshness, and queries.
-- [ ] Document working commands and update the roadmap status.
+- [x] Add summary, classification, and ranking tables with source links and provenance.
+- [x] Define freshness for item/comment changes and time-dependent rankings.
+- [x] Expose CLI write/query operations for analysis results and ranked queues.
+- [x] Preserve source records and human triage decisions when recomputing analysis.
+- [x] Test upgrades, repeatable writes, provenance, freshness, and queries.
+- [x] Document working commands and update the roadmap status.
+
+Evidence: migration `0003`, [maintenance tests](https://github.com/jufty-bot/gh-maintainer/blob/main/tests/test_maintenance.py),
+and [analysis/processing contracts](cli.md#save-analysis-and-triage). Scores supplied by callers
+are fixed until refreshed; source changes invalidate their freshness.
+
+- [x] Track shared processing checkpoints separately from reads, analysis, and local triage.
+- [x] Show never-processed and changed-since-processing queues, including closed items.
+- [x] Record pushes, comments/edits, reviews, closures, merges, and reopenings as observations.
+- [x] Reject stale analysis, triage, and acknowledgement writes when a revision guard is supplied.
 
 ## Baseline completion and agent skills
 
-- [ ] Validate the [baseline completion gate](roadmap.md#baseline-completion-gate) through
+- [x] Validate the [baseline completion gate](roadmap.md#baseline-completion-gate) through
   the CLI, including interruption, partial coverage, reconciliation, and database upgrades.
-- [ ] Document the complete workflow and its output contracts for humans and agents.
+- [x] Document the complete workflow and its output contracts for humans and agents.
 - [ ] After the baseline is complete, build skills for inspecting coverage, reading
   conversations, summarizing, classifying, ranking, and recording maintenance decisions.
+
+Baseline validation: `uv run pytest -q` passed all 55 tests, including offline CLI use,
+interruption/retry, comment pagination and edits, processing freshness, and legacy upgrades.
+Ruff lint/format, mypy, strict MkDocs, Alembic schema comparison, and package builds passed.
 
 ## Documentation maintenance
 

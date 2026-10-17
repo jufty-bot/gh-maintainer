@@ -16,23 +16,34 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gh_maintainer.clock import now
 from gh_maintainer.database import Database
 from gh_maintainer.models import (
+    Classification,
+    Comment,
     Item,
     Observation,
     Owner,
+    Processing,
+    Ranking,
     Repository,
     RepositoryOwner,
     Setting,
+    Summary,
     SyncRun,
     TriageDecision,
 )
 from gh_maintainer.schemas import (
     AccountSnapshot,
+    AnalysisInput,
+    AnalysisView,
+    CommentSnapshot,
     Disposition,
     ItemSnapshot,
+    JsonObject,
+    ProcessingView,
     RepositoryPayload,
     RepositorySnapshot,
     RepositoryStatus,
     TriageSnapshot,
+    repository_name,
 )
 
 LEASE_SECONDS = 300
@@ -52,6 +63,24 @@ def triage_snapshot(record: TriageDecision | None) -> TriageSnapshot:
         if record
         else TriageSnapshot()
     )
+
+
+async def resolve_item(session: AsyncSession, reference: str) -> Item:
+    if "#" in reference:
+        repo, _, number = reference.rpartition("#")
+        name = repository_name(repo)
+        if not number.isdigit() or int(number) < 1:
+            raise ValueError("Expected owner/repository#number or an issue node ID.")
+        item = await session.scalar(
+            select(Item)
+            .join(Repository)
+            .where(func.lower(Repository.name) == name, Item.number == int(number))
+        )
+    else:
+        item = await session.get(Item, reference)
+    if item is None:
+        raise ValueError("Unknown item; sync its repository first.")
+    return item
 
 
 class SyncLease:
@@ -220,30 +249,43 @@ class CatalogRepository:
             return [item_snapshot(record) for record in records]
 
     @staticmethod
+    def _source_data(snapshot: ItemSnapshot) -> JsonObject:
+        return snapshot.model_dump(mode="json", exclude={"signals_at", "revision"})
+
+    @staticmethod
     def _observe(
         session: AsyncSession,
         before: ItemSnapshot | None,
         after: ItemSnapshot,
         at: datetime,
     ) -> None:
-        before_data = before.model_dump(mode="json") if before else None
-        after_data = after.model_dump(mode="json")
-        # Successful polling of identical signals changes freshness, not source history.
-        before_comparable = {
-            key: value
-            for key, value in (before_data or {}).items()
-            if key != "signals_at"
-        }
-        after_comparable = {
-            key: value for key, value in after_data.items() if key != "signals_at"
-        }
-        if before is None or before_comparable != after_comparable:
+        kinds = []
+        if before is None:
+            kinds.append("indexed")
+        else:
+            if before.state != after.state:
+                kinds.append("reopened" if after.state == "open" else after.state.value)
+            old_head = (before.pr or {}).get("head")
+            new_head = (after.pr or {}).get("head")
+            if (
+                isinstance(old_head, dict)
+                and isinstance(new_head, dict)
+                and old_head.get("sha") != new_head.get("sha")
+            ):
+                kinds.append("pushed")
+            if before.available != after.available:
+                kinds.append("available" if after.available else "unavailable")
+            if before.signals != after.signals:
+                kinds.append("signals_changed")
+        for kind in kinds or ["updated"]:
             session.add(
                 Observation(
                     item_id=after.id,
                     observed_at=at,
-                    before_json=before_data,
-                    after_json=after_data,
+                    kind=kind,
+                    revision=after.revision,
+                    before_json=before.model_dump(mode="json") if before else None,
+                    after_json=after.model_dump(mode="json"),
                 )
             )
 
@@ -255,6 +297,10 @@ class CatalogRepository:
         full: bool,
         signals_error: str | None,
         lease: SyncLease | None = None,
+        *,
+        comments: list[CommentSnapshot] | None = None,
+        comments_full: bool = False,
+        review_numbers: set[int] | None = None,
     ) -> None:
         async with self.database.sessions.begin() as session:
             if lease:
@@ -268,33 +314,108 @@ class CatalogRepository:
                     select(Item).where(Item.repo_id == repo_id)
                 )
             }
-            seen = set()
-            for snapshot in snapshots:
+            seen: set[str] = set()
+            touched: set[str] = set()
+            for incoming_snapshot in snapshots:
+                snapshot = incoming_snapshot
                 if snapshot.repo_id != repo_id:
                     raise ValueError("Item belongs to a different repository.")
                 seen.add(snapshot.id)
                 record = records.get(snapshot.id) or await session.get(
                     Item, snapshot.id
                 )
-                self._observe(
-                    session,
-                    item_snapshot(record) if record else None,
-                    snapshot,
-                    started_at,
-                )
+                before = item_snapshot(record) if record else None
+                changed = before is None or self._source_data(
+                    before
+                ) != self._source_data(snapshot)
+                revision = (before.revision + int(changed)) if before else 1
+                snapshot = snapshot.model_copy(update={"revision": revision})
+                if changed:
+                    touched.add(snapshot.id)
+                    self._observe(session, before, snapshot, started_at)
                 if record is None:
-                    session.add(Item(**snapshot.model_dump()))
+                    record = Item(**snapshot.model_dump())
+                    session.add(record)
                 else:
                     for key, value in snapshot.model_dump().items():
                         setattr(record, key, value)
+                records[snapshot.id] = record
             if full:
                 for item_id, record in records.items():
                     if item_id not in seen and record.available:
                         before = item_snapshot(record)
                         record.available = False
+                        if item_id not in touched:
+                            record.revision += 1
+                            touched.add(item_id)
                         self._observe(
                             session, before, item_snapshot(record), started_at
                         )
+            # Parent rows must exist before inserting comments with their composite FK.
+            await session.flush()
+            if comments is not None:
+                parents = {item.number: item for item in records.values()}
+                existing = {
+                    record.id: record
+                    for record in await session.scalars(
+                        select(Comment).where(Comment.repo_id == repo_id)
+                    )
+                }
+                incoming = {comment.id: comment for comment in comments}
+                for comment_id, comment_record in existing.items():
+                    complete = comments_full or (
+                        comment_record.kind == "review"
+                        and comment_record.number in (review_numbers or set())
+                    )
+                    if (
+                        complete
+                        and comment_id not in incoming
+                        and comment_record.available
+                    ):
+                        incoming[comment_id] = CommentSnapshot.model_validate(
+                            comment_record, from_attributes=True
+                        ).model_copy(update={"available": False})
+                for comment in incoming.values():
+                    if comment.repo_id != repo_id or comment.number not in parents:
+                        raise ValueError("Comment belongs to an unknown parent item.")
+                    old = existing.get(comment.id)
+                    before_data = (
+                        (
+                            CommentSnapshot.model_validate(
+                                old, from_attributes=True
+                            ).model_dump(mode="json")
+                        )
+                        if old
+                        else None
+                    )
+                    after_data = comment.model_dump(mode="json")
+                    if before_data == after_data:
+                        continue
+                    parent = parents[comment.number]
+                    if parent.id not in touched:
+                        parent.revision += 1
+                        touched.add(parent.id)
+                    kind = "commented" if old is None else "comment_edited"
+                    if comment.kind == "review":
+                        kind = "reviewed"
+                    if not comment.available:
+                        kind = "comment_unavailable"
+                    session.add(
+                        Observation(
+                            item_id=parent.id,
+                            revision=parent.revision,
+                            kind=kind,
+                            observed_at=started_at,
+                            before_json=before_data,
+                            after_json=after_data,
+                        )
+                    )
+                    if old is None:
+                        session.add(Comment(**comment.model_dump()))
+                    else:
+                        for key, value in comment.model_dump().items():
+                            setattr(old, key, value)
+                repo.comments_synced_at = started_at
             repo.synced_at, repo.error = started_at, signals_error
             if full:
                 repo.reconciled_at = started_at
@@ -360,6 +481,7 @@ class TriageService:
         note: str = "",
         until: datetime | None = None,
         at: datetime | None = None,
+        revision: int | None = None,
     ) -> None:
         at = at or now()
         if disposition == Disposition.SNOOZED:
@@ -368,10 +490,12 @@ class TriageService:
         else:
             until = None
         async with self.database.sessions.begin() as session:
-            if await session.get(Item, item_id) is None:
-                raise ValueError("Unknown item ID.")
+            item = await resolve_item(session, item_id)
+            if revision is not None and item.revision != revision:
+                raise ValueError("Item changed; read it again before saving triage.")
             statement = insert(TriageDecision).values(
-                item_id=item_id,
+                item_id=item.id,
+                source_revision=item.revision,
                 disposition=disposition.value,
                 note=note,
                 snoozed_until=until,
@@ -383,6 +507,7 @@ class TriageService:
                     set_={
                         name: getattr(statement.excluded, name)
                         for name in (
+                            "source_revision",
                             "disposition",
                             "note",
                             "snoozed_until",
@@ -391,3 +516,97 @@ class TriageService:
                     },
                 )
             )
+
+
+class AnalysisService:
+    """Store caller-supplied analysis and explicit processing acknowledgements."""
+
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    async def save(
+        self,
+        reference: str,
+        kind: str,
+        data: AnalysisInput,
+        revision: int | None = None,
+    ) -> AnalysisView:
+        models: dict[
+            str, tuple[type[Summary] | type[Classification] | type[Ranking], str]
+        ] = {
+            "summary": (Summary, "text"),
+            "classification": (Classification, "labels"),
+            "ranking": (Ranking, "score"),
+        }
+        model, field = models[kind]
+        value = getattr(data, field)
+        if value is None or (field == "text" and not value.strip()):
+            raise ValueError("Analysis requires a nonempty value.")
+        if field == "labels":
+            value = list(
+                dict.fromkeys(label.strip() for label in value if label.strip())
+            )
+            if not value:
+                raise ValueError("Classification requires at least one nonempty label.")
+        at = now()
+        async with self.database.sessions.begin() as session:
+            item = await resolve_item(session, reference)
+            if revision is not None and revision != item.revision:
+                raise ValueError("Item changed; read it again before saving analysis.")
+            values = {
+                "item_id": item.id,
+                "source_revision": item.revision,
+                "producer": data.producer,
+                "reason": data.reason,
+                "updated_at": at,
+                field: value,
+            }
+            statement = insert(model).values(**values)
+            await session.execute(
+                statement.on_conflict_do_update(
+                    index_elements=[model.item_id],
+                    set_={
+                        key: getattr(statement.excluded, key)
+                        for key in values
+                        if key != "item_id"
+                    },
+                )
+            )
+            return AnalysisView(
+                **data.model_copy(update={field: value}).model_dump(),
+                source_revision=item.revision,
+                updated_at=at,
+            )
+
+    async def mark_processed(
+        self,
+        reference: str,
+        revision: int | None = None,
+        actor: str = "manual",
+    ) -> ProcessingView:
+        async with self.database.sessions.begin() as session:
+            item = await resolve_item(session, reference)
+            if revision is not None and revision != item.revision:
+                raise ValueError(
+                    "Item changed; read it again before marking it processed."
+                )
+            repo = await session.get(Repository, item.repo_id)
+            if repo is None or repo.error or repo.comments_synced_at is None:
+                raise ValueError(
+                    "Sync complete item and comment coverage before marking processed."
+                )
+            result = ProcessingView(
+                item_id=item.id, revision=item.revision, checked_at=now(), actor=actor
+            )
+            statement = insert(Processing).values(**result.model_dump())
+            await session.execute(
+                statement.on_conflict_do_update(
+                    index_elements=[Processing.item_id],
+                    set_={
+                        key: getattr(statement.excluded, key)
+                        for key in result.model_dump()
+                        if key != "item_id"
+                    },
+                )
+            )
+            return result

@@ -13,12 +13,13 @@ from itertools import islice
 from typing import Protocol, TypeVar
 
 from github import Auth, Github, GithubException, GithubRetry
-from github.GithubObject import GithubObject
+from github.GithubObject import GithubObject, NotSet
 from pydantic import TypeAdapter
 from urllib3.response import BaseHTTPResponse
 
 from gh_maintainer.schemas import (
     AccountSnapshot,
+    CommentSnapshot,
     ItemSnapshot,
     JsonObject,
     PullPayload,
@@ -70,6 +71,13 @@ class GitHubSource(Protocol):
 
     async def account(self, login: str | None = None) -> AccountSnapshot: ...
     async def repository(self, name: str) -> RepositorySnapshot: ...
+    async def issue(self, repo: RepositorySnapshot, number: int) -> ItemSnapshot: ...
+    def comments(
+        self, repo: RepositorySnapshot, since: datetime | None
+    ) -> AsyncIterator[list[CommentSnapshot]]: ...
+    def reviews(
+        self, repo: RepositorySnapshot, number: int
+    ) -> AsyncIterator[list[CommentSnapshot]]: ...
     def repositories(
         self, owner: AccountSnapshot | None = None
     ) -> AsyncIterator[list[RepositorySnapshot]]: ...
@@ -212,6 +220,59 @@ class PyGithubSource:
         )
         PullPayload.model_validate(raw)
         return raw
+
+    async def issue(self, repo: RepositorySnapshot, number: int) -> ItemSnapshot:
+        raw = await self._call(
+            lambda: JSON_OBJECT.validate_python(
+                self.sdk.get_repo(repo.name).get_issue(number).raw_data
+            )
+        )
+        return ItemSnapshot.from_github(raw, repo.id)
+
+    async def comments(
+        self, repo: RepositorySnapshot, since: datetime | None
+    ) -> AsyncIterator[list[CommentSnapshot]]:
+        for kind in ("issue", "inline"):
+
+            def listing(kind: str = kind) -> Iterator[GithubObject]:
+                repository = self.sdk.get_repo(repo.name)
+                method = (
+                    repository.get_issues_comments
+                    if kind == "issue"
+                    else repository.get_pulls_review_comments
+                )
+                return iter(
+                    method(sort="updated", direction="asc", since=since or NotSet)
+                )
+
+            iterator = await self._call(listing)
+            async for batch in self._batches(iterator):
+                comments = []
+                for raw in batch:
+                    key = "issue_url" if kind == "issue" else "pull_request_url"
+                    parent = raw.get(key)
+                    if not isinstance(parent, str):
+                        raise ValueError(
+                            "GitHub comment is missing its parent item URL."
+                        )
+                    comments.append(
+                        CommentSnapshot.from_github(
+                            raw, repo.id, int(parent.rsplit("/", 1)[-1]), kind
+                        )
+                    )
+                yield comments
+
+    async def reviews(
+        self, repo: RepositorySnapshot, number: int
+    ) -> AsyncIterator[list[CommentSnapshot]]:
+        iterator = await self._call(
+            lambda: iter(self.sdk.get_repo(repo.name).get_pull(number).get_reviews())
+        )
+        async for batch in self._batches(iterator):
+            yield [
+                CommentSnapshot.from_github(raw, repo.id, number, "review")
+                for raw in batch
+            ]
 
     async def signals(self, ids: list[str]) -> dict[str, JsonObject]:
         result: dict[str, JsonObject] = {}

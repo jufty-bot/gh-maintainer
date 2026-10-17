@@ -20,6 +20,7 @@ The CLI should be easy to maintain; a larger application platform is outside its
 - [Roadmap](docs/roadmap.md): scope, delivery order, and completion criteria.
 - [Implementation checklist](docs/checklist.md): verified progress and remaining work.
 - [Architecture](docs/architecture.md): module boundaries and storage contracts.
+- [CLI workflows](docs/cli.md): query, analysis, processing, and activity contracts.
 - [Usage](docs/usage.md): existing commands, coverage, and operational limits.
 - [Contributing](docs/contributing.md): environment and validation commands.
 

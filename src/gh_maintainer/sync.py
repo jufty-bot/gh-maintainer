@@ -11,6 +11,7 @@ from gh_maintainer.database import Database
 from gh_maintainer.github import GitHubError, GitHubSource
 from gh_maintainer.repositories import CatalogRepository, SyncJournal, SyncLease
 from gh_maintainer.schemas import (
+    CommentSnapshot,
     ItemSnapshot,
     Kind,
     PullPayload,
@@ -70,6 +71,32 @@ class SyncService:
             for item_id, item in existing.items():
                 if item.kind == Kind.PR and item.state == State.OPEN and item.available:
                     rows.setdefault(item_id, item)
+        comments_full = full or previous.comments_synced_at is None
+        comments_since = (
+            previous.comments_synced_at - OVERLAP
+            if previous.comments_synced_at and not comments_full
+            else None
+        )
+        comments: list[CommentSnapshot] = []
+        by_number = {item.number: item for item in [*existing.values(), *rows.values()]}
+        async for comment_batch in self.source.comments(repo, comments_since):
+            for comment in comment_batch:
+                if (
+                    comment.number not in by_number
+                    or not by_number[comment.number].available
+                    or (full and by_number[comment.number].id not in rows)
+                ):
+                    parent = await self.source.issue(repo, comment.number)
+                    rows[parent.id] = parent
+                    by_number[parent.number] = parent
+                comments.append(comment)
+        review_numbers: set[int] = set()
+        candidates = rows.values() if full else by_number.values()
+        for item in list(candidates):
+            if item.kind == Kind.PR and item.available:
+                review_numbers.add(item.number)
+                async for review_batch in self.source.reviews(repo, item.number):
+                    comments.extend(review_batch)
         open_prs: dict[str, str] = {}
         for item_id, item in list(rows.items()):
             if item.kind != Kind.PR:
@@ -91,7 +118,15 @@ class SyncService:
         except (GitHubError, ValueError) as error:
             signals_error = f"PR signals incomplete: {error}"
         await self.catalog.commit_repo(
-            repo.id, list(rows.values()), started_at, bool(full), signals_error, lease
+            repo.id,
+            list(rows.values()),
+            started_at,
+            bool(full),
+            signals_error,
+            lease,
+            comments=comments,
+            comments_full=comments_full,
+            review_numbers=review_numbers,
         )
         return signals_error
 
