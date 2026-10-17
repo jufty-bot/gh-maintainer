@@ -27,6 +27,18 @@ a GitHub token. Run focused tests while developing, then the checks relevant to 
 The CI test matrix covers Python 3.10–3.14. API documentation is available at `/api/docs`
 while the local app is running.
 
+Browser integration checks use Node.js 20+ and Playwright:
+
+```bash
+npm ci
+npx playwright install --with-deps chromium
+npm run test:ui
+```
+
+The checks start an isolated server with a disposable demo database, and cover desktop
+and mobile layouts, Markdown sanitization, local triage persistence, filtering, and failed
+save recovery. Node.js is only needed for these checks, not for running the dashboard.
+
 For documentation changes:
 
 ```bash
@@ -70,27 +82,27 @@ for the equivalent development workflows described below.
 
 ### Task Cheat Sheet
 
-| Command Description             | Command                     | Notes                                           |
-| ------------------------------- | --------------------------- | ----------------------------------------------- |
-| List Available Tasks            | `task`                      | Lists tasks in alphanumeric order               |
-| Install Project + Dev Dependencies | `task install`           | Installs dependencies and pre-commit hooks      |
-| Run Tests                       | `task test`                 | Runs tests with `pytest`                        |
-| Run Tests across Python Versions | `task test:matrix`         | Runs tests on Python 3.10 through 3.14          |
-| Code Quality Check - Formatting | `task check:format`         | Checks formatting with `ruff`                   |
-| Code Quality Check - Linting    | `task check:lint`           | Checks linting with `ruff`                      |
-| Code Quality Check - Formatting + Linting | `task check:style` | Runs formatting and linting checks              |
-| Code Quality Check - Type Checking | `task check:types`       | Checks types with `mypy`                        |
-| Code Quality Check - Formatting + Linting + Type Checking | `task check` | Runs all code checks          |
-| Code Quality Auto-Fix - Formatting | `task fmt`               | Formats code with `ruff`                        |
-| Code Quality Auto-Fix - Formatting + Linting | `task fix`       | Formats code and applies `ruff` fixes           |
-| Build Distribution Artifacts    | `task dist`                 | Builds Python distribution artifacts             |
-| Build Docker Image              | `task docker`               | Builds the Docker image when a Dockerfile exists |
-| Build Project Artifacts         | `task build`                | Builds distribution artifacts and Docker image   |
-| Publish Docker Image            | `task publish`              | Pushes the Docker image in CI                    |
-| Run Documentation Site          | `task docs`                 | Runs MkDocs                                      |
-| Run Project Command             | `task run -- <cmd>`         | Runs a command in the project environment        |
-| Run Docker Command              | `task docker-run -- <cmd>`  | Runs a command in the Docker image               |
-| Regenerate Project Lockfile     | `task lock`                 | Regenerates `uv.lock`                            |
+| Command Description                                       | Command                    | Notes                                            |
+| --------------------------------------------------------- | -------------------------- | ------------------------------------------------ |
+| List Available Tasks                                      | `task`                     | Lists tasks in alphanumeric order                |
+| Install Project + Dev Dependencies                        | `task install`             | Installs dependencies and pre-commit hooks       |
+| Run Tests                                                 | `task test`                | Runs tests with `pytest`                         |
+| Run Tests across Python Versions                          | `task test:matrix`         | Runs tests on Python 3.10 through 3.14           |
+| Code Quality Check - Formatting                           | `task check:format`        | Checks formatting with `ruff`                    |
+| Code Quality Check - Linting                              | `task check:lint`          | Checks linting with `ruff`                       |
+| Code Quality Check - Formatting + Linting                 | `task check:style`         | Runs formatting and linting checks               |
+| Code Quality Check - Type Checking                        | `task check:types`         | Checks types with `mypy`                         |
+| Code Quality Check - Formatting + Linting + Type Checking | `task check`               | Runs all code checks                             |
+| Code Quality Auto-Fix - Formatting                        | `task fmt`                 | Formats code with `ruff`                         |
+| Code Quality Auto-Fix - Formatting + Linting              | `task fix`                 | Formats code and applies `ruff` fixes            |
+| Build Distribution Artifacts                              | `task dist`                | Builds Python distribution artifacts             |
+| Build Docker Image                                        | `task docker`              | Builds the Docker image when a Dockerfile exists |
+| Build Project Artifacts                                   | `task build`               | Builds distribution artifacts and Docker image   |
+| Publish Docker Image                                      | `task publish`             | Pushes the Docker image in CI                    |
+| Run Documentation Site                                    | `task docs`                | Runs MkDocs                                      |
+| Run Project Command                                       | `task run -- <cmd>`        | Runs a command in the project environment        |
+| Run Docker Command                                        | `task docker-run -- <cmd>` | Runs a command in the Docker image               |
+| Regenerate Project Lockfile                               | `task lock`                | Regenerates `uv.lock`                            |
 
 ### Task Explanation
 

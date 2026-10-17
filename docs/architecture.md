@@ -70,21 +70,21 @@ See [database commands](cli.md#manage-the-database) and [D10](decisions.md#d10-p
 upgrades. `schemas.py` defines validated source and output contracts. This table explains
 the roles; it does not replace those definitions.
 
-| Table | Identity/link | Purpose |
-| --- | --- | --- |
-| `metadata` | String key | Legacy owner settings and the renewable sync lease |
-| `owners` | Stable account ID | User/organization display login and kind |
-| `repo_owners` | Repository ID → owner ID | Current membership for scoped inventory reconciliation |
-| `repos` | Stable repository ID | Raw metadata, presence, archive flag, item/comment/signal checkpoints, reconciliation time, and latest error |
-| `items` | Issue node ID; unique repository ID + number | Normalized issue/PR identity and state, raw issue/PR payloads, signal snapshot/time, availability, source revision |
-| `comments` | Comment/review node ID; parent repository ID + number | Conversation/inline/review content, author, timestamps, raw reply/line context, availability |
-| `changes` | Increasing local observation ID; item ID | Event kind, local revision when known, observation time, before/after source snapshots |
-| `triage` | One row per item | Disposition, note, snooze deadline, decision time, and inspected revision |
-| `summaries` | One row per item | Latest caller-supplied summary and analysis provenance |
-| `classifications` | One row per item | Latest local label set and analysis provenance |
-| `rankings` | One row per item | Latest fixed numeric rank and analysis provenance |
-| `processing` | One row per item | Shared acknowledged revision, actor, and check time |
-| `runs` | Increasing local run ID | Start/finish, complete/partial/failed status, errors, and source-call telemetry |
+| Table             | Identity/link                                         | Purpose                                                                                                            |
+| ----------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `metadata`        | String key                                            | Legacy owner settings and the renewable sync lease                                                                 |
+| `owners`          | Stable account ID                                     | User/organization display login and kind                                                                           |
+| `repo_owners`     | Repository ID → owner ID                              | Current membership for scoped inventory reconciliation                                                             |
+| `repos`           | Stable repository ID                                  | Raw metadata, presence, archive flag, item/comment/signal checkpoints, reconciliation time, and latest error       |
+| `items`           | Issue node ID; unique repository ID + number          | Normalized issue/PR identity and state, raw issue/PR payloads, signal snapshot/time, availability, source revision |
+| `comments`        | Comment/review node ID; parent repository ID + number | Conversation/inline/review content, author, timestamps, raw reply/line context, availability                       |
+| `changes`         | Increasing local observation ID; item ID              | Event kind, local revision when known, observation time, before/after source snapshots                             |
+| `triage`          | One row per item                                      | Disposition, note, snooze deadline, decision time, and inspected revision                                          |
+| `summaries`       | One row per item                                      | Latest caller-supplied summary and analysis provenance                                                             |
+| `classifications` | One row per item                                      | Latest local label set and analysis provenance                                                                     |
+| `rankings`        | One row per item                                      | Latest fixed numeric rank and analysis provenance                                                                  |
+| `processing`      | One row per item                                      | Shared acknowledged revision, actor, and check time                                                                |
+| `runs`            | Increasing local run ID                               | Start/finish, complete/partial/failed status, errors, and source-call telemetry                                    |
 
 Analysis provenance is `source_revision`, `producer`, `reason`, and `updated_at`. A new
 save replaces the previous result of that type; producer is not part of the primary key.
@@ -150,14 +150,14 @@ a single-writer database; aiosqlite provides event-loop integration, not paralle
 6. The journal finishes the run with coverage and errors; CLI JSON reports complete or
    partial status. `watch` sleeps and repeats; each run rediscovers its selection.
 
-| Failure | Result |
-| --- | --- |
-| Owner inventory fails midway | Run fails; the staged inventory is not applied |
-| Item/comment/review page or PR detail fails | Repository source updates/checkpoints roll back, error is recorded, other repositories can continue |
-| GraphQL signals fail | Usable item/comment data commits; prior signal data/time is retained and effectively unknown; run is partial |
-| Explicit repository is inaccessible | Existing source data/checkpoint is retained, matching repository error is recorded, other selections continue |
-| Worker loses its lease | Fenced catalog writes fail; an expired worker cannot overwrite a new worker |
-| Process stops during fetch | Staged data is uncommitted; the next run can retry from stored checkpoints |
+| Failure                                     | Result                                                                                                        |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Owner inventory fails midway                | Run fails; the staged inventory is not applied                                                                |
+| Item/comment/review page or PR detail fails | Repository source updates/checkpoints roll back, error is recorded, other repositories can continue           |
+| GraphQL signals fail                        | Usable item/comment data commits; prior signal data/time is retained and effectively unknown; run is partial  |
+| Explicit repository is inaccessible         | Existing source data/checkpoint is retained, matching repository error is recorded, other selections continue |
+| Worker loses its lease                      | Fenced catalog writes fail; an expired worker cannot overwrite a new worker                                   |
+| Process stops during fetch                  | Staged data is uncommitted; the next run can retry from stored checkpoints                                    |
 
 Defaults are declared in code: five-minute overlap and seven-day reconciliation in
 `sync.py`; a five-minute lease with 30-second heartbeat in `repositories.py`; 900-second
@@ -209,14 +209,14 @@ deterministic pagination. All local query and maintenance commands work without 
 
 ### Example: reconsidering an inspected PR
 
-| Step | Source revision | Processing checkpoint | Consequence |
-| --- | --- | --- | --- |
-| Agent inspects and acknowledges a PR | 4 | 4 | Processing state is `processed` |
-| A sync observes a new head or edited comment | 5 | 4 | Analysis for revision 4 is stale; processing state is `changed` |
-| An unchanged poll succeeds | 5 | 4 | No additional revision is created |
-| Agent tries to save/acknowledge with `--revision 4` | 5 | 4 | Write fails; the agent must inspect the new context |
-| Agent saves analysis for revision 5 | 5 | 4 | Analysis is current; work remains pending until explicit acknowledgement |
-| Agent acknowledges revision 5 | 5 | 5 | Processing state returns to `processed` |
+| Step                                                | Source revision | Processing checkpoint | Consequence                                                              |
+| --------------------------------------------------- | --------------- | --------------------- | ------------------------------------------------------------------------ |
+| Agent inspects and acknowledges a PR                | 4               | 4                     | Processing state is `processed`                                          |
+| A sync observes a new head or edited comment        | 5               | 4                     | Analysis for revision 4 is stale; processing state is `changed`          |
+| An unchanged poll succeeds                          | 5               | 4                     | No additional revision is created                                        |
+| Agent tries to save/acknowledge with `--revision 4` | 5               | 4                     | Write fails; the agent must inspect the new context                      |
+| Agent saves analysis for revision 5                 | 5               | 4                     | Analysis is current; work remains pending until explicit acknowledgement |
+| Agent acknowledges revision 5                       | 5               | 5                     | Processing state returns to `processed`                                  |
 
 Never-processed items have no processing row. `pending` includes never-processed and
 changed items; a state filter still applies, so callers need `--state all` when looking
@@ -224,6 +224,19 @@ for closures/merges. Acknowledgement checks stored repository error/comment cove
 it does not contact GitHub or impose an automatic maximum age on the last successful sync.
 The revision guard is optional in the CLI and should be supplied by skills using an
 earlier inspection. Full user-facing contracts are in [CLI workflows](cli.md).
+
+### Dashboard architecture
+
+The dashboard writes decisions through `PUT /api/items/{item_id}/triage`, using the same
+`TriageService` as the CLI. Payloads validate dispositions, note length, and timezone-aware
+snooze deadlines. Writes require a custom request header and reject cross-site browser
+requests; no CORS access is granted. The service remains intended for local use or an
+authenticated private proxy.
+
+Disposition filters use the effective SQL disposition, including expired snoozes and
+items reopened after a done decision. Priority, update order, and attention filters apply
+before SQL pagination. The vanilla JavaScript frontend renders Markdown with vendored
+Marked and DOMPurify, with no CDN or runtime Node.js dependency.
 
 ## Migration contract
 

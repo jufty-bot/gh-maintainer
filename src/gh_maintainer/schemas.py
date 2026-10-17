@@ -34,6 +34,19 @@ class Disposition(str, Enum):
     DONE = "done"
 
 
+class ItemSort(str, Enum):
+    PRIORITY = "priority"
+    UPDATED = "updated"
+    OLDEST = "oldest"
+    RANK = "rank"
+
+
+class ItemFocus(str, Enum):
+    ATTENTION = "attention"
+    HIGH = "high"
+    STALE = "stale"
+
+
 class Person(BaseModel):
     login: str = Field(min_length=1)
 
@@ -283,6 +296,12 @@ class CommentPage(Contract):
     comments: list[CommentSnapshot]
 
 
+class TriageUpdate(Contract):
+    disposition: Disposition
+    note: str = Field(default="", max_length=10000)
+    snoozed_until: AwareDatetime | None = None
+
+
 class Assessment(Contract):
     disposition: Disposition
     age_days: int
@@ -368,7 +387,8 @@ class ItemFilters(Contract):
     disposition: Disposition | None = None
     processing: Literal["unprocessed", "changed", "processed", "pending"] | None = None
     classification: str | None = None
-    sort: Literal["priority", "updated", "rank"] = "priority"
+    sort: ItemSort = ItemSort.PRIORITY
+    focus: ItemFocus | None = None
     limit: int = Field(default=100, ge=1, le=500)
     offset: int = Field(default=0, ge=0)
 

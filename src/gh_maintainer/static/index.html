@@ -1,8 +1,285 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GitHub Maintainer</title><link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script></head>
-<body>
-<aside><a class="brand" href="/"><span class="logo">m</span>maintainer<span class="dot">.</span></a><div class="aside-label">YOUR WORKSPACE</div><nav aria-label="Views"><button data-view="queue" class="active">◈ <span>Maintenance queue</span></button><button data-view="repos">▦ <span>Repositories</span></button><button data-view="pr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="6" cy="5" r="2.5"/><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M6 7.5v9M18 16.5V9a4 4 0 0 0-4-4h-2m2-2-2 2 2 2"/></svg> <span>Pull requests</span></button><button data-view="issue">◎ <span>Issues</span></button><button data-view="all">≡ <span>All indexed items</span></button></nav><div class="aside-bottom"><span class="status-dot"></span> Local index <p>Decisions stay yours.</p><a href="/api/docs">API documentation ↗</a></div></aside>
-<main><header><span id="owner">Your workspace</span><div><a href="/api/report" target="_blank">Export report ↗</a><button id="refresh">↻ Refresh</button></div></header><section class="heading"><div class="eyebrow">A LITTLE ORDER, ACROSS EVERY REPO</div><h1 id="title">Maintenance queue</h1><p id="subtitle">See what needs your attention. Keep your projects moving.</p></section><section class="metrics" aria-label="Portfolio summary"><div><span>Repositories</span><strong id="metric-repositories">—</strong></div><div><span>Open pull requests</span><strong id="metric-open_prs">—</strong></div><div><span>Open issues</span><strong id="metric-open_issues">—</strong></div><div><span>Needs attention</span><strong class="amber" id="metric-attention">—</strong></div></section><div class="sync-status" id="sync-status" role="status">Loading your local index…</div><section class="worklist"><div class="list-heading"><h2 id="list-title">Your next moves</h2><span id="total" class="count"></span></div><div class="filters"><label class="search">⌕ <input id="search" type="search" placeholder="Search titles, labels, repositories…" aria-label="Search items"></label><select id="repo" aria-label="Repository"><option value="">All repositories</option></select><select id="state" aria-label="Item state"><option value="open">Open</option><option value="">All states</option><option value="closed">Closed</option><option value="merged">Merged</option></select></div><div id="results" aria-live="polite"></div><div class="pagination"><button id="previous">← Previous</button><span id="page"></span><button id="next">Next →</button></div></section><footer>Built for the work between commits.<span id="generated"></span></footer></main>
-<dialog id="detail"><button id="close-detail" aria-label="Close details">✕</button><div id="detail-content"></div></dialog>
-</body></html>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <meta name="color-scheme" content="dark light" />
+        <title>Maintainer · Your workspace</title>
+        <link rel="stylesheet" href="/static/style.css" />
+        <script src="/static/vendor/marked.umd.js" defer></script>
+        <script src="/static/vendor/purify.min.js" defer></script>
+        <script src="/static/app.js" defer></script>
+    </head>
+    <body>
+        <a class="skip-link" href="#workspace">Skip to workspace</a>
+        <aside class="sidebar">
+            <a class="brand" href="/"
+                ><span class="logo">m</span>maintainer<span class="dot"
+                    >.</span
+                ></a
+            >
+            <div class="aside-label">YOUR WORKSPACE</div>
+            <nav aria-label="Views">
+                <button data-view="queue" class="active" aria-current="page">
+                    <span class="nav-icon" aria-hidden="true">◈</span
+                    ><span>Maintenance queue</span>
+                </button>
+                <button data-view="triage">
+                    <span class="nav-icon" aria-hidden="true">▤</span
+                    ><span>Triage inbox</span
+                    ><span id="inbox-count" class="nav-count"></span>
+                </button>
+                <div class="nav-divider"></div>
+                <button data-view="repos">
+                    <span class="nav-icon" aria-hidden="true">▦</span
+                    ><span>Repositories</span>
+                </button>
+                <button data-view="pr">
+                    <span class="nav-icon" aria-hidden="true"
+                        ><svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.6"
+                            aria-hidden="true"
+                        >
+                            <circle cx="6" cy="5" r="2.5" />
+                            <circle cx="6" cy="19" r="2.5" />
+                            <circle cx="18" cy="19" r="2.5" />
+                            <path
+                                d="M6 7.5v9M18 16.5V9a4 4 0 0 0-4-4h-2m2-2-2 2 2 2"
+                            /></svg></span
+                    ><span>Pull requests</span>
+                </button>
+                <button data-view="issue">
+                    <span class="nav-icon" aria-hidden="true">◎</span
+                    ><span>Issues</span>
+                </button>
+                <button data-view="all">
+                    <span class="nav-icon" aria-hidden="true">≡</span
+                    ><span>All indexed items</span>
+                </button>
+            </nav>
+            <div class="aside-bottom">
+                <div class="local-status">
+                    <span class="status-dot"></span> Local workspace
+                </div>
+                <p>A little order. More room to build.</p>
+                <div class="sidebar-links">
+                    <a href="/api/docs" target="_blank" rel="noopener"
+                        >API docs ↗</a
+                    >
+                </div>
+            </div>
+        </aside>
+        <main id="workspace" tabindex="-1">
+            <header>
+                <span id="owner">Your workspace</span>
+                <div class="header-actions">
+                    <button
+                        id="theme-toggle"
+                        class="icon-button"
+                        aria-label="Switch to light theme"
+                        title="Switch theme"
+                    >
+                        ☼</button
+                    ><a href="/api/report" target="_blank" rel="noopener"
+                        >Export report ↗</a
+                    ><button
+                        id="refresh"
+                        class="button secondary"
+                        title="Reread the local index"
+                    >
+                        ↻ <span>Refresh</span>
+                    </button>
+                </div>
+            </header>
+            <section class="heading">
+                <div>
+                    <div class="eyebrow">A LITTLE ORDER, ACROSS EVERY REPO</div>
+                    <h1 id="title">Maintenance queue</h1>
+                    <p id="subtitle">
+                        See what needs your attention. Keep your projects
+                        moving.
+                    </p>
+                </div>
+                <button id="start-triage" class="button primary">
+                    Start triaging <span aria-hidden="true">→</span>
+                </button>
+            </section>
+            <section class="metrics" aria-label="Portfolio summary">
+                <button data-view="repos">
+                    <span>Repositories <span aria-hidden="true">▦</span></span
+                    ><strong id="metric-repositories">—</strong
+                    ><small>Your connected portfolio</small>
+                </button>
+                <button data-view="pr">
+                    <span
+                        >Open pull requests
+                        <span aria-hidden="true"
+                            ><svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="1.6"
+                                aria-hidden="true"
+                            >
+                                <circle cx="6" cy="5" r="2.5" />
+                                <circle cx="6" cy="19" r="2.5" />
+                                <circle cx="18" cy="19" r="2.5" />
+                                <path
+                                    d="M6 7.5v9M18 16.5V9a4 4 0 0 0-4-4h-2m2-2-2 2 2 2"
+                                /></svg></span></span
+                    ><strong id="metric-open_prs">—</strong
+                    ><small>Changes in motion</small>
+                </button>
+                <button data-view="issue">
+                    <span>Open issues <span aria-hidden="true">◎</span></span
+                    ><strong id="metric-open_issues">—</strong
+                    ><small>Ideas, bugs, and next steps</small>
+                </button>
+                <button id="attention-metric">
+                    <span
+                        >Needs attention
+                        <span class="amber" aria-hidden="true">◈</span></span
+                    ><strong class="amber" id="metric-attention">—</strong
+                    ><small>Signals worth a closer look</small>
+                </button>
+            </section>
+            <div class="sync-status" id="sync-status" role="status">
+                Loading your local index…
+            </div>
+            <section class="worklist" aria-labelledby="list-title">
+                <div class="list-heading">
+                    <div>
+                        <h2 id="list-title">Your next moves</h2>
+                        <span id="total" class="count">—</span>
+                    </div>
+                    <span class="list-hint"
+                        >Open an item to review & triage</span
+                    >
+                </div>
+                <div
+                    id="triage-tabs"
+                    class="triage-tabs"
+                    role="group"
+                    aria-label="Local disposition"
+                    hidden
+                >
+                    <button data-disposition="" aria-pressed="false">All</button
+                    ><button
+                        data-disposition="inbox"
+                        aria-pressed="true"
+                        class="active"
+                    >
+                        Inbox</button
+                    ><button data-disposition="planned" aria-pressed="false">
+                        Planned</button
+                    ><button data-disposition="waiting" aria-pressed="false">
+                        Waiting</button
+                    ><button data-disposition="snoozed" aria-pressed="false">
+                        Snoozed</button
+                    ><button data-disposition="done" aria-pressed="false">
+                        Done
+                    </button>
+                </div>
+                <div class="filters">
+                    <label class="search"
+                        ><span aria-hidden="true">⌕</span
+                        ><input
+                            id="search"
+                            type="search"
+                            placeholder="Search titles, labels, repositories…"
+                            aria-label="Search items"
+                        /><kbd>/</kbd></label
+                    >
+                    <select id="repo" aria-label="Repository">
+                        <option value="">All repositories</option>
+                    </select>
+                    <select id="state" aria-label="Item state" hidden>
+                        <option value="open">Open</option>
+                        <option value="">All states</option>
+                        <option value="closed">Closed</option>
+                        <option value="merged">Merged</option>
+                    </select>
+                    <select id="sort" aria-label="Sort items">
+                        <option value="priority">Priority first</option>
+                        <option value="updated">Recently updated</option>
+                        <option value="oldest">Oldest update first</option>
+                    </select>
+                </div>
+                <div class="focus-bar" id="focus-bar">
+                    <div
+                        class="focus-options"
+                        role="group"
+                        aria-label="Attention filter"
+                    >
+                        <button
+                            data-focus=""
+                            class="active"
+                            aria-pressed="true"
+                        >
+                            All items</button
+                        ><button data-focus="attention" aria-pressed="false">
+                            <span class="status-dot"></span>Needs attention</button
+                        ><button data-focus="high" aria-pressed="false">
+                            High priority</button
+                        ><button data-focus="stale" aria-pressed="false">
+                            Stale · 30+ days
+                        </button>
+                    </div>
+                    <button id="clear-filters" class="text-button" hidden>
+                        Clear filters
+                    </button>
+                </div>
+                <div id="results" aria-live="polite" aria-busy="true"></div>
+                <div class="pagination">
+                    <span id="page">Loading…</span>
+                    <div>
+                        <button id="previous" class="button secondary" disabled>
+                            ← Previous</button
+                        ><button id="next" class="button secondary" disabled>
+                            Next →
+                        </button>
+                    </div>
+                </div>
+            </section>
+            <footer>
+                <span>Built for the work between commits.</span
+                ><span id="generated"></span>
+            </footer>
+        </main>
+        <dialog id="detail" aria-labelledby="detail-title">
+            <div class="dialog-toolbar">
+                <span>ITEM WORKSPACE</span>
+                <div>
+                    <button
+                        id="previous-item"
+                        class="icon-button"
+                        aria-label="Previous item"
+                        title="Previous item (k)"
+                    >
+                        ↑</button
+                    ><button
+                        id="next-item"
+                        class="icon-button"
+                        aria-label="Next item"
+                        title="Next item (j)"
+                    >
+                        ↓</button
+                    ><span class="toolbar-divider"></span
+                    ><button
+                        id="close-detail"
+                        class="icon-button"
+                        aria-label="Close details"
+                        title="Close (Esc)"
+                    >
+                        ✕
+                    </button>
+                </div>
+            </div>
+            <div id="detail-content"></div>
+        </dialog>
+        <div id="toast" class="toast" role="status" hidden></div>
+    </body>
+</html>

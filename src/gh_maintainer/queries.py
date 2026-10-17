@@ -38,7 +38,9 @@ from gh_maintainer.schemas import (
     Counts,
     ItemDetail,
     ItemFilters,
+    ItemFocus,
     ItemPage,
+    ItemSort,
     ItemView,
     ObservationView,
     Overview,
@@ -46,6 +48,8 @@ from gh_maintainer.schemas import (
     RepositoryView,
     RunView,
 )
+
+HIGH_PRIORITY_SCORE = 60
 
 
 class QueueExpressions:
@@ -106,6 +110,10 @@ class QueueExpressions:
                 "inbox",
             ),
             else_=func.coalesce(TriageDecision.disposition, "inbox"),
+        )
+        self.disposition = disposition
+        self.stale = (
+            func.julianday(moment) - func.julianday(Item.updated_at) >= STALE_DAYS
         )
         self.open = and_(
             Item.state == "open", Item.available.is_(True), Repository.present.is_(True)
@@ -365,6 +373,12 @@ class CatalogQueries:
                 .where(labels.c.value == filters.classification)
                 .exists(),
             )
+        if filters.focus == ItemFocus.ATTENTION:
+            statement = statement.where(self.rules.attention)
+        elif filters.focus == ItemFocus.HIGH:
+            statement = statement.where(self.rules.score >= HIGH_PRIORITY_SCORE)
+        elif filters.focus == ItemFocus.STALE:
+            statement = statement.where(self.rules.stale)
         total = await self.session.scalar(
             select(func.count()).select_from(statement.subquery())
         )
@@ -374,9 +388,11 @@ class CatalogQueries:
             Repository.name,
             Item.number,
         ]
-        if filters.sort == "updated":
+        if filters.sort == ItemSort.UPDATED:
             ordering = [Item.updated_at.desc(), Repository.name, Item.number]
-        elif filters.sort == "rank":
+        elif filters.sort == ItemSort.OLDEST:
+            ordering = [Item.updated_at, Repository.name, Item.number]
+        elif filters.sort == ItemSort.RANK:
             current_rank = case(
                 (
                     and_(

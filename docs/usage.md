@@ -110,9 +110,32 @@ uv run gh-maintainer triage I_EXAMPLE done
 
 `done` is a local triage decision, separate from GitHub's open/closed status. An item
 returns to the inbox when new observed source activity advances its revision after that decision.
-Snoozes expire automatically. The dashboard currently displays decisions; edits use
-these CLI commands. The app never merges PRs, closes issues, sends messages, or changes
-GitHub labels.
+Snoozes expire automatically. Open an item in the dashboard to edit its local disposition,
+next-action note, and snooze deadline, or use the CLI commands above. The app never merges
+PRs, closes issues, sends messages, or changes GitHub labels.
+
+### Dashboard workflow
+
+- **Start triaging** opens the first item in your triage inbox. Review descriptions as
+  rendered Markdown (including tables, task lists, and code blocks) or switch to source.
+- **Save & next** records your decision and opens the next item on the current page.
+  The triage inbox has separate lanes for inbox, planned, waiting, snoozed, and done.
+  Snoozed and done items leave the maintenance queue; planned and waiting items remain.
+- Search titles, labels, repository names, and item numbers. Filter by repository or
+  attention level, and sort by priority, recent updates, or oldest updates.
+- Item details show PR signals, assignees, labels, and recent local source observations.
+  Copy an item ID for the CLI, or open the original item on GitHub.
+- Press `/` to focus search, `j` / `k` to move between items while reviewing, and `Esc`
+  to close details. Unsaved triage edits prompt before leaving the item.
+- Switch between light and dark themes; the preference stays in your browser.
+
+Markdown is sanitized before display. Renderer assets are bundled with the app, so
+rendering works offline without a CDN or a frontend build step.
+
+The local triage API is `PUT /api/items/{item_id}/triage`, with a JSON body containing
+`disposition`, `note`, and optional timezone-aware `snoozed_until`. It requires the
+`X-Maintainer-Request: 1` header and rejects cross-site browser requests. The dashboard
+still needs the local or authenticated private deployment described below.
 
 ## What the index contains
 
@@ -214,4 +237,3 @@ credential. Use `docker compose logs -f worker` to inspect synchronization.
 The dashboard has no user authentication; keep it local or put it behind an authenticated
 private proxy. SQLite files and exports may contain private repository data. Back up using
 SQLite's backup API or stop both processes before copying the volume.
-

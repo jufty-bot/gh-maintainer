@@ -1,4 +1,4 @@
-"""Typed query and triage parity, SQL pagination, and the read-only async API."""
+"""Typed queries, triage parity, SQL pagination, and the async dashboard API."""
 
 import copy
 from datetime import timedelta
@@ -79,7 +79,7 @@ async def test_database_transaction_rolls_back_all_changes(database: Database) -
     assert all(item.title != "Should roll back" for item in await catalog.items("1"))
 
 
-async def test_api_filters_pagination_and_no_write_routes(database: Database) -> None:
+async def test_api_filters_pagination_and_read_routes(database: Database) -> None:
     await seed_demo(database)
     app = create_app("unused", database=database)
     async with httpx.AsyncClient(
@@ -182,3 +182,108 @@ async def test_snooze_requires_a_future_deadline(database: Database) -> None:
         await TriageService(database).decide(
             "DEMO_1_39", Disposition.SNOOZED, until=parse_date("2020-01-01T00:00:00Z")
         )
+
+
+async def test_api_triage_persists_and_validates_local_decisions(
+    database: Database,
+) -> None:
+    await seed_demo(database)
+    app = create_app("unused", database=database)
+    headers = {"X-Maintainer-Request": "1"}
+    path = "/api/items/DEMO_1_42/triage"
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        decision = {"disposition": "planned", "note": "Investigate retry handling"}
+        assert (await client.put(path, json=decision)).status_code == 403
+        assert (
+            await client.put(
+                path, json=decision, headers={**headers, "Sec-Fetch-Site": "cross-site"}
+            )
+        ).status_code == 403
+        response = await client.put(path, json=decision, headers=headers)
+        assert response.status_code == 200
+        assert response.json()["item"]["disposition"] == "planned"
+        assert response.json()["item"]["note"] == decision["note"]
+        persisted = (await client.get("/api/items/DEMO_1_42")).json()["item"]
+        assert persisted["note"] == decision["note"]
+        assert persisted["state"] == "open"
+        assert persisted["triaged_at"]
+        for invalid in [
+            {"disposition": "invalid"},
+            {"disposition": "snoozed"},
+            {"disposition": "snoozed", "snoozed_until": "2020-01-01T00:00:00Z"},
+            {"disposition": "snoozed", "snoozed_until": "2099-01-01T00:00:00"},
+            {"disposition": "planned", "note": "x" * 10001},
+            {"disposition": "planned", "unknown": True},
+        ]:
+            assert (
+                await client.put(path, json=invalid, headers=headers)
+            ).status_code == 422
+        assert (
+            await client.put(
+                "/api/items/missing/triage", json=decision, headers=headers
+            )
+        ).status_code == 404
+        until = (now() + timedelta(days=2)).isoformat()
+        response = await client.put(
+            path,
+            json={"disposition": "snoozed", "snoozed_until": until},
+            headers=headers,
+        )
+        assert response.status_code == 200
+        assert response.json()["item"]["snoozed_until"]
+        queue = (await client.get("/api/items?queue=true")).json()
+        assert "DEMO_1_42" not in {item["id"] for item in queue["items"]}
+        await client.put(path, json=decision, headers=headers)
+        assert (await client.get("/api/items/DEMO_1_42")).json()["item"][
+            "snoozed_until"
+        ] is None
+
+
+async def test_triage_filters_use_effective_dispositions(database: Database) -> None:
+    await seed_demo(database)
+    at = now()
+    service = TriageService(database)
+    await service.decide(
+        "DEMO_1_42", Disposition.SNOOZED, until=at + timedelta(days=1), at=at
+    )
+    await service.decide("DEMO_1_39", Disposition.DONE, at=at)
+    async with database.sessions() as session:
+        queries = CatalogQueries(session, at)
+        snoozed = await queries.page(ItemFilters(disposition=Disposition.SNOOZED))
+        assert [item.id for item in snoozed.items] == ["DEMO_1_42"]
+        done = await queries.page(ItemFilters(disposition=Disposition.DONE))
+        assert [item.id for item in done.items] == ["DEMO_1_39"]
+        expired = await CatalogQueries(session, at + timedelta(days=2)).page(
+            ItemFilters(disposition=Disposition.INBOX)
+        )
+        assert "DEMO_1_42" in {item.id for item in expired.items}
+    app = create_app("unused", database=database)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        for parameter in ("disposition", "sort", "focus"):
+            assert (
+                await client.get(f"/api/items?{parameter}=invalid")
+            ).status_code == 422
+        high = (await client.get("/api/items?focus=high")).json()
+        assert high["total"] > 0
+        assert all(item["score"] >= 60 for item in high["items"])
+        stale = (await client.get("/api/items?focus=stale")).json()
+        assert stale["total"] > 0
+        assert all(item["age_days"] >= 30 for item in stale["items"])
+        attention = (await client.get("/api/items?focus=attention")).json()
+        assert all(
+            item["actionable"] and item["reasons"] for item in attention["items"]
+        )
+        for sort, reverse in (("updated", True), ("oldest", False)):
+            page = (await client.get(f"/api/items?sort={sort}&limit=2")).json()
+            timestamps = [item["updated_at"] for item in page["items"]]
+            assert timestamps == sorted(timestamps, reverse=reverse)
+            second = (
+                await client.get(f"/api/items?sort={sort}&limit=2&offset=2")
+            ).json()
+            assert not {item["id"] for item in page["items"]} & {
+                item["id"] for item in second["items"]
+            }

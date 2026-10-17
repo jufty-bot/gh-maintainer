@@ -137,5 +137,7 @@ dmypy.json
 
 # Node.js
 node_modules/
+test-results/
+playwright-report/
 .data/
 *.sqlite*

@@ -1,0 +1,3 @@
+src/gh_maintainer/static/vendor/
+test-results/
+playwright-report/

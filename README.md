@@ -5,7 +5,8 @@ A CLI for maintaining GitHub repositories, with a local index that humans and ag
 Sync issues, pull requests, and their conversations into SQLite. Summarize and classify
 items, rank the queue, record triage decisions, and track what changed since an item was
 last processed. Incremental syncs retain history and flag earlier analysis when new
-activity arrives.
+activity arrives. FastAPI serves a dashboard with Markdown descriptions, searchable
+maintenance queues, and editable local triage decisions.
 
 The [local triage skill](docs/skills.md) teaches agents to inspect a bounded queue,
 save grounded summaries, preserve human decisions, and resume after new activity.
