@@ -58,10 +58,12 @@ Sync JSON includes `scope` (`owner` or `repositories`) and `coverage` (`credenti
 partial syncs and failed discovery exit nonzero. The portfolio JSON includes an `owners`
 array; its legacy `owner` field is populated only when exactly one owner is known.
 
-`sync` and `watch` write human-readable structlog logs to stderr, including repository
+`sync` and `watch` write human-readable Rich logs to stderr, including repository
 progress, full or incremental mode, item/comment counts, elapsed time, and failures.
 Logs use text output, including when redirected or viewed through Docker. The final sync
 result remains JSON on stdout for scripts.
+Logs include timestamps and levels, with colors in terminals and Rich tracebacks for
+failed runs. Literal brackets in messages are preserved.
 
 The dashboard reads your local index. **Refresh** rereads SQLite; use `sync` or `watch`
 to fetch new GitHub data. No credentials are needed to serve an already populated index.
