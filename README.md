@@ -4,6 +4,10 @@ A self-hosted index and maintenance queue for repositories owned by one GitHub a
 It retains issues and pull requests, tracks observed changes, refreshes PR review and CI
 signals, and produces a searchable dashboard and portable maintenance reports.
 
+Persistence uses SQLAlchemy’s typed ORM with aiosqlite, schema changes use Alembic,
+and a typed PyGithub adapter supplies GitHub data. FastAPI routes and database
+queries are async; blocking SDK calls run on a single worker thread.
+
 Built in Python from [juftin/cookiecutter-python](https://github.com/juftin/cookiecutter-python),
 using its uv, Ruff, mypy, pytest, Taskfile, documentation, and CI conventions. Template
 answers and the source revision are retained in `.github/.copier-answers.yaml`.
@@ -116,9 +120,33 @@ backfilled yet. A null or unavailable check result is **unknown**, never a passi
 Green checks and approval do not establish that branch rules permit merging.
 
 The first backfill fetches details for every PR and can take time on large repositories.
-Current staging and report rendering load a repository/portfolio into memory; this release
-is aimed at personal portfolios rather than a company-wide data warehouse. Incremental
+The dashboard filters, counts, and paginates in SQL. Full report exports still load the
+portfolio, and ingestion stages one repository before committing it atomically. This
+release targets personal portfolios rather than a company-wide data warehouse. Incremental
 checkpoints are per repository; interrupted backfills restart that repository.
+
+## Database migrations and compatibility
+
+All commands initialize the database through packaged Alembic migrations. The baseline
+validates and adopts the original schema without rewriting source records, observations,
+triage notes, or checkpoints. Unknown schemas are rejected. Back up the SQLite file using
+its backup API before upgrading an existing deployment.
+
+```bash
+uv run gh-maintainer migrate
+# Developers can inspect/generate later schema changes:
+uv run alembic check
+uv run alembic revision --autogenerate -m "Describe schema change"
+```
+
+`GH_MAINTAINER_DB` selects the database for both CLI and Alembic commands. Migrations
+are serialized with a SQLite write lock. Compatible legacy TEXT/JSON, INTEGER/Boolean,
+and primary-key nullability declarations are retained during schema autogeneration.
+SQLAlchemy 2.0 is pinned to preserve the template's Python 3.10 support.
+
+Sync JSON now reports `source_calls`, counting SDK operations rather than claiming an
+exact HTTP request count (the SDK owns pagination and retries). Historical counts remain
+stored. Item, repository, triage, and dashboard data retain their existing meaning.
 
 ## Self-host with Docker Compose
 
@@ -147,10 +175,11 @@ uv build
 ```
 
 Equivalent template tasks: `task test`, `task check`, `task build`. The template's CI matrix
-covers Python 3.10–3.14. Tests use `httpx.MockTransport` and temporary SQLite databases;
+covers Python 3.10–3.14. Tests use contract fakes, mocked PyGithub HTTP responses,
+and real temporary SQLite databases;
 they do not require a GitHub token. API docs are at `/api/docs` while the app is running.
 
 The next extensions should be comment/review-thread ingestion for richer summaries,
-a GitHub App and webhooks with periodic reconciliation, organization scopes, database-backed
-query pagination for larger portfolios, and optional model-generated digests grounded in
+a GitHub App and webhooks with periodic reconciliation, organization scopes, resumable
+backfill staging for larger repositories, and optional model-generated digests grounded in
 stored items. See [architecture and data contracts](docs/architecture.md).

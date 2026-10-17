@@ -1,227 +1,163 @@
-"""Check repository atomicity, lifecycle state and successful-only checkpoints."""
+"""Sync contract parity across the async storage and source boundaries."""
 
-import json
+import asyncio
 from pathlib import Path
-from typing import Any
 
-import httpx
 import pytest
+from sqlalchemy import func, select
 
-from gh_maintainer.github import GitHub
-from gh_maintainer.report import snapshot
-from gh_maintainer.store import Store
-from gh_maintainer.sync import synchronize
+from gh_maintainer.clock import now
+from gh_maintainer.database import Database
+from gh_maintainer.models import Observation, Setting, SyncRun
+from gh_maintainer.queries import CatalogQueries
+from gh_maintainer.repositories import CatalogRepository, SyncLease
+from gh_maintainer.schemas import ItemFilters, State
+from gh_maintainer.sync import OVERLAP, SyncService
 
-Json = dict[str, Any]
-AT = "2026-10-01T00:00:00Z"
-REPO = {
-    "id": 1,
-    "full_name": "owner/project",
-    "html_url": "https://github.com/owner/project",
-    "owner": {"login": "owner"},
-    "archived": False,
-}
+from .fakes import REPO, FakeSource
+
+pytestmark = pytest.mark.anyio
 
 
-def issue(number: int = 1, pr: bool = False, state: str = "open") -> Json:
-    result = {
-        "id": number,
-        "node_id": f"I_{number}",
-        "number": number,
-        "state": state,
-        "title": f"Item {number}",
-        "html_url": f"https://github.com/owner/project/issues/{number}",
-        "updated_at": AT,
-        "labels": [],
-        "assignees": [],
-        "body": "Detailed context",
-    }
-    if pr:
-        result["pull_request"] = {
-            "url": f"https://api.github.com/repos/owner/project/pulls/{number}"
-        }
-    return result
+async def test_backfill_idempotence_and_merged_state(database: Database) -> None:
+    source, catalog = FakeSource(), CatalogRepository(database)
+    assert (await SyncService(database, source).run()).status == "complete"
+    items = await catalog.items("1")
+    assert len(items) == 3
+    assert next(item for item in items if item.id == "I_3").state == State.MERGED
+    await SyncService(database, source).run(full=True)
+    async with database.sessions() as session:
+        assert await session.scalar(select(func.count()).select_from(Observation)) == 3
 
 
-class Scenario:
-    def __init__(self) -> None:
-        self.issues = [issue(), issue(2, True), issue(3, True, "closed")]
-        self.inventory = [REPO]
-        self.checks = "SUCCESS"
-        self.fail = False
-        self.fail_signals = False
-        self.queries: list[str] = []
-        self.login = "owner"
-        self.user_id = 77
-        self.github = GitHub(
-            "secret",
-            client=httpx.Client(transport=httpx.MockTransport(self.handle)),
-            retries=0,
-        )
-
-    def handle(self, request: httpx.Request) -> httpx.Response:
-        path = request.url.path
-        if path == "/user":
-            return httpx.Response(200, json={"login": self.login, "id": self.user_id})
-        if path == "/user/repos":
-            return httpx.Response(200, json=self.inventory)
-        if path.endswith("/issues"):
-            self.queries.append(str(request.url))
-            if self.fail:
-                return httpx.Response(503)
-            return httpx.Response(200, json=self.issues)
-        if "/pulls/" in path:
-            number = int(path.split("/")[-1])
-            return httpx.Response(
-                200,
-                json={
-                    "node_id": f"PR_{number}",
-                    "state": "closed" if number == 3 else "open",
-                    "number": number,
-                    "updated_at": AT,
-                    "merged_at": AT if number == 3 else None,
-                    "head": {"sha": "abc"},
-                    "draft": False,
-                },
-            )
-        if path == "/graphql":
-            if self.fail_signals:
-                return httpx.Response(200, json={"errors": [{"message": "denied"}]})
-            ids = json.loads(request.content)["variables"]["ids"]
-            return httpx.Response(
-                200,
-                json={
-                    "data": {
-                        "nodes": [
-                            {
-                                "id": node_id,
-                                "number": int(node_id.split("_")[-1]),
-                                "reviewDecision": "REVIEW_REQUIRED",
-                                "mergeable": "MERGEABLE",
-                                "mergeStateStatus": "CLEAN",
-                                "commits": {
-                                    "nodes": [
-                                        {
-                                            "commit": {
-                                                "oid": "abc",
-                                                "statusCheckRollup": {
-                                                    "state": self.checks
-                                                },
-                                            }
-                                        }
-                                    ]
-                                },
-                            }
-                            for node_id in ids
-                        ]
-                    }
-                },
-            )
-        message = f"Unexpected API path: {path}"
-        raise AssertionError(message)
+async def test_incremental_ci_refresh_without_issue_timestamp_change(
+    database: Database,
+) -> None:
+    source, catalog = FakeSource(), CatalogRepository(database)
+    await SyncService(database, source).run()
+    checkpoint = (await catalog.repo("1")).synced_at
+    source.items, source.checks = [], "FAILURE"
+    await SyncService(database, source).run()
+    assert source.windows[-1] == checkpoint - OVERLAP
+    async with database.sessions() as session:
+        detail = await CatalogQueries(session).detail("I_2")
+        assert detail.item.checks == "FAILURE"
+        assert "Failing checks" in detail.item.reasons
+        assert await session.scalar(select(func.count()).select_from(Observation)) == 4
 
 
-def test_backfill_idempotence_and_merged_state(store: Store) -> None:
-    scenario = Scenario()
-    result = synchronize(store, scenario.github)
-    assert result["status"] == "complete"
-    assert len(store.items("1")) == 3
-    assert (
-        store.db.execute("SELECT state FROM items WHERE id='I_3'").fetchone()[0]
-        == "merged"
+@pytest.mark.parametrize("after_page", [False, True])
+async def test_failed_fetch_keeps_atomic_checkpoint(
+    database: Database, after_page: bool
+) -> None:
+    source, catalog = FakeSource(), CatalogRepository(database)
+    await SyncService(database, source).run()
+    checkpoint = (await catalog.repo("1")).synced_at
+    source.fail, source.fail_after_page = not after_page, after_page
+    result = await SyncService(database, source).run()
+    assert result.status == "partial"
+    assert (await catalog.repo("1")).synced_at == checkpoint
+    assert len(await catalog.items("1")) == 3
+    source.fail = source.fail_after_page = False
+    assert (await SyncService(database, source).run()).status == "complete"
+    assert (await catalog.repo("1")).error is None
+
+
+async def test_failed_signals_keep_timestamp_and_become_unknown(
+    database: Database,
+) -> None:
+    source, catalog = FakeSource(), CatalogRepository(database)
+    await SyncService(database, source).run()
+    before = (await catalog.repo("1")).signals_at
+    source.fail_signals = True
+    assert (await SyncService(database, source).run()).status == "partial"
+    assert (await catalog.repo("1")).signals_at == before
+    async with database.sessions() as session:
+        detail = await CatalogQueries(session).detail("I_2")
+        assert detail.item.signals_stale
+        assert detail.item.checks == "UNKNOWN"
+
+
+async def test_reconciliation_retains_history_and_missing_inventory(
+    database: Database,
+) -> None:
+    source, catalog = FakeSource(), CatalogRepository(database)
+    await SyncService(database, source).run()
+    source.items = []
+    await SyncService(database, source).run(full=True)
+    assert all(not item.available for item in await catalog.items("1"))
+    source.inventory = []
+    await SyncService(database, source).run()
+    assert not (await catalog.repo("1")).present
+    async with database.sessions() as session:
+        assert (await CatalogQueries(session).overview()).counts.repositories == 0
+
+
+async def test_atomic_lease_claim_and_release(tmp_path: Path) -> None:
+    first, second = (
+        Database(tmp_path / "shared.sqlite"),
+        Database(tmp_path / "shared.sqlite"),
     )
-    assert store.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 3
-    synchronize(store, scenario.github, full=True)
-    assert store.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 3
-
-
-def test_incremental_refreshes_ci_without_issue_change(store: Store) -> None:
-    scenario = Scenario()
-    synchronize(store, scenario.github)
-    scenario.issues = []
-    scenario.checks = "FAILURE"
-    synchronize(store, scenario.github)
-    assert "since=" in scenario.queries[-1]
-    data = snapshot(store)
-    pr = next(row for row in data["items"] if row["id"] == "I_2")
-    assert pr["checks"] == "FAILURE"
-    assert "Failing checks" in pr["reasons"]
-    assert store.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 4
-
-
-def test_repository_failure_does_not_advance_checkpoint(store: Store) -> None:
-    scenario = Scenario()
-    synchronize(store, scenario.github)
-    before = store.repo("1")["synced_at"]
-    scenario.fail = True
-    result = synchronize(store, scenario.github)
-    assert result["status"] == "partial"
-    assert store.repo("1")["synced_at"] == before
-    assert len(store.items("1")) == 3
-    assert snapshot(store)["counts"]["incomplete_repositories"] == 1
-    scenario.fail = False
-    assert synchronize(store, scenario.github)["status"] == "complete"
-    assert store.repo("1")["error"] is None
-
-
-def test_signals_failure_preserves_timestamp_and_marks_partial(store: Store) -> None:
-    scenario = Scenario()
-    synchronize(store, scenario.github)
-    before = store.repo("1")["signals_at"]
-    scenario.fail_signals = True
-    result = synchronize(store, scenario.github)
-    assert result["status"] == "partial"
-    assert store.repo("1")["signals_at"] == before
-    assert "signals incomplete" in store.repo("1")["error"]
-
-
-def test_reconciliation_retains_missing_items_and_repositories(store: Store) -> None:
-    scenario = Scenario()
-    synchronize(store, scenario.github)
-    scenario.issues = []
-    synchronize(store, scenario.github, full=True)
-    assert len(store.items("1")) == 3
-    assert all(not row["available"] for row in store.items("1"))
-    scenario.inventory = []
-    synchronize(store, scenario.github)
-    assert not store.repo("1")["present"]
-    assert snapshot(store)["counts"]["repositories"] == 0
-
-
-def test_lease_prevents_concurrent_sync_and_is_released(tmp_path: Path) -> None:
-    first, second = Store(tmp_path / "test.db"), Store(tmp_path / "test.db")
-    with first.sync_lock():
-        with pytest.raises(RuntimeError, match="Another sync"), second.sync_lock():
+    try:
+        await asyncio.gather(first.initialize(), second.initialize())
+        async with SyncLease(first):
+            with pytest.raises(RuntimeError, match="Another sync"):
+                async with SyncLease(second):
+                    pass
+        async with SyncLease(second):
             pass
-    with second.sync_lock():
-        second.renew_lease()
-    first.close()
-    second.close()
+    finally:
+        await first.close()
+        await second.close()
 
 
-def test_owner_mismatch_and_bad_items_are_explicit_failures(store: Store) -> None:
-    scenario = Scenario()
-    synchronize(store, scenario.github)
-    scenario.login = "other"
-    scenario.user_id = 88
+async def test_expired_worker_is_fenced_out_of_commit(database: Database) -> None:
+    source, catalog = FakeSource(), CatalogRepository(database)
+    await SyncService(database, source).run()
+    checkpoint = (await catalog.repo("1")).synced_at
+    async with SyncLease(database) as old_lease:
+        async with database.sessions.begin() as session:
+            setting = await session.get(Setting, "sync_lock")
+            setting.value = '{"token":"new-worker","expires":0}'
+        with pytest.raises(RuntimeError, match="lease was lost"):
+            await catalog.commit_repo("1", [], now(), True, None, old_lease)
+    assert (await catalog.repo("1")).synced_at == checkpoint
+    assert all(item.available for item in await catalog.items("1"))
+
+
+async def test_owner_swap_rejected_and_rename_preserves_identity(
+    database: Database,
+) -> None:
+    source, catalog = FakeSource(), CatalogRepository(database)
+    await SyncService(database, source).run()
+    source.login, source.user_id = "other", "88"
     with pytest.raises(ValueError, match="different owner"):
-        synchronize(store, scenario.github)
-    scenario.login = "owner"
-    scenario.user_id = 77
-    scenario.issues = [{"id": 1}]
-    result = synchronize(store, scenario.github)
-    assert result["status"] == "partial"
-    assert len(store.items("1")) == 3
-
-
-def test_owner_rename_preserves_stable_account_identity(store: Store) -> None:
-    scenario = Scenario()
-    synchronize(store, scenario.github)
-    scenario.login = "renamed"
-    scenario.inventory = [
-        {**REPO, "owner": {"login": "renamed"}, "full_name": "renamed/project"}
+        await SyncService(database, source).run()
+    source.user_id = "77"
+    source.inventory = [
+        {**REPO, "full_name": "other/project", "owner": {"login": "other"}}
     ]
-    synchronize(store, scenario.github)
-    assert store.owner() == "renamed"
-    assert store.repo("1")["name"] == "renamed/project"
-    assert len(store.items("1")) == 3
+    await SyncService(database, source).run()
+    assert (await catalog.repo("1")).name == "other/project"
+    async with database.sessions() as session:
+        assert (await CatalogQueries(session).overview()).owner == "other"
+        assert (await CatalogQueries(session).page(ItemFilters())).total == 3
+        runs = (await session.scalars(select(SyncRun).order_by(SyncRun.id))).all()
+        assert [run.status for run in runs] == ["complete", "failed", "complete"]
+
+
+async def test_lease_cleans_up_after_heartbeat_failure(database: Database) -> None:
+    async def fail() -> None:
+        raise RuntimeError("Heartbeat failed")
+
+    with pytest.raises(RuntimeError, match="Heartbeat failed"):
+        async with SyncLease(database) as lease:
+            lease.task.cancel()
+            try:
+                await lease.task
+            except asyncio.CancelledError:
+                pass
+            lease.task = asyncio.create_task(fail())
+            await asyncio.sleep(0)
+    async with SyncLease(database):
+        pass

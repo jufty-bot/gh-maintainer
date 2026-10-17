@@ -1,42 +1,63 @@
-"""Read-only HTTP views over the local index. Tokens never reach this service."""
+"""Async read-only HTTP routes over typed, paginated database queries."""
 
-from __future__ import annotations
-
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from gh_maintainer.report import markdown, snapshot
-from gh_maintainer.store import Store
+from gh_maintainer.database import Database
+from gh_maintainer.queries import CatalogQueries
+from gh_maintainer.report import markdown
+from gh_maintainer.schemas import (
+    ItemDetail,
+    ItemFilters,
+    ItemPage,
+    Kind,
+    Overview,
+    State,
+)
 
 STATIC = Path(__file__).parent / "static"
 
 
-def create_app(db_path: str) -> FastAPI:
-    app = FastAPI(title="GitHub Maintainer", docs_url="/api/docs")
+def create_app(db_path: str, database: Database | None = None) -> FastAPI:
+    db = database or Database(db_path)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        await db.initialize()
+        try:
+            yield
+        finally:
+            if database is None:
+                await db.close()
+
+    app = FastAPI(title="GitHub Maintainer", docs_url="/api/docs", lifespan=lifespan)
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
-    def read() -> dict[str, Any]:
-        store = Store(db_path)
-        try:
-            return snapshot(store)
-        finally:
-            store.close()
+    async def session() -> AsyncIterator[AsyncSession]:
+        async with db.sessions() as connection:
+            yield connection
 
+    # Module-visible annotation avoids unresolved closure aliases in FastAPI inspection.
     @app.get("/")
-    def index() -> FileResponse:
+    async def index() -> FileResponse:
         return FileResponse(STATIC / "index.html")
 
     @app.get("/api/overview")
-    def overview() -> dict[str, Any]:
-        data = read()
-        return {key: value for key, value in data.items() if key != "items"}
+    async def overview(
+        connection: Annotated[AsyncSession, Depends(session)],
+    ) -> Overview:
+        return await CatalogQueries(connection).overview()
 
     @app.get("/api/items")
-    def items(
+    async def items(
+        connection: Annotated[AsyncSession, Depends(session)],
         q: str = "",
         kind: str = "",
         state: str = "",
@@ -44,46 +65,32 @@ def create_app(db_path: str) -> FastAPI:
         queue: bool = False,
         limit: int = Query(100, ge=1, le=500),
         offset: int = Query(0, ge=0),
-    ) -> dict[str, Any]:
-        rows = read()["items"]
-        rows = [
-            row
-            for row in rows
-            if (
-                not q
-                or q.lower()
-                in (
-                    f"{row['title']} {row['repo']} "
-                    f"{' '.join(row['labels'])} {row['number']}"
-                ).lower()
+    ) -> ItemPage:
+        try:
+            filters = ItemFilters(
+                q=q,
+                kind=Kind(kind) if kind else None,
+                state=State(state) if state else None,
+                repo=repo,
+                queue=queue,
+                limit=limit,
+                offset=offset,
             )
-            and (not kind or row["kind"] == kind)
-            and (not state or row["state"] == state)
-            and (not repo or row["repo"] == repo)
-            and (not queue or row["actionable"])
-        ]
-        return {"total": len(rows), "items": rows[offset : offset + limit]}
+        except ValueError:
+            raise HTTPException(422, "Invalid item filter") from None
+        return await CatalogQueries(connection).page(filters)
 
     @app.get("/api/items/{item_id}")
-    def item(item_id: str) -> dict[str, Any]:
-        row = next((row for row in read()["items"] if row["id"] == item_id), None)
-        if row is None:
+    async def item(
+        item_id: str, connection: Annotated[AsyncSession, Depends(session)]
+    ) -> ItemDetail:
+        detail = await CatalogQueries(connection).detail(item_id)
+        if detail is None:
             raise HTTPException(404, "Unknown item")
-        store = Store(db_path)
-        try:
-            changes = [
-                dict(change)
-                for change in store.db.execute(
-                    "SELECT * FROM changes WHERE item_id=? ORDER BY id DESC LIMIT 50",
-                    (item_id,),
-                )
-            ]
-        finally:
-            store.close()
-        return {"item": row, "changes": changes}
+        return detail
 
     @app.get("/api/report", response_class=PlainTextResponse)
-    def report() -> str:
-        return markdown(read())
+    async def report(connection: Annotated[AsyncSession, Depends(session)]) -> str:
+        return markdown(await CatalogQueries(connection).portfolio())
 
     return app

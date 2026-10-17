@@ -3,20 +3,23 @@
 from __future__ import annotations
 
 import argparse
-import json
+import asyncio
 import os
-import sqlite3
 import sys
-import time
 from pathlib import Path
 
 import uvicorn
+from sqlalchemy.exc import SQLAlchemyError
 
+from gh_maintainer.clock import parse_date
+from gh_maintainer.database import Database
 from gh_maintainer.demo import seed_demo
-from gh_maintainer.github import GitHub, resolve_token
-from gh_maintainer.report import markdown, snapshot
-from gh_maintainer.store import Store
-from gh_maintainer.sync import now, parse_date, synchronize
+from gh_maintainer.github import PyGithubSource, resolve_token
+from gh_maintainer.queries import CatalogQueries
+from gh_maintainer.report import markdown
+from gh_maintainer.repositories import TriageService
+from gh_maintainer.schemas import Disposition
+from gh_maintainer.sync import SyncService
 from gh_maintainer.web import create_app
 
 
@@ -36,7 +39,7 @@ def parser() -> argparse.ArgumentParser:
         "--db", default=os.getenv("GH_MAINTAINER_DB", ".data/maintainer.sqlite")
     )
     commands = root.add_subparsers(dest="command", required=True)
-    for name in ("sync", "watch", "report", "serve", "triage", "demo"):
+    for name in ("sync", "watch", "report", "serve", "triage", "demo", "migrate"):
         command = commands.add_parser(name)
         command.add_argument("--db", default=argparse.SUPPRESS)
         if name in {"sync", "watch"}:
@@ -79,65 +82,65 @@ def parser() -> argparse.ArgumentParser:
     return root
 
 
-def run(args: argparse.Namespace) -> int:
-    if args.command == "serve":
-        uvicorn.run(create_app(args.db), host=args.host, port=args.port)
-        return 0
-    store = Store(args.db)
+async def run(args: argparse.Namespace) -> int:
+    database = Database(args.db)
     try:
+        await database.initialize()
         if args.command in {"sync", "watch"}:
             if args.command == "watch" and args.interval < 60:  # noqa: PLR2004
                 raise ValueError("Watch interval must be at least 60 seconds.")
-            github = GitHub(resolve_token())
+            source = PyGithubSource(await resolve_token())
             try:
                 while True:
-                    github.requests = 0
-                    result = synchronize(
-                        store,
-                        github,
-                        args.full,
-                        set(args.repo) if args.repo else None,
-                        progress,
+                    source.calls = 0
+                    result = await SyncService(database, source, progress).run(
+                        args.full, set(args.repo) if args.repo else None
                     )
-                    output(json.dumps(result, indent=2))
+                    output(result.model_dump_json(indent=2))
                     if args.command == "sync":
-                        return 0 if result["status"] == "complete" else 1
-                    time.sleep(args.interval)
+                        return 0 if result.status == "complete" else 1
+                    await asyncio.sleep(args.interval)
             finally:
-                github.close()
+                await source.close()
         if args.command == "triage":
-            until = None
-            if args.disposition == "snoozed":
-                if not args.until:
-                    raise ValueError("Snoozing requires --until with a timezone.")
-                until = parse_date(args.until).isoformat().replace("+00:00", "Z")
-                if parse_date(until) <= parse_date(now()):
-                    raise ValueError("Snooze deadline must be in the future.")
-            store.triage(args.item_id, args.disposition, args.note, until, now())
+            until = parse_date(args.until) if args.until else None
+            await TriageService(database).decide(
+                args.item_id, Disposition(args.disposition), args.note, until
+            )
             output("Local triage decision saved.")
         elif args.command == "report":
-            data = snapshot(store)
+            async with database.sessions() as session:
+                data = await CatalogQueries(session).portfolio()
             text = (
-                json.dumps(data, indent=2) if args.format == "json" else markdown(data)
+                data.model_dump_json(indent=2)
+                if args.format == "json"
+                else markdown(data)
             )
             if args.output:
                 args.output.write_text(text, encoding="utf-8")
             else:
                 output(text)
         elif args.command == "demo":
-            seed_demo(store)
+            await seed_demo(database)
             output(f"Demo data created. Run: gh-maintainer --db {args.db} serve")
+        elif args.command == "migrate":
+            output("Database schema is up to date.")
     finally:
-        store.close()
+        await database.close()
     return 0
 
 
 def main() -> None:
     try:
-        code = run(parser().parse_args())
+        args = parser().parse_args()
+        if args.command == "serve":
+            uvicorn.run(create_app(args.db), host=args.host, port=args.port)
+            code = 0
+        else:
+            code = asyncio.run(run(args))
     except KeyboardInterrupt:
         code = 130
-    except (RuntimeError, ValueError, OSError, sqlite3.Error) as error:
+    except (RuntimeError, ValueError, OSError, SQLAlchemyError) as error:
         sys.stderr.write(f"Error: {error}\n")
         code = 1
     sys.exit(code)

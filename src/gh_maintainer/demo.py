@@ -4,18 +4,31 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from gh_maintainer.store import Store
-from gh_maintainer.sync import encode, normalize, now, parse_date
+from sqlalchemy import func, select
+
+from gh_maintainer.clock import now
+from gh_maintainer.database import Database
+from gh_maintainer.models import Repository
+from gh_maintainer.repositories import CatalogRepository, SyncJournal, SyncLease
+from gh_maintainer.schemas import (
+    AccountSnapshot,
+    ItemSnapshot,
+    JsonObject,
+    RepositorySnapshot,
+    State,
+)
 
 MERGED_PR = 36
 
 
-def seed_demo(store: Store) -> None:
-    if store.db.execute("SELECT COUNT(*) FROM repos").fetchone()[0]:
+async def seed_demo(database: Database) -> None:
+    async with database.sessions() as session:
+        count = await session.scalar(select(func.count()).select_from(Repository))
+    if count:
         raise ValueError("Demo requires an empty database; use --db .data/demo.sqlite.")
     at = now()
-    store.set_owner("example")
-    repos = [
+    catalog = CatalogRepository(database)
+    repos: list[JsonObject] = [
         {
             "id": index,
             "full_name": f"example/{name}",
@@ -35,7 +48,10 @@ def seed_demo(store: Store) -> None:
             1,
         )
     ]
-    store.discover(repos)
+    await catalog.discover(
+        AccountSnapshot(id="demo", login="example"),
+        [RepositorySnapshot.from_github(repo) for repo in repos],
+    )
     samples = [
         (
             1,
@@ -81,12 +97,8 @@ def seed_demo(store: Store) -> None:
         for repo_id, number, kind, title, days, checks, review in samples:
             if repo_id != repo["id"]:
                 continue
-            updated = (
-                (parse_date(at) - timedelta(days=days))
-                .isoformat()
-                .replace("+00:00", "Z")
-            )
-            issue = {
+            updated = (at - timedelta(days=days)).isoformat().replace("+00:00", "Z")
+            issue: JsonObject = {
                 "node_id": f"DEMO_{repo_id}_{number}",
                 "number": number,
                 "title": title,
@@ -103,26 +115,26 @@ def seed_demo(store: Store) -> None:
             }
             if kind == "pr":
                 issue["pull_request"] = {}
-            row = normalize(issue, str(repo_id))
+            row = ItemSnapshot.from_github(issue, str(repo_id))
             if kind == "pr":
-                row["pr"] = encode(
-                    {"node_id": f"PR_{repo_id}_{number}", "draft": False}
+                pr = {"node_id": f"PR_{repo_id}_{number}", "draft": False}
+                signals = {
+                    "id": f"PR_{repo_id}_{number}",
+                    "reviewDecision": review,
+                    "mergeable": "MERGEABLE",
+                    "commits": {
+                        "nodes": [{"commit": {"statusCheckRollup": {"state": checks}}}]
+                    },
+                }
+                row = row.model_copy(
+                    update={"pr": pr, "signals": signals, "signals_at": at}
                 )
-                row["signals"] = encode(
-                    {
-                        "reviewDecision": review,
-                        "mergeable": "MERGEABLE",
-                        "commits": {
-                            "nodes": [
-                                {"commit": {"statusCheckRollup": {"state": checks}}}
-                            ]
-                        },
-                    }
-                )
-                row["signals_at"] = at
                 if number == MERGED_PR:
-                    row["state"] = "merged"
+                    row = row.model_copy(update={"state": State.MERGED})
             rows.append(row)
-        store.commit_repo(str(repo["id"]), rows, at, True, None)
-    run_id = store.start_run(at)
-    store.finish_run(run_id, "complete", at, 0)
+        await catalog.commit_repo(str(repo["id"]), rows, at, True, None)
+
+    async with SyncLease(database) as lease:
+        journal = SyncJournal(database)
+        run_id = await journal.start(lease)
+        await journal.finish(run_id, "complete", 0, None, lease)
