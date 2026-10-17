@@ -13,6 +13,8 @@ project_dir = Path(__file__).resolve().parent.parent
 source_code = project_dir.joinpath("src/gh_maintainer")
 
 for path in sorted(source_code.rglob("*.py")):
+    if "migrations" in path.parts:
+        continue
     module_path = path.relative_to(project_dir).with_suffix("")
     doc_path = path.relative_to(source_code).with_suffix(".md")
     full_doc_path = Path("reference", doc_path)

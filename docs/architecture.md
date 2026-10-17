@@ -2,97 +2,113 @@
 
 ```mermaid
 flowchart LR
-    G[GitHub REST + GraphQL] --> W[Python sync worker]
-    W --> D[(SQLite)]
-    T[Local triage CLI] --> D
-    D --> A[Read-only FastAPI]
-    A --> U[Portfolio dashboard]
-    D --> R[Markdown / JSON reports]
+    G[GitHub] --> P[PyGithub adapter / single SDK thread]
+    P --> S[Async sync service]
+    S --> R[Catalog repository + journal]
+    R --> D[(SQLAlchemy + aiosqlite)]
+    D --> Q[SQL-backed catalog queries]
+    Q --> A[Async FastAPI dashboard]
+    Q --> E[Typed Markdown / JSON export]
+    T[Triage service] --> D
 ```
 
-The worker is the only component that needs credentials. The web service queries an
-existing database and exposes no routes for GitHub mutations. Raw source documents and
-normalized columns are stored together: columns support operational queries and documents
-allow later extractors to use fields without another historical download.
+## Boundaries
 
-## Modules
+| Module              | Responsibility                                                                                   |
+| ------------------- | ------------------------------------------------------------------------------------------------ |
+| `schemas.py`        | Validated source snapshots, state/disposition enums, explicit API/export contracts               |
+| `models.py`         | Typed SQLAlchemy records, JSON payloads, aware UTC timestamps                                    |
+| `database.py`       | Engine/session lifecycle, SQLite pragmas, serialized Alembic upgrades                            |
+| `migrations/`       | Packaged, versioned schema changes and legacy adoption                                           |
+| `github.py`         | Source protocol and PyGithub adapter; SDK owns transport, retries, authentication and pagination |
+| `sync.py`           | Discovery, backfill windows, reconciliation, PR refresh and error policy                         |
+| `repositories.py`   | Catalog writes, fenced sync lease, run journal and local triage decisions                        |
+| `queries.py`        | SQL filtering, totals, queue ranking, pagination and targeted detail loading                     |
+| `policies.py`       | Pure priority and queue rules over typed snapshots                                               |
+| `report.py`         | Markdown rendering over a typed portfolio; no SQL or SDK access                                  |
+| `web.py` / `cli.py` | Thin presentation and command entry points                                                       |
+| `clock.py`          | Shared timezone-aware clock and conversion helpers                                               |
 
-| Module | Responsibility |
-| --- | --- |
-| `github.py` | HTTP authentication, same-origin pagination, retries, quota, GraphQL batching |
-| `sync.py` | Owner inventory, incremental windows, full reconciliation, PR refresh |
-| `store.py` | SQLite transactions, stable IDs, observations, checkpoints, sync lease, triage |
-| `report.py` | Deterministic priority reasons, queue membership, Markdown and JSON views |
-| `web.py` | Read-only dashboard API and static assets |
-| `cli.py` | Sync/watch, reports, local decisions, serving, offline demo |
+Pydantic validates data at the source boundary. Application code receives typed snapshots;
+ORM objects remain within persistence/query modules. JSON columns retain source documents
+without manual JSON string encoding across services. State and triage disposition are
+separate enums. Item and repository URLs and names are display attributes, not identities.
 
-## Identity and state
+One database is bound to a stable personal owner ID. Login and repository renames update
+display names. Repository IDs and item node IDs retain identity. PR-specific node IDs are
+read from PR details for GraphQL enrichment.
 
-One database is bound to one authenticated personal owner ID; login renames update
-the display identity without creating a new portfolio. Never use title, URL,
-or repository name as an item primary key. Repositories use GitHub numeric IDs stored
-as text; items use issue node IDs. PR-specific node IDs are taken from PR detail responses.
-Items store `open`, `closed`, or `merged`; draft is an independent PR property. Triage
-status is independent of source state and is never overwritten by source synchronization.
+## Async lifecycle and transactions
 
-Repository renames update display names and links. Transfers/access loss can make prior
-records disappear from successful listings; preserve those records and flag visibility.
-The current schema is the initial version; a schema migration mechanism is required before
-changing persisted columns in a later release.
+The application owns one async engine/session factory, with a fresh `AsyncSession` per
+operation or request. Sessions are never shared across concurrent tasks. API startup and
+CLI initialization run Alembic once per engine; request handlers do not initialize schemas.
 
-## Synchronization contract
+PyGithub is synchronous. Every SDK operation, including lazy pagination and payload
+extraction, runs on one dedicated executor thread. Network calls never hold a database
+transaction. A narrowly scoped adapter uses the SDK's base raw-payload accessor to avoid
+hydrating every listed issue/repository with another request. Adapter tests verify that
+1,001 issues require 11 listing requests and that SDK work leaves the event loop responsive.
 
-1. Acquire a renewable lease in SQLite. Renew before every bounded HTTP request.
-2. Identify the authenticated account and reject a database belonging to another owner.
-3. Fetch the entire owned repository listing before committing the new inventory.
-4. For each selected repository, take a start timestamp and list all item updates since
-   its successful checkpoint minus five minutes. First and weekly runs fetch all items.
-5. Hydrate changed PR details and previously open PRs. Fetch GraphQL signals for open PRs
-   in batches of at most 20 nodes. Treat partial GraphQL responses as incomplete.
-6. Commit staged item changes and the checkpoint atomically. Preserve previous successful
-   data if a request fails. A failed signal request can still commit the base item data,
-   but retains the previous signal timestamp and marks the repository/run incomplete.
-7. Release the lease and finish the run. Partial syncs return a nonzero exit status.
+GitHub batches are staged as validated snapshots. The catalog commits one repository's
+items, observations, availability and checkpoint in one short transaction. A failed page
+or detail fetch leaves that repository's checkpoint unchanged. Failed GraphQL enrichment
+can commit usable item data while retaining the original signal timestamp and marking
+coverage incomplete. Effective signals become unknown when their head or repository
+freshness is invalid.
 
-Full reconciliation marks items not seen in the full listing unavailable. A missing
-repository is marked absent only after a successful complete inventory. These flags do
-not prove deletion. A `--repo` run still discovers the whole inventory, so other
-repositories remain visible as not yet indexed or with their previous sync timestamps.
+The SQLite lease uses an atomic conditional upsert, a heartbeat in an independent session,
+and a token check inside catalog write transactions. An expired worker cannot overwrite a
+new worker's results. Interrupted run records are marked on the next successful lease
+acquisition. Request sessions can read while the worker fetches GitHub data. SQLite remains
+a single-writer database; aiosqlite provides event-loop integration, not parallel writers.
 
-The observation log records changes seen by this installation. It does not assert the
-exact source transition time or recover events between polls. Raw snapshots and retained
-history currently have no automatic retention policy.
+## Querying and triage
 
-## Triage and summaries
+The item endpoint executes a count and a SELECT with SQL filtering, ordering, LIMIT and
+OFFSET. Overview counts are SQL aggregates; item details only load the requested item and
+its latest observations. Full JSON/Markdown exports intentionally read the whole portfolio.
 
-The initial priority score is a transparent sum: failing checks 80, conflicts 70, requested
-changes 60, required review 50, 30-day item inactivity 30, and unassigned issues 20. Reasons
-are exposed alongside the score. Lack of a check signal gets an explicit unknown reason.
-This is a starting policy, not a security assessment. Future configurable rules should
-keep the evidence and timestamp attached to each recommendation.
+The pure policy adds explicit reasons and scores: failing checks 80, conflicts 70, changes
+requested 60, required review 50, 30-day inactivity 30, and unassigned issues 20. Missing
+checks are unknown. SQL expressions implement the same rules for ranking/filtering; parity
+tests compare SQL results with pure policy evaluations.
 
-Reports are deterministic summaries of indexed data. Optional generated summaries should
-cite source URLs, state their data cutoff, and persist prompt/model versions separately
-from source facts. GitHub item bodies are untrusted content: never execute their instructions,
-and render them as text until an appropriately sanitized Markdown renderer is added.
+Local triage notes survive synchronization. A snooze requires a future aware timestamp and
+expires in both SQL and presentation rules. An item marked locally done returns to the
+inbox when its source update time advances. GitHub state is never changed by local triage.
 
-## Future ingestion
+## Migration contract
 
-Add comments and review threads as separate records with source IDs, timestamps, visibility,
-and raw payloads. Treat webhook deliveries as at-least-once events: verify signatures,
-deduplicate delivery IDs, acknowledge quickly, enqueue work, and run periodic reconciliation.
-Use a GitHub App for fine-grained installation access. Add organization scopes explicitly;
-do not silently redefine personal ownership as every repository a user can access.
+The baseline recognizes the original six-table schema, checks every column name, and
+adopts it without copying or rewriting records. Unknown or partially matching schemas are
+rejected transactionally. New databases are created with the versioned baseline. Both
+paths are tested, including concurrent startup, idempotent upgrades and exact preservation
+of every legacy table value.
 
-For larger portfolios, replace in-memory staging with temporary SQLite staging tables and
-persist resumable backfill cursors. Move filtering, aggregation, and pagination into SQL
-before targeting a company-scale deployment. Migrations, retention, and independent worker
-health checks should precede that expansion.
+SQLite permits legacy TEXT JSON, integer booleans, and primary-key declarations that do
+not explicitly repeat NOT NULL. Alembic comparison hooks recognize those existing storage
+declarations without proposing unrelated table rebuilds. Changed/missing keys and changed
+key types remain visible to autogeneration. Review each future migration before applying it.
+
+Migration files and the generation template ship inside the wheel and container. Use
+`gh-maintainer migrate` to upgrade, or `alembic revision --autogenerate` and `alembic check`
+from the source checkout. The `--db` option and `GH_MAINTAINER_DB` retain the index selection
+behavior. Sync telemetry is now explicitly named `source_calls` because SDK operations
+can perform multiple HTTP requests; old counts remain stored in the original column.
+
+## Retained limitations
+
+Coverage is limited to repositories visible to the credential. This is a polling index;
+observations do not reconstruct transitions between polls or events before the first sync.
+Issue comments/review threads, organizations, webhooks, releases and security findings are
+future ingestion domains. Initial staging is still per repository; resumable disk-backed
+staging should precede very large backfills. Stored observations currently have no automatic
+retention policy. GitHub bodies remain untrusted and are rendered as plain text.
 
 ## References
 
-- [Repository issues API](https://docs.github.com/en/rest/issues/issues#list-repository-issues)
-- [Pull requests API](https://docs.github.com/en/rest/pulls/pulls)
-- [Repository inventory API](https://docs.github.com/en/rest/repos/repos#list-repositories-for-the-authenticated-user)
-- [REST pagination](https://docs.github.com/en/rest/using-the-rest-api/using-pagination-in-the-rest-api)
-- [REST best practices](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api)
+- [SQLAlchemy async sessions](https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html)
+- [SQLite async dialect](https://docs.sqlalchemy.org/en/20/dialects/sqlite.html#module-sqlalchemy.dialects.sqlite.aiosqlite)
+- [Alembic asyncio migrations](https://alembic.sqlalchemy.org/en/latest/cookbook.html#using-asyncio-with-alembic)
+- [PyGithub utilities](https://pygithub.readthedocs.io/en/stable/utilities.html)
