@@ -21,7 +21,7 @@ New contributors should start with [project context](project-context.md) and
 | Select an explicit repository list | Implemented: repeatable `sync --repo` / `watch --repo` resolves repositories directly across owners | Coverage remains limited to accessible repositories |
 | Select all repositories belonging to an owner | Implemented: `--owner` accepts users and organizations; default is the authenticated user | Other users' inventories are public-only; use explicit lists for accessible private repositories |
 | Ingest all issues and PRs | Implemented within the selected scope, including closed and merged items | Credential-limited polling coverage |
-| Ingest their comments | Implemented: issue conversations, inline review comments, and review bodies, including replies and raw line context | GraphQL thread resolution state is a later extension |
+| Ingest their comments | Implemented: issue conversations, inline review comments, and review bodies, including replies and raw line context | GraphQL thread resolution is available through live context; sync does not persist thread state |
 | Database location and management | Implemented: platform user data default, explicit overrides, `db path`, and `db delete --yes` | Existing working-directory indexes remain selectable; no automatic move |
 | Incremental SQLite storage | Implemented for items and comments: checkpoints, overlap, reconciliation, atomic commits, migrations | Review bodies require a full per-PR listing each sync |
 | Sync logging | Implemented: readable structlog events on stderr for discovery, repository progress, counts, timing, and failures; incremental windows use ISO UTC timestamps | JSON results remain on stdout |
@@ -31,6 +31,7 @@ New contributors should start with [project context](project-context.md) and
 | Repository policy | Implemented: explicit validated JSON, hash provenance, optional local-write guards | Changes to policy require explicit reconsideration; not an access sandbox |
 | Technical context | Implemented: live gh guidance/code/CI/thread sections with SHA identity and bounded evidence | Upstream API limits, nested replies and external providers remain explicit gaps |
 | Agent skills for repository maintenance | Six skills bundled with policy/context and recorded evaluations | Broader adversarial/provider/host coverage remains incremental |
+| Distribution | [0.2.0 released](releases.md): wheel/source, skill bundle and verified checksums; installed-artifact and main CI gates | No PyPI publication or automatic agent runner |
 
 The current tables are `metadata`, `owners`, `repo_owners`, `repos`, `items`, `comments`,
 `changes`, `triage`, `runs`, `processing`, `summaries`, `classifications`, and `rankings`,

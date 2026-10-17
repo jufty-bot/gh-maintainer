@@ -228,15 +228,20 @@ provider/host and broad remote-action evaluations above remain explicit extensio
 - [x] Independently exercise bounded technical review, CI evidence and reproduced local repair with red/green regression.
 - [x] Complete real public-source sync, guarded local summary/ack and unchanged-resume pilot in a disposable index.
 - [x] Fix the independently discovered legacy-adoption validation defect with five malformed-schema regressions.
-- [ ] Confirm hosted main CI, including Docker bundle smoke.
-- [ ] Publish matching versioned wheel/source/skills/checksums and verify downloaded assets.
+- [x] Confirm hosted main CI, including Docker bundle smoke.
+- [x] Publish matching versioned wheel/source/skills/checksums and verify downloaded assets.
 
 Local validation: all 137 Python tests and 12 desktop/mobile browser tests passed;
 Ruff lint/format, application mypy, strict documentation build, local links, six skill
 validators, source/wheel build, skill ZIP/checksums and isolated installed-wheel smoke
 passed. Chromium used local extracted libraries and font configuration because the
 development machine lacks system packages; CI installs standard browser dependencies.
-Hosted CI/publication results are recorded when complete. No new runtime
+Hosted [release-commit CI](https://github.com/jufty-bot/gh-maintainer/actions/runs/39071013171)
+passed all seven jobs, including Python 3.10–3.14, browser tests and Docker.
+[Release 0.2.0](https://github.com/jufty-bot/gh-maintainer/releases/tag/v0.2.0) targets
+`cd559b510253b1b2d3433d6c76684892bb58abd0`. Downloaded artifacts match the tested bytes;
+checksums, skill manifest and a new isolated install/demo succeeded. Exact hashes and
+results are in [publication evidence](evaluations/published-0.2.0.json). No new runtime
 dependency or database schema was introduced. The initial migration's legacy-adoption
 validation now rejects incompatible keys, types and required nullability before adoption.
 

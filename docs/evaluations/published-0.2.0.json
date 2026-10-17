@@ -1,0 +1,24 @@
+{
+  "version": "0.2.0",
+  "tag": "v0.2.0",
+  "commit": "cd559b510253b1b2d3433d6c76684892bb58abd0",
+  "release_url": "https://github.com/jufty-bot/gh-maintainer/releases/tag/v0.2.0",
+  "ci_url": "https://github.com/jufty-bot/gh-maintainer/actions/runs/39071013171",
+  "asset_sha256": {
+    "gh-maintainer-skills-0.2.0.zip": "d700b100d679d6a07d37ca1a49a130633ffce186ff0a8662cddd771ca6a2787d",
+    "gh_maintainer-0.2.0-py3-none-any.whl": "7372c1e119fcd7fb1749aec14ac2b8e996ff4dd4f742b2b427830833d9a345c2",
+    "gh_maintainer-0.2.0.tar.gz": "aeacc6c0e960e88a2088d2c69dac2f90f851a7f9ea2369e39b1629feb32fce49"
+  },
+  "downloaded_bytes_match_tested_artifacts": true,
+  "skill_manifest_files_verified": 8,
+  "installed_wheel_version_output": "python -m gh_maintainer, version 0.2.0",
+  "installed_skills": [
+    "gh-maintainer-ci",
+    "gh-maintainer-fix",
+    "gh-maintainer-maintain",
+    "gh-maintainer-prioritize",
+    "gh-maintainer-review",
+    "gh-maintainer-triage"
+  ],
+  "isolated_demo_item": "DEMO_1_42"
+}

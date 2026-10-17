@@ -1,6 +1,7 @@
 # Installation and releases
 
-The release contains a Python wheel, source distribution, a versioned skill ZIP,
+The [0.2.0 release](https://github.com/jufty-bot/gh-maintainer/releases/tag/v0.2.0)
+contains a Python wheel, source distribution, a versioned skill ZIP,
 and SHA-256 checksums. The wheel includes all skill resources and migrations.
 No checkout or model subscription is needed for installed CLI use.
 
@@ -53,6 +54,7 @@ CI runs the Python matrix, desktop/mobile browser tests and quality/docs/build/i
 pushes to main. Release publication is a separate step after those checks succeed.
 The existing manually dispatched semantic-release workflow creates subsequent versions
 using the project's Gitmoji conventions and attaches wheel/source/skills/checksums.
-It requires its configured publishing credential. The initial release can be published
-from a validated main commit with matching version/tag and those four artifacts.
+It requires its configured publishing credential. The initial 0.2.0 release was published
+from a validated main commit with matching version/tag and those four artifacts; see
+[publication evidence](evaluations/published-0.2.0.json).
 No workflow publishes model credentials or invokes a maintenance agent automatically.

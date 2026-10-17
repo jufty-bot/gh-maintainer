@@ -112,6 +112,15 @@ uses matching CLI version/tag and tested assets after main CI success.
 
 Final check counts and publication evidence are recorded in the [implementation checklist](../checklist.md).
 
+Published [0.2.0](https://github.com/jufty-bot/gh-maintainer/releases/tag/v0.2.0) from
+`cd559b510253b1b2d3433d6c76684892bb58abd0` after all seven
+[CI jobs](https://github.com/jufty-bot/gh-maintainer/actions/runs/39071013171) passed.
+All four assets were downloaded; archive/wheel/ZIP hashes match the tested local bytes
+and published checksums. All eight skill-manifest file hashes passed. The downloaded
+wheel installed in another fresh environment, reported 0.2.0, installed all six skills,
+and queried a disposable demo outside the checkout with Python isolated mode.
+[Machine-readable evidence](published-0.2.0.json) retains the exact hashes and identities.
+
 ## Limits
 
 These are bounded fresh-agent trials, not exhaustive skill/provider/model coverage.

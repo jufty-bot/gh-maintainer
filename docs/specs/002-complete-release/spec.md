@@ -1,6 +1,7 @@
 # Specification: complete maintenance release
 
-Status: implementation and acceptance validation in progress.
+Status: implemented, validated and published as 0.2.0. See the
+[acceptance evidence](../../evaluations/release.md) for evaluated scope and limits.
 
 Deliver the six workstreams requested after feature 001: versioned distribution,
 continuous validation, repository policy, technical evidence, maintenance skills,

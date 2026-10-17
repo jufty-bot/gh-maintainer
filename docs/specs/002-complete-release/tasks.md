@@ -11,7 +11,7 @@
 - [x] T009 Record technical-skill investigation and a validated local repair in isolation.
 - [x] T010 Record the real-source sync/context/decision/resumption pilot.
 - [x] T011 Align usage, architecture, decisions, orientation, roadmap and checklist.
-- [ ] T012 Commit/push main, confirm CI, and publish matching versioned artifacts.
+- [x] T012 Commit/push main, confirm CI, and publish matching versioned artifacts.
 
 Evidence and limitations are maintained in [release validation](../../evaluations/release.md).
 Checked implementation tasks do not assert unrun acceptance results.
