@@ -34,7 +34,7 @@ flowchart LR
 | `queries.py`        | SQL filtering, totals, queue ranking, pagination and targeted detail loading                     |
 | `policies.py`       | Pure priority and queue rules over typed snapshots                                               |
 | `report.py`         | Markdown rendering over a typed portfolio; no SQL or SDK access                                  |
-| `web.py` / `cli.py` | Thin presentation and command entry points                                                       |
+| `web.py` / `cli.py` | Thin FastAPI presentation and Click command entry points                                         |
 | `clock.py`          | Shared timezone-aware clock and conversion helpers                                               |
 
 Pydantic validates data at the source boundary. Application code receives typed snapshots;
@@ -195,6 +195,10 @@ actor, and time. Reads and analysis writes do not advance it. Optional revision 
 stale writes; marking processed requires complete repository coverage.
 
 The CLI reuses the SQL query layer for lists, details, comments, and activity history.
+Click owns command discovery, help, parameter conversion, and argument errors; shared
+command options dispatch to the existing async lifecycle. Help and version output never
+initialize storage. Database selection works before or after commands and through
+`GH_MAINTAINER_DB`; command-level paths override root-level paths and the environment.
 Processing, triage, and classification filters and rank sorting execute in SQLite with
 deterministic pagination. All local query and maintenance commands work without credentials.
 

@@ -24,7 +24,7 @@ New contributors should start with [project context](project-context.md) and
 | Ingest their comments | Implemented: issue conversations, inline review comments, and review bodies, including replies and raw line context | GraphQL thread resolution state is a later extension |
 | Database location and management | Implemented: platform user data default, explicit overrides, `db path`, and `db delete --yes` | Existing working-directory indexes remain selectable; no automatic move |
 | Incremental SQLite storage | Implemented for items and comments: checkpoints, overlap, reconciliation, atomic commits, migrations | Review bodies require a full per-PR listing each sync |
-| Efficient querying through the CLI | Implemented: repositories, PRs/issues, details, comments, status, and activity with SQL pagination and JSON | Keep public contracts stable as skills are added |
+| Efficient querying through the CLI | Implemented: Click commands with descriptive help, validated options, repositories, PRs/issues, details, comments, status, SQL pagination, and JSON | Keep public contracts stable as skills are added |
 | Additional tables for analysis and triage | Implemented: persisted summaries, classifications, rankings, triage, and processing checkpoints | Analysis is supplied by humans/agents; no built-in model provider |
 | Track processing and later activity | Implemented: source revisions, pending/changed filters, activity kinds, and guarded acknowledgements | Only observed activity can be recorded |
 | Agent skills for repository maintenance | Future focus | Build against the completed CLI baseline |
@@ -94,6 +94,9 @@ Completion criteria:
 Expose repository inventory, item lists, item details, comments, and synchronization
 coverage through CLI commands. The implemented `repos`, `prs`, `issues`, `show`, `comments`,
 `status`, and `changes` commands reuse the SQL query layer and provide JSON and text output.
+The Click interface adds command descriptions, `-h`/`--help`, `--version`, visible defaults,
+and validation before database initialization. Command names and output schemas remain
+stable; invalid parameter bounds and timestamp syntax now consistently exit 2.
 
 Completion criteria:
 

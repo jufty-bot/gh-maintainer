@@ -1,6 +1,7 @@
 """Platform defaults and offline database file management."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from platformdirs import user_data_path
@@ -21,9 +22,18 @@ def test_default_database_uses_platform_data_directory(
     monkeypatch.delenv("GH_MAINTAINER_DB", raising=False)
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     expected = user_data_path("gh-maintainer", appauthor=False) / "maintainer.sqlite"
-    assert cli.parser().parse_args(["db"]).db == str(expected)
+    received = []
+
+    async def run(args: SimpleNamespace) -> int:
+        received.append(args.db)
+        return 0
+
+    monkeypatch.setattr(cli, "run", run)
+    assert invoke(monkeypatch, "db") == 0
+    assert received[-1] == str(expected)
     monkeypatch.chdir(tmp_path)
-    assert cli.parser().parse_args(["prs"]).db == str(expected)
+    assert invoke(monkeypatch, "prs") == 0
+    assert received[-1] == str(expected)
     assert not (tmp_path / "data").exists()
 
 
@@ -104,9 +114,16 @@ def test_delete_failure_is_reported(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert invoke(monkeypatch, "--db", str(tmp_path), "db", "delete", "--yes") == 1
-    assert "Error:" in capsys.readouterr().err
-    assert tmp_path.is_dir()
+    path = tmp_path / "index.sqlite"
+    path.write_bytes(b"keep on failure")
+
+    def denied(_self: Path, **_kwargs: object) -> None:
+        raise PermissionError("Deletion denied")
+
+    monkeypatch.setattr(Path, "unlink", denied)
+    assert invoke(monkeypatch, "--db", str(path), "db", "delete", "--yes") == 1
+    assert "Deletion denied" in capsys.readouterr().err
+    assert path.read_bytes() == b"keep on failure"
 
 
 @pytest.mark.parametrize("args", [("path",), ("delete", "--yes")])

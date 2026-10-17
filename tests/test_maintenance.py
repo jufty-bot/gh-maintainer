@@ -1,12 +1,12 @@
 """Offline maintenance workflows, conversation coverage, and processing freshness."""
 
 import asyncio
-import io
 import json
 from datetime import timedelta
 from pathlib import Path
 
 import pytest
+from click.testing import CliRunner
 from sqlalchemy import select
 
 from gh_maintainer import cli
@@ -273,7 +273,6 @@ async def test_current_rank_order_and_analysis_writes_are_local(
 async def test_complete_cli_workflow_offline(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     path = tmp_path / "workflow.sqlite"
     database = Database(path)
@@ -290,12 +289,15 @@ async def test_complete_cli_workflow_offline(
 
     monkeypatch.setattr(cli, "resolve_token", no_credentials)
 
-    async def command(*options: str) -> dict:
-        args = cli.parser().parse_args(
-            ["--db", str(path), *options, "--format", "json"]
+    async def command(*options: str, input_text: str | None = None) -> dict:
+        result = await asyncio.to_thread(
+            CliRunner().invoke,
+            cli.main,
+            ["--db", str(path), *options, "--format", "json"],
+            input=input_text,
         )
-        assert await cli.run(args) == 0
-        return json.loads(capsys.readouterr().out)
+        assert result.exit_code == 0, result.output
+        return json.loads(result.stdout)
 
     assert (await command("prs"))["total"] == 1
     assert (await command("status"))["total"] == 2
@@ -308,9 +310,18 @@ async def test_complete_cli_workflow_offline(
     await command(
         "classify", "I_2", "bug", "urgent", "--revision", str(item["revision"])
     )
-    monkeypatch.setattr("sys.stdin", io.StringIO("A useful summary\nwith details"))
-    await command("summarize", "I_2", "-", "--producer", "agent/v1")
+    await command(
+        "summarize",
+        "I_2",
+        "-",
+        "--producer",
+        "agent/v1",
+        input_text="A useful summary\nwith details",
+    )
     await command("rank", "I_2", "90", "--reason", "High impact")
+    await command(
+        "triage", "I_2", "snoozed", "--until", (now() + timedelta(days=1)).isoformat()
+    )
     await command("triage", "owner/project#2", "planned", "--note", "Reproduce")
     assert (
         await command("prs", "--classification", "bug", "--disposition", "planned")
@@ -319,14 +330,25 @@ async def test_complete_cli_workflow_offline(
     assert (await command("prs", "--unprocessed"))["total"] == 0
     assert (await command("changes", "I_2"))["total"] == 0
     assert (await command("changes", "I_2", "--all"))["total"] > 0
+    assert (
+        await command("changes", "--since", (now() + timedelta(days=1)).isoformat())
+    )["total"] == 0
     detail = (await command("show", "I_2"))["item"]
     assert detail["summary"]["producer"] == "agent/v1"
     assert detail["ranking"]["score"] == 90
     assert detail["note"] == "Reproduce"
-    with pytest.raises(ValueError, match="Unknown item"):
-        await command("show", "owner/project#999")
-    with pytest.raises(ValueError):
-        await command("comments", "I_2", "--limit", "0")
+    assert detail["summary"]["text"] == "A useful summary\nwith details"
+    for options, code, message in (
+        (["show", "owner/project#999"], 1, "Unknown item"),
+        (["comments", "I_2", "--limit", "0"], 2, "--limit"),
+        (["triage", "I_2", "done", "--revision", "999"], 1, "Item changed"),
+    ):
+        result = await asyncio.to_thread(
+            CliRunner().invoke, cli.main, ["--db", str(path), *options]
+        )
+        assert result.exit_code == code, result.output
+        assert message in result.stderr
+        assert not result.stdout
 
 
 @pytest.mark.parametrize("coverage", ["missing", "failed"])

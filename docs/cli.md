@@ -4,6 +4,23 @@ Run `gh-maintainer sync` to fetch GitHub data. The commands below read or write 
 SQLite index and work without credentials. They do not change GitHub labels, comments,
 or item state. Prefix commands with `uv run` when working from this checkout.
 
+## Help and command discovery
+
+The CLI uses Click. Run `gh-maintainer --help` (or `-h`) to see commands and their
+descriptions; add `--help` to any command for its arguments, options, and defaults.
+`gh-maintainer --version` prints the installed version. Running without a command
+shows help and exits 2. Help and version checks do not open the database or use credentials.
+
+```bash
+gh-maintainer --help
+gh-maintainer sync --help
+gh-maintainer prs -h
+gh-maintainer --version
+```
+
+`--db PATH` works before or after the command. A command-level path takes precedence
+over a root-level path, then `GH_MAINTAINER_DB`, then the platform user data directory (see [database management](#manage-the-database)).
+
 ## Inspect repositories, PRs, and issues
 
 ```bash
@@ -48,6 +65,8 @@ Classifications are local labels; repeating the command replaces the saved label
 Higher ranks sort first. Stale ranks are excluded from rank ordering, and stale
 classifications are excluded from classification filters. The default priority order
 still uses the built-in maintenance rules.
+For a negative score, place options before `--`, for example
+`gh-maintainer rank OWNER/REPO#42 --reason 'Low impact' -- -10`.
 
 Each analysis record stores its producer, reason, source revision, and save time. Use
 `--producer` to identify an agent, rule, or model version. A source revision change makes
@@ -82,6 +101,7 @@ New observed source activity advances the item revision and makes it pending aga
 since processing; `processed` selects acknowledged revisions. `pending` and the
 `--unprocessed` shortcut include both never-processed and changed items. Use `--state all`
 to include newly closed or merged items.
+`--unprocessed` and `--processing` are mutually exclusive.
 
 `changes [ITEM]` defaults to observations after each item's processing checkpoint.
 It includes initial indexing for never-processed items. Use `--all` for retained history
@@ -106,10 +126,12 @@ records; `total` always describes the matching set. `repos` returns the small in
 overview rather than a paginated item list. `show` includes the latest 50 observations;
 use `changes` to paginate the full history.
 
-Successful commands, including empty lists, exit 0. Argument parsing errors exit 2; unknown
-items, validation failures, stale writes, and runtime failures exit 1 with an error on
-stderr. Sync retains its complete/partial JSON contract and exits nonzero on partial
-coverage. Use `--db PATH` or `GH_MAINTAINER_DB` to choose the index.
+Successful commands, including empty lists, exit 0. Invalid arguments, option conflicts,
+pagination bounds, watch intervals below 60 seconds, and malformed timestamps exit 2
+before opening the database. Unknown items, invalid analysis or triage decisions,
+stale writes, and runtime failures exit 1 with an error on stderr. Interrupting a running
+command exits 130. Sync retains its complete/partial JSON contract and exits nonzero on
+partial coverage; progress goes to stderr, keeping stdout available for JSON.
 
 
 ## Manage the database

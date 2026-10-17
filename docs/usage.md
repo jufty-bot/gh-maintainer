@@ -21,6 +21,9 @@ incremental; repository discovery runs every time. The default database is
 `XDG_DATA_HOME`). `--db PATH` or `GH_MAINTAINER_DB` selects another index.
 Run `gh-maintainer db path` to see the absolute path without creating a file.
 See [database management](cli.md#manage-the-database) for deletion and existing indexes.
+Run `uv run gh-maintainer --help` to discover commands and
+`uv run gh-maintainer COMMAND --help` to see options and defaults. The Click CLI also
+supports `-h` and `--version`; see [CLI help and discovery](cli.md#help-and-command-discovery).
 
 ### Select repositories
 
@@ -170,7 +173,8 @@ checkpoints are per repository; interrupted backfills restart that repository.
 
 ## Database migrations and compatibility
 
-All commands initialize the database through packaged Alembic migrations. The baseline
+Commands that open an index initialize it through packaged Alembic migrations;
+database path/deletion commands do not open it. The baseline
 validates and adopts the original schema without rewriting source records, observations,
 triage notes, or checkpoints. Unknown schemas are rejected. Back up the SQLite file using
 its backup API before upgrading an existing deployment.

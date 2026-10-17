@@ -26,11 +26,15 @@ Evidence: command entry point in `cli.py`, query/write boundaries in `queries.py
 
 **Decision:** Use Pydantic for validated source/output contracts, SQLAlchemy with aiosqlite
 for typed SQLite persistence, Alembic for migrations, and PyGithub for GitHub access.
-Argparse supplies the current CLI; FastAPI supplies the optional dashboard API.
+Click supplies command discovery, help, parameter validation, and version output;
+FastAPI supplies the optional dashboard API. Click replaces the original argparse entry
+point while preserving command names and output schemas, including database management.
 
 **Why:** Libraries own validation, ORM mapping, pagination/transport, and schema upgrades
 instead of duplicating them in project code. Prefer extending existing modules and
 dependencies to adding general frameworks. Preserve the project's Python 3.10 support.
+Click keeps parsing separate from the existing async services and reports invalid
+parameters before database initialization. Boundary tests exercise the real command entry.
 
 **Tradeoff:** SQLAlchemy models and Pydantic snapshots have distinct roles, and migrations
 must still be reviewed. PyGithub is synchronous; the adapter runs all SDK work, including
@@ -133,7 +137,8 @@ comment-without-parent-update and stale-write tests in `tests/test_maintenance.p
 
 ## D8. Incremental schema upgrades preserve existing data
 
-**Decision:** All commands initialize through packaged Alembic migrations. The initial
+**Decision:** Commands that open an index initialize through packaged Alembic migrations;
+database path/deletion commands do not open it. The initial
 migration validates/adopts a known legacy schema; subsequent revisions add owner scopes,
 conversations, analysis, and processing without rewriting the original source values.
 

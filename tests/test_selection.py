@@ -5,10 +5,10 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
+from click.testing import CliRunner
 from sqlalchemy import select
 
 from gh_maintainer import cli
-from gh_maintainer.cli import parser
 from gh_maintainer.database import Database
 from gh_maintainer.github import GitHubError
 from gh_maintainer.models import RepositoryOwner, SyncRun
@@ -33,25 +33,6 @@ OTHER: JsonObject = {
     "private": False,
 }
 TEAM = AccountSnapshot(id="88", login="team", kind="Organization")
-
-
-def test_cli_selection_validation() -> None:
-    for command in ("sync", "watch"):
-        selected = parser().parse_args(
-            [command, "--repo", "Owner/Project", "--repo", "TEAM/Another"]
-        )
-        assert selected.repo == ["owner/project", "team/another"]
-        assert parser().parse_args([command, "--owner", "TEAM"]).owner == "team"
-        for options in (
-            ["--repo", "owner/project", "--owner", "owner"],
-            ["--repo", "https://github.com/owner/project"],
-            ["--repo", "owner/.."],
-            ["--repo", "owner/project/extra"],
-            ["--owner", "owner/project"],
-        ):
-            with pytest.raises(SystemExit) as error:
-                parser().parse_args([command, *options])
-            assert error.value.code == 2
 
 
 @pytest.mark.anyio
@@ -209,12 +190,10 @@ async def test_service_rejects_conflicting_scopes(database: Database) -> None:
             await SyncService(database, FakeSource()).run(**options)
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize("explicit", [False, True])
-async def test_cli_selection_output_and_exit_status(
+def test_cli_selection_output_and_exit_status(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
     explicit: bool,
 ) -> None:
     class Source(FakeSource):
@@ -233,11 +212,13 @@ async def test_cli_selection_output_and_exit_status(
     monkeypatch.setattr(cli, "resolve_token", token)
     monkeypatch.setattr(cli, "PyGithubSource", lambda _token: source)
     selection = ["--repo", "owner/missing"] if explicit else ["--owner", "team"]
-    args = parser().parse_args(
-        ["--db", str(tmp_path / "cli.sqlite"), "sync", *selection]
+    result = CliRunner().invoke(
+        cli.main, ["--db", str(tmp_path / "cli.sqlite"), "sync", *selection]
     )
-    assert await cli.run(args) == (1 if explicit else 0)
-    result = json.loads(capsys.readouterr().out)
-    assert result["scope"] == ("repositories" if explicit else "owner")
-    assert result["status"] == ("partial" if explicit else "complete")
+    assert result.exit_code == (1 if explicit else 0), result.output
+    data = json.loads(result.stdout)
+    assert data["scope"] == ("repositories" if explicit else "owner")
+    assert data["status"] == ("partial" if explicit else "complete")
+    if not explicit:
+        assert "team/another" in result.stderr
     assert source.closed

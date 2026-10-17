@@ -89,6 +89,16 @@ Evidence: [CLI workflows and output contracts](cli.md), the offline workflow in
 [maintenance tests](https://github.com/jufty-bot/gh-maintainer/blob/main/tests/test_maintenance.py),
 and existing SQL pagination/parity tests.
 
+- [x] Replace argparse with Click, add descriptive help/defaults and version output,
+  validate arguments before storage initialization, and preserve command/output contracts.
+  Evidence: [Click entry point](https://github.com/jufty-bot/gh-maintainer/blob/main/src/gh_maintainer/cli.py),
+  [CLI boundary tests](https://github.com/jufty-bot/gh-maintainer/blob/main/tests/test_cli.py),
+  and the offline workflow in the maintenance tests now invoke the real Click commands.
+  Focused validation: `uv run pytest tests/test_cli.py tests/test_cli_db.py tests/test_selection.py tests/test_maintenance.py -q`
+  passed all 60 tests. Full validation after integrating current main:
+  `uv run --locked pytest -q` passed all 94 tests;
+  Ruff lint/format, mypy, strict MkDocs, `uv build`, and `git diff --check` passed.
+
 ## 4. Persisted analysis and triage
 
 Acceptance criteria: [roadmap milestone 4](roadmap.md#4-persist-summaries-classifications-rankings-and-triage).

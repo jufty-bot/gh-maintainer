@@ -103,7 +103,7 @@ their existing modules; a new feature does not normally need a new service frame
 | Storage or migration | `models.py`, a new packaged Alembic revision | `tests/test_migrations.py` and relevant SQLite integration tests |
 | Query/filter/priority behavior | `queries.py`, `policies.py` | `tests/test_reports_web.py` checks SQL/pure-policy parity; maintenance tests cover freshness |
 | Database location/file management | `database.default_path`, `cli.py`, `migrations/env.py` | `tests/test_cli_db.py` covers defaults, overrides, and deletion |
-| CLI or JSON behavior | `cli.py`, `schemas.py`, the query/write services | `tests/test_maintenance.py` covers an offline command workflow |
+| CLI or JSON behavior | `cli.py`, `schemas.py`, the query/write services | `tests/test_cli.py` and `tests/test_cli_db.py` cover the command boundary; `tests/test_maintenance.py` covers an offline workflow |
 | Agent skills | Planned skill instructions and fixtures; public CLI calls | Skill evaluations described in the [skills plan](agent-skills.md) |
 
 `tests/fakes.py` is the token-free source implementation for sync tests. `demo.py` supplies

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
+import click
 import uvicorn
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -32,192 +33,354 @@ from gh_maintainer.web import create_app
 
 
 def output(text: str) -> None:
-    sys.stdout.write(text + "\n")
+    click.echo(text)
 
 
 def progress(text: str) -> None:
-    sys.stderr.write(text + "\n")
+    click.echo(text, err=True)
 
 
-def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser(
-        description="Index and maintain GitHub repositories in SQLite."
-    )
-    root.add_argument(
-        "--db",
-        default=default_path(),
-        help="SQLite path (GH_MAINTAINER_DB or the platform user data directory).",
-    )
-    commands = root.add_subparsers(dest="command", required=True)
-    for name in (
-        "sync",
-        "watch",
-        "report",
-        "serve",
-        "triage",
-        "demo",
-        "migrate",
-        "prs",
-        "issues",
-        "show",
-        "comments",
-        "status",
-        "changes",
-        "repos",
-        "classify",
-        "summarize",
-        "rank",
-        "mark-processed",
-        "db",
-    ):
-        command = commands.add_parser(name)
-        command.add_argument("--db", default=argparse.SUPPRESS)
-        if name == "db":
-            actions = command.add_subparsers(dest="db_action")
-            command.set_defaults(db_action="path")
-            for action in ("path", "delete"):
-                operation = actions.add_parser(action)
-                operation.add_argument("--db", default=argparse.SUPPRESS)
-                if action == "delete":
-                    operation.add_argument(
-                        "--yes",
-                        action="store_true",
-                        required=True,
-                        help="Confirm deletion, including local analysis and triage.",
-                    )
+@click.group(
+    name="gh-maintainer",
+    context_settings={"help_option_names": ["-h", "--help"], "show_default": True},
+    epilog="Start with sync to index GitHub, then use prs, issues, or repos offline.",
+)
+@click.version_option(package_name="gh-maintainer")
+@click.option(
+    "--db",
+    type=click.Path(dir_okay=False),
+    default=default_path,
+    show_default="platform user data directory",
+    envvar="GH_MAINTAINER_DB",
+    show_envvar=True,
+    help="SQLite index path (also accepted after the command).",
+)
+@click.pass_context
+def main(ctx: click.Context, db: str) -> None:
+    """Index and maintain GitHub repositories in SQLite.
+
+    Sync reads GitHub; queries, analysis, and triage use the local index.
+    """
+    ctx.obj = db
+
+
+@main.group("db", invoke_without_command=True)
+@click.option(
+    "--db",
+    type=click.Path(dir_okay=False),
+    help="Override the SQLite index path for this command.",
+)
+@click.pass_context
+def db_command(ctx: click.Context, db: str | None) -> None:
+    """Show the selected database path or delete the local index.
+
+    No subcommand prints the path. Stop sync, watch, and serve before deleting.
+    """
+    ctx.obj = db or ctx.obj
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(execute, command="db", db_action="path")
+
+
+@db_command.command("path")
+@click.option(
+    "--db", type=click.Path(dir_okay=False), help="Override the SQLite index path."
+)
+@click.pass_context
+def db_path(ctx: click.Context, db: str | None) -> None:
+    """Print the absolute database path without opening or creating it."""
+    ctx.invoke(execute, command="db", db=db, db_action="path")
+
+
+@db_command.command("delete")
+@click.option(
+    "--db", type=click.Path(dir_okay=False), help="Override the SQLite index path."
+)
+@click.option(
+    "--yes", is_flag=True, help="Confirm deletion, including all local decisions."
+)
+@click.pass_context
+def db_delete(ctx: click.Context, db: str | None, yes: bool) -> None:
+    """Delete the selected database and its SQLite sidecars.
+
+    Stop sync, watch, and serve first. Requires --yes. This discards all indexed
+    history, local notes, analysis, and processing state.
+    """
+    if not yes:
+        raise click.UsageError(
+            "Pass --yes to confirm deletion of the local index.", ctx
+        )
+    ctx.invoke(execute, command="db", db=db, db_action="delete")
+
+
+@click.pass_context
+def execute(ctx: click.Context, **options: object) -> None:
+    """Bridge Click parameters to the async application lifecycle."""
+    if ctx.info_name in {"sync", "watch"}:
+        if options.get("repo") and options.get("owner"):
+            raise click.UsageError("--repo and --owner cannot be combined.", ctx)
+    if ctx.info_name == "changes" and options.get("since") and options.get("all"):
+        raise click.UsageError("--since and --all cannot be combined.", ctx)
+    if options.pop("unprocessed", False):
+        if options.get("processing"):
+            raise click.UsageError(
+                "--unprocessed and --processing cannot be combined.", ctx
+            )
+        options["processing"] = "pending"
+    options["db"] = options.get("db") or ctx.obj
+    args = SimpleNamespace(command=options.pop("command", ctx.info_name), **options)
+    try:
+        if args.command == "serve":
+            uvicorn.run(create_app(args.db), host=args.host, port=args.port)
+            code = 0
+        else:
+            code = asyncio.run(run(args))
+    except KeyboardInterrupt:
+        ctx.exit(130)
+    except (RuntimeError, ValueError, OSError, SQLAlchemyError) as error:
+        raise click.ClickException(str(error)) from error
+    ctx.exit(code)
+
+
+def register_commands() -> None:
+    """Share option contracts while keeping command help self-contained."""
+    descriptions = {
+        "sync": "Fetch issues, PRs, and conversations from GitHub into SQLite.",
+        "watch": "Sync immediately, then repeat at a fixed interval.",
+        "report": "Export the full portfolio as Markdown or JSON.",
+        "serve": "Serve the local dashboard and read-only API.",
+        "triage": "Save a local disposition and note without changing GitHub.",
+        "demo": "Populate the index with sample data, without credentials.",
+        "migrate": "Create or upgrade the SQLite database schema.",
+        "prs": "List indexed pull requests (open by default).",
+        "issues": "List indexed issues (open by default).",
+        "show": "Show an item's body, coverage, analysis, and triage.",
+        "comments": "Read an item's conversation, inline comments, and reviews.",
+        "status": "List PRs in all states with signals and processing status.",
+        "changes": "List observed activity since processing, or retained history.",
+        "repos": "Show indexed repositories and synchronization coverage.",
+        "classify": "Replace an item's saved local classification labels.",
+        "summarize": "Save supplied summary TEXT; use - to read from stdin.",
+        "rank": "Save a supplied rank SCORE; higher values sort first.",
+        "mark-processed": "Acknowledge an item's current source revision.",
+    }
+    for name, summary in descriptions.items():
+        description = summary
+        params: list[click.Parameter] = [
+            click.Option(
+                ["--db"],
+                type=click.Path(dir_okay=False),
+                help="Override the SQLite index path for this command.",
+            )
+        ]
         if name in {"sync", "watch"}:
-            command.add_argument(
-                "--full", action="store_true", help="Reconcile all historical items."
-            )
-            selection = command.add_mutually_exclusive_group()
-            selection.add_argument(
-                "--repo",
-                action="append",
-                type=repository_name,
-                help="Sync owner/repository directly (repeatable, across owners).",
-            )
-            selection.add_argument(
-                "--owner",
-                type=owner_name,
-                help="Sync repositories belonging to this user or organization.",
-            )
+            params += [
+                click.Option(
+                    ["--full"], is_flag=True, help="Reconcile all historical items."
+                ),
+                click.Option(
+                    ["--repo"],
+                    multiple=True,
+                    type=repository_name,
+                    metavar="OWNER/REPO",
+                    help="Sync directly (repeatable, across owners); excludes --owner.",
+                ),
+                click.Option(
+                    ["--owner"],
+                    type=owner_name,
+                    metavar="LOGIN",
+                    help="Sync this user or organization; excludes --repo.",
+                ),
+            ]
         if name == "watch":
-            command.add_argument(
-                "--interval",
-                type=int,
-                default=900,
-                help="Seconds between syncs (minimum 60).",
+            params.append(
+                click.Option(
+                    ["--interval"],
+                    type=click.IntRange(min=60),
+                    default=900,
+                    help="Seconds between syncs.",
+                )
             )
         if name == "report":
-            command.add_argument(
-                "--format", choices=("markdown", "json"), default="markdown"
-            )
-            command.add_argument("--output", type=Path)
+            params += [
+                click.Option(
+                    ["--format"],
+                    type=click.Choice(["markdown", "json"]),
+                    default="markdown",
+                    help="Report output format.",
+                ),
+                click.Option(
+                    ["--output"],
+                    type=click.Path(dir_okay=False, path_type=Path),
+                    help="Write to this file instead of stdout.",
+                ),
+            ]
         if name == "serve":
-            command.add_argument("--host", default="127.0.0.1")
-            command.add_argument("--port", type=int, default=8765)
+            params += [
+                click.Option(["--host"], default="127.0.0.1", help="Address to bind."),
+                click.Option(
+                    ["--port"],
+                    type=click.IntRange(1, 65535),
+                    default=8765,
+                    help="Port to listen on.",
+                ),
+            ]
+        if name not in {"sync", "watch", "report", "serve", "demo", "migrate"}:
+            params.append(
+                click.Option(
+                    ["--format"],
+                    type=click.Choice(["text", "json"]),
+                    default="text",
+                    help="Output format; JSON is a single object.",
+                )
+            )
+        if name in {"prs", "issues", "status", "comments", "changes"}:
+            params += [
+                click.Option(
+                    ["--limit"],
+                    type=click.IntRange(1, 500),
+                    default=100,
+                    help="Maximum records per page.",
+                ),
+                click.Option(
+                    ["--offset"],
+                    type=click.IntRange(min=0),
+                    default=0,
+                    help="Number of matching records to skip.",
+                ),
+            ]
+        if name in {"prs", "issues", "status"}:
+            params += [
+                click.Option(
+                    ["--repo"],
+                    type=repository_name,
+                    metavar="OWNER/REPO",
+                    help="Filter by repository.",
+                ),
+                click.Option(
+                    ["--state"],
+                    type=click.Choice(["open", "closed", "merged", "all"]),
+                    default="all" if name == "status" else "open",
+                    help="Filter by GitHub state.",
+                ),
+                click.Option(["--search"], default="", help="Search item titles."),
+                click.Option(
+                    ["--disposition"],
+                    type=click.Choice([v.value for v in Disposition]),
+                    help="Filter by local triage disposition.",
+                ),
+                click.Option(
+                    ["--processing"],
+                    type=click.Choice(
+                        ["unprocessed", "changed", "processed", "pending"]
+                    ),
+                    help="Filter by processing status; excludes --unprocessed.",
+                ),
+                click.Option(
+                    ["--unprocessed"],
+                    is_flag=True,
+                    help="Include new items and items changed since processing.",
+                ),
+                click.Option(
+                    ["--classification"], help="Filter by a current local label."
+                ),
+                click.Option(
+                    ["--sort"],
+                    type=click.Choice(["priority", "updated", "rank"]),
+                    default="priority",
+                    help="Order matching items.",
+                ),
+            ]
         if name in {
-            "prs",
-            "issues",
-            "status",
             "show",
             "comments",
-            "changes",
-            "repos",
             "classify",
             "summarize",
             "rank",
             "mark-processed",
             "triage",
+            "changes",
         }:
-            command.add_argument("--format", choices=("text", "json"), default="text")
-        if name in {"prs", "issues", "status", "comments", "changes"}:
-            command.add_argument("--limit", type=int, default=100)
-            command.add_argument("--offset", type=int, default=0)
-        if name in {"prs", "issues", "status"}:
-            command.add_argument("--repo", type=repository_name)
-            command.add_argument(
-                "--state",
-                choices=("open", "closed", "merged", "all"),
-                default="all" if name == "status" else "open",
-            )
-            command.add_argument("--search", default="")
-            command.add_argument(
-                "--disposition", choices=[value.value for value in Disposition]
-            )
-            command.add_argument(
-                "--processing",
-                choices=("unprocessed", "changed", "processed", "pending"),
-            )
-            command.add_argument(
-                "--unprocessed",
-                dest="processing",
-                action="store_const",
-                const="pending",
-                help="Include new items and items changed since processing.",
-            )
-            command.add_argument("--classification")
-            command.add_argument(
-                "--sort", choices=("priority", "updated", "rank"), default="priority"
-            )
-        if name in {
-            "show",
-            "comments",
-            "classify",
-            "summarize",
-            "rank",
-            "mark-processed",
-        }:
-            command.add_argument(
-                "item_id", help="owner/repository#number or issue node ID."
+            params.append(click.Argument(["item_id"], required=name != "changes"))
+            description += (
+                "\n\nITEM_ID accepts OWNER/REPO#NUMBER or the stored issue node ID."
             )
         if name in {"classify", "summarize", "rank", "mark-processed", "triage"}:
-            command.add_argument(
-                "--revision", type=int, help="Reject the write if the item has changed."
+            params.append(
+                click.Option(
+                    ["--revision"],
+                    type=click.IntRange(min=1),
+                    help="Reject the write if the source revision has changed.",
+                )
             )
         if name in {"classify", "summarize", "rank"}:
-            command.add_argument("--producer", default="manual")
-            command.add_argument("--reason", default="")
+            params += [
+                click.Option(
+                    ["--producer"], default="manual", help="Result producer/version."
+                ),
+                click.Option(
+                    ["--reason"], default="", help="Reason or supporting evidence."
+                ),
+            ]
         if name == "classify":
-            command.add_argument("labels", nargs="+")
+            params.append(click.Argument(["labels"], nargs=-1, required=True))
         if name == "summarize":
-            command.add_argument("text", help="Summary text, or - to read from stdin.")
+            params.append(click.Argument(["text"]))
         if name == "rank":
-            command.add_argument("score", type=float, help="Higher values sort first.")
+            params.append(click.Argument(["score"], type=float))
         if name == "mark-processed":
-            command.add_argument("--actor", default="manual")
+            params.append(
+                click.Option(
+                    ["--actor"], default="manual", help="Who reviewed the item."
+                )
+            )
         if name == "comments":
-            command.add_argument("--include-unavailable", action="store_true")
+            params.append(
+                click.Option(
+                    ["--include-unavailable"],
+                    is_flag=True,
+                    help="Include records absent from the latest complete listing.",
+                )
+            )
         if name == "changes":
-            command.add_argument("item_id", nargs="?")
-            selection = command.add_mutually_exclusive_group()
-            selection.add_argument("--since", type=parse_date)
-            selection.add_argument(
-                "--all",
-                action="store_true",
-                help="Include already acknowledged changes.",
-            )
+            params += [
+                click.Option(
+                    ["--since"],
+                    type=parse_date,
+                    metavar="TIMESTAMP",
+                    help="Since an ISO timestamp with timezone; excludes --all.",
+                ),
+                click.Option(
+                    ["--all"],
+                    is_flag=True,
+                    help="Include already acknowledged changes; excludes --since.",
+                ),
+            ]
         if name == "triage":
-            command.add_argument(
-                "item_id",
-                help="owner/repository#number or issue node ID.",
-            )
-            command.add_argument(
-                "disposition",
-                choices=("inbox", "planned", "waiting", "snoozed", "done"),
-            )
-            command.add_argument("--note", default="")
-            command.add_argument(
-                "--until", help="ISO timestamp with timezone, required when snoozing."
-            )
-    return root
+            params += [
+                click.Argument(
+                    ["disposition"], type=click.Choice([v.value for v in Disposition])
+                ),
+                click.Option(["--note"], default="", help="Local maintenance note."),
+                click.Option(
+                    ["--until"],
+                    type=parse_date,
+                    metavar="TIMESTAMP",
+                    help="ISO timestamp with timezone, required when snoozing.",
+                ),
+            ]
+        main.add_command(
+            click.Command(name, help=description, params=params, callback=execute)
+        )
 
 
-def display(data: Contract, text: str, args: argparse.Namespace) -> None:
+register_commands()
+
+
+def display(data: Contract, text: str, args: SimpleNamespace) -> None:
     output(data.model_dump_json(indent=2) if args.format == "json" else text)
 
 
-async def read_command(database: Database, args: argparse.Namespace) -> None:
+async def read_command(database: Database, args: SimpleNamespace) -> None:
     async with database.sessions() as session:
         query = CatalogQueries(session)
         if args.command in {"prs", "issues", "status"}:
@@ -349,7 +512,7 @@ async def read_command(database: Database, args: argparse.Namespace) -> None:
             display(overview, "\n".join(lines), args)
 
 
-async def run(args: argparse.Namespace) -> int:
+async def run(args: SimpleNamespace) -> int:
     if args.command == "db":
         if args.db == ":memory:":
             raise ValueError("An in-memory database has no file to manage.")
@@ -366,8 +529,6 @@ async def run(args: argparse.Namespace) -> int:
     try:
         await database.initialize()
         if args.command in {"sync", "watch"}:
-            if args.command == "watch" and args.interval < 60:  # noqa: PLR2004
-                raise ValueError("Watch interval must be at least 60 seconds.")
             source = PyGithubSource(await resolve_token())
             try:
                 while True:
@@ -420,12 +581,11 @@ async def run(args: argparse.Namespace) -> int:
             )
             display(processed, f"Marked revision {processed.revision} processed.", args)
         elif args.command == "triage":
-            until = parse_date(args.until) if args.until else None
             await TriageService(database).decide(
                 args.item_id,
                 Disposition(args.disposition),
                 args.note,
-                until,
+                args.until,
                 revision=args.revision,
             )
             if args.format == "json":
@@ -457,19 +617,3 @@ async def run(args: argparse.Namespace) -> int:
     finally:
         await database.close()
     return 0
-
-
-def main() -> None:
-    try:
-        args = parser().parse_args()
-        if args.command == "serve":
-            uvicorn.run(create_app(args.db), host=args.host, port=args.port)
-            code = 0
-        else:
-            code = asyncio.run(run(args))
-    except KeyboardInterrupt:
-        code = 130
-    except (RuntimeError, ValueError, OSError, SQLAlchemyError) as error:
-        sys.stderr.write(f"Error: {error}\n")
-        code = 1
-    sys.exit(code)
