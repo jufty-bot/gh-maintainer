@@ -165,12 +165,10 @@ watch interval (minimum 60) in `cli.py`. SDK retry waits beyond 30 seconds are d
 a later sync. The SDK owns HTTP pagination/retries; `source_calls` counts adapter operations,
 not exact HTTP requests.
 
-The sync service uses standard Python logging for run IDs, repository names, fetch
-progress, counts, elapsed time, and errors. The CLI configures RichHandler on the
-`gh_maintainer` logger for `sync` and `watch`, with a stderr console and Rich tracebacks.
-Root handlers are preserved; propagation is disabled to prevent duplicate output.
-JSON command results remain on stdout. Repository completion events follow successful
-commits, and partial runs emit a warning.
+The sync service emits structlog events with run and repository context, fetch progress,
+counts, elapsed time, and errors. The CLI configures human-readable console rendering on
+stderr for `sync` and `watch`; JSON command results remain on stdout. Repository completion
+events follow successful commits, and partial runs emit a warning.
 
 ## Querying and triage
 

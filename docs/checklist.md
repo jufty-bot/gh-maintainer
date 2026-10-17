@@ -28,16 +28,14 @@ These references establish the starting inventory; they do not record a fresh te
 
 ## Sync logging
 
-- [x] Use standard Python logging with RichHandler on stderr for `sync` and `watch`, preserving
+- [x] Use structlog with readable text on stderr for `sync` and `watch`, preserving
   JSON results on stdout. Include run/repository context, fetch progress, counts,
   elapsed time, and explicit warnings/errors for partial or failed syncs.
 
 Evidence: `logging.py`, `sync.py`, `cli.py`, and
 [logging contract tests](https://github.com/jufty-bot/gh-maintainer/blob/main/tests/test_logging.py).
-Validation after replacing structlog with RichHandler: all 100 tests passed, including
-six logging cases covering progress, errors, stderr/stdout separation, literal brackets,
-tracebacks, and duplicate prevention. Ruff lint/format, mypy, strict MkDocs, `uv build`,
-and `git diff --check` passed.
+Validation after integrating current main: all 99 tests passed, including five logging
+cases. Ruff lint/format, mypy, strict MkDocs, `uv build`, and `git diff --check` passed.
 See [sync usage](usage.md#select-repositories) for output streams and coverage.
 
 ## Database file management

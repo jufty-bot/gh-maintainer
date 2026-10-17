@@ -36,11 +36,6 @@ dependencies to adding general frameworks. Preserve the project's Python 3.10 su
 Click keeps parsing separate from the existing async services and reports invalid
 parameters before database initialization. Boundary tests exercise the real command entry.
 
-Sync logging uses Python's standard logger with RichHandler for readable stderr output
-and formatted tracebacks. Rich replaces structlog; progress and failures are ordinary
-log messages, while JSON command results stay on stdout. Only the application's logger
-is configured, preserving root handlers installed by callers and other libraries.
-
 **Tradeoff:** SQLAlchemy models and Pydantic snapshots have distinct roles, and migrations
 must still be reviewed. PyGithub is synchronous; the adapter runs all SDK work, including
 lazy pagination, on one dedicated worker thread. Library behavior needs adapter tests.
