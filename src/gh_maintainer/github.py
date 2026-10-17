@@ -68,8 +68,11 @@ async def resolve_token() -> str:
 class GitHubSource(Protocol):
     calls: int
 
-    async def account(self) -> AccountSnapshot: ...
-    def repositories(self) -> AsyncIterator[list[RepositorySnapshot]]: ...
+    async def account(self, login: str | None = None) -> AccountSnapshot: ...
+    async def repository(self, name: str) -> RepositorySnapshot: ...
+    def repositories(
+        self, owner: AccountSnapshot | None = None
+    ) -> AsyncIterator[list[RepositorySnapshot]]: ...
     def issues(
         self, repo: RepositorySnapshot, since: datetime | None
     ) -> AsyncIterator[list[ItemSnapshot]]: ...
@@ -102,6 +105,7 @@ class PyGithubSource:
         )
         self.worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="github-sdk")
         self.calls = 0
+        self.authenticated: AccountSnapshot | None = None
 
     async def _call(self, function: Callable[[], T]) -> T:
         self.calls += 1
@@ -123,12 +127,25 @@ class PyGithubSource:
         await self._call(self.sdk.close)
         self.worker.shutdown(wait=False)
 
-    async def account(self) -> AccountSnapshot:
+    async def account(self, login: str | None = None) -> AccountSnapshot:
         def load() -> AccountSnapshot:
-            user = self.sdk.get_user()
-            return AccountSnapshot(id=str(user.id), login=user.login)
+            user = self.sdk.get_user(login) if login else self.sdk.get_user()
+            return AccountSnapshot(
+                id=str(user.id),
+                login=user.login,
+                kind="Organization" if user.type == "Organization" else "User",
+            )
 
-        return await self._call(load)
+        account = await self._call(load)
+        if login is None:
+            self.authenticated = account
+        return account
+
+    async def repository(self, name: str) -> RepositorySnapshot:
+        raw = await self._call(
+            lambda: JSON_OBJECT.validate_python(self.sdk.get_repo(name).raw_data)
+        )
+        return RepositorySnapshot.from_github(raw)
 
     async def _batches(
         self, iterator: Iterator[GithubObject]
@@ -141,12 +158,27 @@ class PyGithubSource:
                 return
             yield batch
 
-    async def repositories(self) -> AsyncIterator[list[RepositorySnapshot]]:
-        iterator = await self._call(
-            lambda: iter(
-                self.sdk.get_user().get_repos(affiliation="owner", sort="full_name")
+    async def repositories(
+        self, owner: AccountSnapshot | None = None
+    ) -> AsyncIterator[list[RepositorySnapshot]]:
+        def listing() -> Iterator[GithubObject]:
+            if owner is None or (
+                self.authenticated and owner.id == self.authenticated.id
+            ):
+                return iter(
+                    self.sdk.get_user().get_repos(affiliation="owner", sort="full_name")
+                )
+            if owner.kind == "Organization":
+                return iter(
+                    self.sdk.get_organization(owner.login).get_repos(
+                        type="all", sort="full_name"
+                    )
+                )
+            return iter(
+                self.sdk.get_user(owner.login).get_repos(type="owner", sort="full_name")
             )
-        )
+
+        iterator = await self._call(listing)
         async for batch in self._batches(iterator):
             # Validate ownership fields before committing any inventory changes.
             for raw in batch:

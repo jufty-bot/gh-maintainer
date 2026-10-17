@@ -38,9 +38,13 @@ ORM objects remain within persistence/query modules. JSON columns retain source 
 without manual JSON string encoding across services. State and triage disposition are
 separate enums. Item and repository URLs and names are display attributes, not identities.
 
-One database is bound to a stable personal owner ID. Login and repository renames update
-display names. Repository IDs and item node IDs retain identity. PR-specific node IDs are
-read from PR details for GraphQL enrichment.
+One database can contain repositories from multiple user and organization owners. `owners`
+stores stable account IDs and display logins; `repo_owners` records current repository
+membership. Successful complete inventories reconcile presence only within that owner's
+scope. Public-only inventories reconcile only known-public records; explicit lists only
+upsert their resolved repositories. Login changes and repository transfers retain IDs,
+source records, and local decisions. PR-specific node IDs come from PR details for GraphQL
+enrichment. Legacy owner metadata remains stored for compatibility.
 
 ## Async lifecycle and transactions
 
@@ -90,6 +94,9 @@ rejected transactionally. New databases are created with the versioned baseline.
 paths are tested, including concurrent startup, idempotent upgrades and exact preservation
 of every legacy table value.
 
+Migration `0002` adds `owners` and `repo_owners` and backfills membership from raw repository
+ownership or the legacy owner metadata. Existing tables and their values are preserved.
+
 SQLite permits legacy TEXT JSON, integer booleans, and primary-key declarations that do
 not explicitly repeat NOT NULL. Alembic comparison hooks recognize those existing storage
 declarations without proposing unrelated table rebuilds. Changed/missing keys and changed
@@ -105,8 +112,10 @@ can perform multiple HTTP requests; old counts remain stored in the original col
 
 Coverage is limited to repositories visible to the credential. This is a polling index;
 observations do not reconstruct transitions between polls or events before the first sync.
-Issue comments/review content and explicit owner/organization scopes are remaining baseline
-work. Webhooks, releases and security findings are later extensions. Initial staging is
+Issue comments/review content, CLI queries, and persisted analysis are remaining baseline
+work. Other users' named inventories use GitHub's public listing; explicit repository lists
+can index accessible private repositories across owners. Webhooks, releases and security
+findings are later extensions. Initial staging is
 still per repository; resumable disk-backed staging should precede very large backfills.
 Stored observations currently have no automatic retention policy. GitHub bodies remain
 untrusted and are rendered as plain text.

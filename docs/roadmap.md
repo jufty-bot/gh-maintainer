@@ -16,8 +16,8 @@ and update this roadmap's scope and current-status table as relevant changes lan
 
 | Baseline capability | Status | Remaining work |
 | --- | --- | --- |
-| Select an explicit repository list | Partial: repeatable `sync --repo` / `watch --repo` filters the authenticated user's owned inventory | Resolve selected repositories directly, including repositories across owners |
-| Select all repositories belonging to an owner | Partial: discovers repositories owned by the authenticated personal account | Accept an explicit user or organization owner |
+| Select an explicit repository list | Implemented: repeatable `sync --repo` / `watch --repo` resolves repositories directly across owners | Coverage remains limited to accessible repositories |
+| Select all repositories belonging to an owner | Implemented: `--owner` accepts users and organizations; default is the authenticated user | Other users' inventories are public-only; use explicit lists for accessible private repositories |
 | Ingest all issues and PRs | Implemented within the current inventory scope, including closed and merged items | Preserve coverage when expanding repository selection |
 | Ingest their comments | Missing: bodies and PR signal rollups are stored, comments are not | Backfill and incrementally refresh conversations and PR review content |
 | Incremental SQLite storage | Implemented for items: repository checkpoints, overlap, reconciliation, atomic commits, migrations | Extend those guarantees to comments and additional selection scopes |
@@ -25,8 +25,8 @@ and update this roadmap's scope and current-status table as relevant changes lan
 | Additional tables for analysis and triage | Partial: `triage` stores local decisions; ranking is computed at query time | Persist summaries, classifications, and rankings with provenance and freshness |
 | Agent skills for repository maintenance | Future focus | Build against the completed CLI baseline |
 
-The current tables are `metadata`, `repos`, `items`, `changes`, `triage`, and `runs`,
-plus Alembic's schema version table. There are no comment, summary, classification, or
+The current tables are `metadata`, `owners`, `repo_owners`, `repos`, `items`, `changes`,
+`triage`, and `runs`, plus Alembic's schema version table. There are no comment, summary, classification, or
 ranking tables yet. The dashboard and reports are useful consumers of the index; the
 baseline must also be usable entirely through the CLI.
 
@@ -39,9 +39,10 @@ repositories belonging to a named user or organization. Preserve the existing de
 of syncing the authenticated user's repositories. An explicit list must work across owners
 when the credential can access those repositories.
 
-The current database binds to one stable personal owner ID. Revisit that contract before
-adding mixed-owner lists, and migrate existing databases without losing records or local
-decisions. Keep repository IDs as identities across renames and transfers.
+This milestone is implemented. Databases now support multiple stable owner IDs and retain
+repository membership separately from source records. Migration `0002` adopts legacy owner
+metadata without rewriting existing records or local decisions. Repository IDs retain
+identity across renames and transfers.
 
 Completion criteria:
 

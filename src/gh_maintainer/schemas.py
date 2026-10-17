@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 from typing import Literal
 
@@ -37,6 +38,30 @@ class Person(BaseModel):
     login: str = Field(min_length=1)
 
 
+class OwnerPayload(Person):
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+    id: str = Field(min_length=1)
+    type: str = "User"
+
+
+def owner_name(value: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*", value):
+        raise ValueError("Expected a GitHub user or organization login.")
+    return value.lower()
+
+
+def repository_name(value: str) -> str:
+    parts = value.split("/")
+    if (
+        len(parts) != 2  # noqa: PLR2004
+        or not re.fullmatch(r"[A-Za-z0-9_.-]+", parts[-1])
+        or parts[-1] in {".", ".."}
+    ):
+        raise ValueError("Expected a repository name in owner/repository form.")
+    owner_name(parts[0])
+    return value.lower()
+
+
 class Label(BaseModel):
     name: str
 
@@ -46,7 +71,7 @@ class RepositoryPayload(BaseModel):
     id: str = Field(min_length=1)
     full_name: str = Field(min_length=1)
     html_url: str = Field(min_length=1)
-    owner: Person
+    owner: OwnerPayload
     archived: bool = False
 
 
@@ -105,6 +130,7 @@ class SignalsPayload(BaseModel):
 class AccountSnapshot(Contract):
     id: str = Field(min_length=1)
     login: str = Field(min_length=1)
+    kind: Literal["User", "Organization"] = "User"
 
 
 class RepositorySnapshot(Contract):
@@ -239,6 +265,7 @@ class Counts(Contract):
 
 class Overview(Contract):
     owner: str | None
+    owners: list[AccountSnapshot] = Field(default_factory=list)
     generated_at: AwareDatetime
     latest_run: RunView | None
     counts: Counts
@@ -278,7 +305,11 @@ class ItemDetail(Contract):
 
 
 class SyncResult(Contract):
-    owner: str
+    owner: str | None
+    scope: Literal["owner", "repositories"] = "owner"
+    coverage: Literal["explicit", "credential-visible", "public-only"] = (
+        "credential-visible"
+    )
     discovered: int
     synced: int
     status: Literal["complete", "partial"]

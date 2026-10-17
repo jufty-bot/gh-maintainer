@@ -16,7 +16,7 @@ REPO: JsonObject = {
     "id": 1,
     "full_name": "owner/project",
     "html_url": "https://github.com/owner/project",
-    "owner": {"login": "owner"},
+    "owner": {"login": "owner", "id": 77},
     "archived": False,
 }
 
@@ -51,12 +51,26 @@ class FakeSource:
         self.windows: list[datetime | None] = []
         self.head_sha = "abc"
         self.signal_head = "abc"
+        self.accounts: dict[str, AccountSnapshot] = {}
+        self.aliases: dict[str, str] = {}
 
-    async def account(self) -> AccountSnapshot:
+    async def account(self, login: str | None = None) -> AccountSnapshot:
         self.calls += 1
+        if login and login.lower() != self.login.lower():
+            return self.accounts[login.lower()]
         return AccountSnapshot(id=self.user_id, login=self.login)
 
-    async def repositories(self) -> AsyncIterator[list[RepositorySnapshot]]:
+    async def repository(self, name: str) -> RepositorySnapshot:
+        self.calls += 1
+        name = self.aliases.get(name, name)
+        for repo in self.inventory:
+            if str(repo["full_name"]).lower() == name.lower():
+                return RepositorySnapshot.from_github(repo)
+        raise GitHubError("GitHub source request failed (404).")
+
+    async def repositories(
+        self, _owner: AccountSnapshot | None = None
+    ) -> AsyncIterator[list[RepositorySnapshot]]:
         self.calls += 1
         yield [RepositorySnapshot.from_github(repo) for repo in self.inventory]
 

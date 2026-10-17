@@ -158,3 +158,66 @@ async def test_retry_after_wait_is_bounded_without_ignoring_server_delay() -> No
     # urllib3 clones Retry instances for each attempt; retain the bounded policy.
     with pytest.raises(GitHubError, match="longer than 30"):
         retry.new().get_retry_after(HTTPResponse(headers={"Retry-After": "120"}))
+
+
+@pytest.mark.parametrize("mode", ["default", "self", "organization", "public-user"])
+async def test_sdk_owner_inventory_routes_and_pagination(mode: str) -> None:
+    adapter = source()
+    try:
+        with requests_mock.Mocker() as mock:
+            login = "owner" if mode in {"default", "self"} else "team"
+            kind = "Organization" if mode == "organization" else "User"
+            account_data = {
+                "id": 77,
+                "login": login,
+                "type": kind,
+                "url": f"https://api.github.com/users/{login}",
+            }
+            mock.get("https://api.github.com:443/user", json=account_data)
+            mock.get(f"https://api.github.com:443/users/{login}", json=account_data)
+            if mode in {"default", "self"}:
+                await adapter.account()
+                endpoint, parameter = "/user/repos", "affiliation=owner"
+            elif mode == "organization":
+                endpoint, parameter = "/orgs/team/repos", "type=all"
+            else:
+                endpoint, parameter = "/users/team/repos", "type=owner"
+            owner = None if mode == "default" else await adapter.account(login)
+            mock.get(
+                f"https://api.github.com:443{endpoint}",
+                json=[REPO],
+                headers={
+                    "Link": f'<https://api.github.com{endpoint}?page=2>; rel="next"'
+                },
+            )
+            mock.get(
+                f"https://api.github.com:443{endpoint}?page=2",
+                json=[{**REPO, "id": 2}],
+            )
+            repos = [
+                repo async for batch in adapter.repositories(owner) for repo in batch
+            ]
+            assert [repo.id for repo in repos] == ["1", "2"]
+            requests = [
+                request for request in mock.request_history if request.path == endpoint
+            ]
+            assert len(requests) == 2
+            assert parameter in requests[0].query
+            assert "sort=full_name" in requests[0].query
+    finally:
+        await adapter.close()
+
+
+async def test_sdk_explicit_repository_uses_direct_endpoint() -> None:
+    adapter = source()
+    try:
+        with requests_mock.Mocker() as mock:
+            mock.get(
+                "https://api.github.com:443/repos/team/another",
+                json={**REPO, "full_name": "team/another"},
+            )
+            repo = await adapter.repository("team/another")
+            assert repo.id == "1" and repo.name == "team/another"
+            assert len(mock.request_history) == 1
+    finally:
+        await adapter.close()

@@ -18,7 +18,7 @@ from gh_maintainer.github import PyGithubSource, resolve_token
 from gh_maintainer.queries import CatalogQueries
 from gh_maintainer.report import markdown
 from gh_maintainer.repositories import TriageService
-from gh_maintainer.schemas import Disposition
+from gh_maintainer.schemas import Disposition, owner_name, repository_name
 from gh_maintainer.sync import SyncService
 from gh_maintainer.web import create_app
 
@@ -33,7 +33,7 @@ def progress(text: str) -> None:
 
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
-        description="Index and maintain your owned GitHub repositories."
+        description="Index and maintain GitHub repositories in SQLite."
     )
     root.add_argument(
         "--db", default=os.getenv("GH_MAINTAINER_DB", ".data/maintainer.sqlite")
@@ -46,10 +46,17 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument(
                 "--full", action="store_true", help="Reconcile all historical items."
             )
-            command.add_argument(
+            selection = command.add_mutually_exclusive_group()
+            selection.add_argument(
                 "--repo",
                 action="append",
-                help="Limit item sync to owner/repository (repeatable).",
+                type=repository_name,
+                help="Sync owner/repository directly (repeatable, across owners).",
+            )
+            selection.add_argument(
+                "--owner",
+                type=owner_name,
+                help="Sync repositories belonging to this user or organization.",
             )
         if name == "watch":
             command.add_argument(
@@ -94,7 +101,7 @@ async def run(args: argparse.Namespace) -> int:
                 while True:
                     source.calls = 0
                     result = await SyncService(database, source, progress).run(
-                        args.full, set(args.repo) if args.repo else None
+                        args.full, set(args.repo) if args.repo else None, args.owner
                     )
                     output(result.model_dump_json(indent=2))
                     if args.command == "sync":

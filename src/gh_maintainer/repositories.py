@@ -18,7 +18,9 @@ from gh_maintainer.database import Database
 from gh_maintainer.models import (
     Item,
     Observation,
+    Owner,
     Repository,
+    RepositoryOwner,
     Setting,
     SyncRun,
     TriageDecision,
@@ -27,6 +29,7 @@ from gh_maintainer.schemas import (
     AccountSnapshot,
     Disposition,
     ItemSnapshot,
+    RepositoryPayload,
     RepositorySnapshot,
     RepositoryStatus,
     TriageSnapshot,
@@ -128,36 +131,61 @@ class CatalogRepository:
 
     async def discover(
         self,
-        owner: AccountSnapshot,
+        owner: AccountSnapshot | None,
         repos: list[RepositorySnapshot],
         lease: SyncLease | None = None,
+        *,
+        public_only: bool = False,
     ) -> None:
+        """Reconcile only a complete owner inventory; explicit lists only upsert."""
         async with self.database.sessions.begin() as session:
             if lease:
                 await lease.guard(session)
-            pairs = await session.execute(
-                select(Setting.key, Setting.value).where(
-                    Setting.key.in_(["owner", "owner_id"])
+            owners = {owner.id: owner} if owner else {}
+            memberships: dict[str, str] = {}
+            for repo in repos:
+                payload = RepositoryPayload.model_validate(repo.raw)
+                source_owner = payload.owner
+                if owner and source_owner.id != owner.id:
+                    raise ValueError(
+                        "Repository does not belong to the selected owner."
+                    )
+                memberships[repo.id] = source_owner.id
+                owners.setdefault(
+                    source_owner.id,
+                    AccountSnapshot(
+                        id=source_owner.id,
+                        login=source_owner.login,
+                        kind="Organization"
+                        if source_owner.type == "Organization"
+                        else "User",
+                    ),
                 )
-            )
-            settings = dict(pairs.tuples().all())
-            current, current_id = settings.get("owner"), settings.get("owner_id")
-            same_id = current_id == owner.id
-            if (current_id and not same_id) or (
-                current and current.lower() != owner.login.lower() and not same_id
-            ):
-                raise ValueError(
-                    "This database belongs to a different owner; use another --db."
-                )
-            for key, value in (("owner", owner.login), ("owner_id", owner.id)):
-                statement = insert(Setting).values(key=key, value=value)
+            for account in owners.values():
+                statement = insert(Owner).values(**account.model_dump())
                 await session.execute(
                     statement.on_conflict_do_update(
-                        index_elements=[Setting.key],
-                        set_={"value": statement.excluded.value},
+                        index_elements=[Owner.id],
+                        set_={
+                            "login": statement.excluded.login,
+                            "kind": statement.excluded.kind,
+                        },
                     )
                 )
-            await session.execute(update(Repository).values(present=False))
+            if owner:
+                reconcile = update(Repository).where(
+                    Repository.id.in_(
+                        select(RepositoryOwner.repo_id).where(
+                            RepositoryOwner.owner_id == owner.id
+                        )
+                    )
+                )
+                if public_only:
+                    # Public listings cannot reconcile previously indexed private repos.
+                    reconcile = reconcile.where(
+                        func.json_extract(Repository.raw, "$.private") == 0
+                    )
+                await session.execute(reconcile.values(present=False))
             for repo in repos:
                 statement = insert(Repository).values(**repo.model_dump(), present=True)
                 await session.execute(
@@ -167,6 +195,15 @@ class CatalogRepository:
                             name: getattr(statement.excluded, name)
                             for name in ("name", "url", "archived", "raw", "present")
                         },
+                    )
+                )
+                membership = insert(RepositoryOwner).values(
+                    repo_id=repo.id, owner_id=memberships[repo.id]
+                )
+                await session.execute(
+                    membership.on_conflict_do_update(
+                        index_elements=[RepositoryOwner.repo_id],
+                        set_={"owner_id": membership.excluded.owner_id},
                     )
                 )
 
@@ -269,6 +306,15 @@ class CatalogRepository:
             await lease.guard(session)
             await session.execute(
                 update(Repository).where(Repository.id == repo_id).values(error=error)
+            )
+
+    async def fail_selection(self, name: str, error: str, lease: SyncLease) -> None:
+        async with self.database.sessions.begin() as session:
+            await lease.guard(session)
+            await session.execute(
+                update(Repository)
+                .where(func.lower(Repository.name) == name.lower())
+                .values(error=error)
             )
 
 

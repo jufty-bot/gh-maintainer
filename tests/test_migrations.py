@@ -29,7 +29,15 @@ def legacy_database(path: Path) -> dict[str, list[tuple]]:
         connection.execute(
             "INSERT INTO repos(id,name,url,archived,raw,synced_at,reconciled_at) "
             "VALUES(?,?,?,?,?,?,?)",
-            ("1", "owner/project", REPO["html_url"], 0, json.dumps(REPO), AT, AT),
+            (
+                "1",
+                "owner/project",
+                REPO["html_url"],
+                0,
+                json.dumps({**REPO, "owner": {"login": "owner"}}),
+                AT,
+                AT,
+            ),
         )
         source = json.dumps(issue())
         connection.execute(
@@ -84,7 +92,13 @@ async def test_adopt_legacy_preserves_every_value_and_is_idempotent(
             }
             assert connection.execute(
                 "SELECT version_num FROM alembic_version"
-            ).fetchone() == ("0001",)
+            ).fetchone() == ("0002",)
+            assert connection.execute("SELECT * FROM owners").fetchall() == [
+                ("77", "owner", "User")
+            ]
+            assert connection.execute("SELECT * FROM repo_owners").fetchall() == [
+                ("1", "77")
+            ]
 
 
 async def test_unknown_schema_is_rejected_without_partial_changes(

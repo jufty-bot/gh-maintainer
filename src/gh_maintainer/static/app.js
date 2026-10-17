@@ -35,7 +35,7 @@ async function api(path) {
 }
 async function loadOverview() {
   overview = await api('/api/overview');
-  $('#owner').textContent = overview.owner ? `@${overview.owner} / portfolio` : 'Your workspace';
+  $('#owner').textContent = overview.owners.length > 1 ? `${overview.owners.length} owners / portfolio` : (overview.owner ? `@${overview.owner} / portfolio` : 'Your workspace');
   for (const [key, value] of Object.entries(overview.counts)) {
     const target = $(`#metric-${key}`); if (target) target.textContent = value;
   }

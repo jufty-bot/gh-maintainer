@@ -6,8 +6,9 @@ from gh_maintainer.schemas import Portfolio
 
 def markdown(data: Portfolio) -> str:
     counts = data.counts
+    owner = data.owner or ("multiple owners" if data.owners else "not synced")
     lines = [
-        f"# Maintenance report: {data.owner or 'not synced'}",
+        f"# Maintenance report: {owner}",
         "",
         f"Generated: {timestamp(data.generated_at)}",
         "",

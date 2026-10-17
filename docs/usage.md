@@ -18,6 +18,39 @@ Open **http://127.0.0.1:8765**. The first sync backfills historical items. Later
 incremental; repository discovery runs every time. The default database is
 `.data/maintainer.sqlite`; `--db PATH` or `GH_MAINTAINER_DB` selects another index.
 
+### Select repositories
+
+`sync` and `watch` accept the same mutually exclusive selection options:
+
+```bash
+# Default: repositories owned by the authenticated user
+uv run gh-maintainer sync
+
+# All visible repositories belonging to a user or organization
+uv run gh-maintainer sync --owner YOUR_LOGIN_OR_ORGANIZATION
+
+# Resolve a list directly, including repositories from different owners
+uv run gh-maintainer sync --repo OWNER/PROJECT --repo OTHER/PROJECT
+uv run gh-maintainer watch --owner YOUR_ORGANIZATION --interval 900
+```
+
+Names are case-insensitive. `--repo` is repeatable and cannot be combined with `--owner`.
+The default and organization inventories include private repositories visible to the
+credential. A different user's named inventory uses GitHub's public listing; select
+accessible private repositories explicitly with `--repo`.
+
+One database can retain multiple owners. A successful owner inventory reconciles only
+that owner's repositories; public-only inventories preserve known-private records and
+records with unknown visibility. Explicit lists update only the resolved repositories.
+Redirects are resolved to stable repository IDs, preserving data across renames/transfers.
+An inaccessible selected repository produces a partial result; other selections continue,
+and existing data and checkpoints for the failed selection are retained.
+
+Sync JSON includes `scope` (`owner` or `repositories`) and `coverage` (`credential-visible`,
+`public-only`, or `explicit`). `owner` is null for an explicit list. Complete syncs exit 0;
+partial syncs and failed discovery exit nonzero. The portfolio JSON includes an `owners`
+array; its legacy `owner` field is populated only when exactly one owner is known.
+
 The dashboard reads your local index. **Refresh** rereads SQLite; use `sync` or `watch`
 to fetch new GitHub data. No credentials are needed to serve an already populated index.
 
@@ -30,8 +63,8 @@ uv run gh-maintainer --db .data/demo.sqlite serve
 
 ## A maintenance process
 
-1. **Discover and index.** Include token-visible owned repositories, including forks,
-   private repositories, and archives. Organization ownership is outside this first version.
+1. **Discover and index.** Select repositories directly or discover a user/organization
+   inventory, including visible forks, private repositories, and archives within its coverage.
 2. **Refresh regularly.** Run `uv run gh-maintainer watch --interval 900` in a worker,
    or invoke `sync` from cron. The worker runs immediately, then waits 15 minutes.
 3. **Review the queue.** Failing checks, conflicts, requested changes, review requests,
@@ -46,7 +79,7 @@ uv run gh-maintainer --db .data/demo.sqlite serve
    `present=false`. Neither flag claims that an item was deleted.
 
 ```bash
-# Discover all repositories, but backfill items for one repository first
+# Backfill just one repository
 uv run gh-maintainer sync --repo YOUR_LOGIN/YOUR_REPOSITORY
 
 # Generate reports
@@ -113,7 +146,7 @@ Green checks and approval do not establish that branch rules permit merging.
 The first backfill fetches details for every PR and can take time on large repositories.
 The dashboard filters, counts, and paginates in SQL. Full report exports still load the
 portfolio, and ingestion stages one repository before committing it atomically. This
-release targets personal portfolios rather than a company-wide data warehouse. Incremental
+release targets portfolios rather than a company-wide data warehouse. Incremental
 checkpoints are per repository; interrupted backfills restart that repository.
 
 ## Database migrations and compatibility

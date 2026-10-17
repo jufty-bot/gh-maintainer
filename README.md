@@ -12,9 +12,9 @@ gh-maintainer is a CLI with a simple goal:
 Once this baseline is complete, this repository will focus on agent skills that teach
 agents to operate the CLI and maintain repositories on behalf of humans.
 
-**Today:** incremental issue/PR indexing for the authenticated user's owned repositories,
-PR review and CI signals, local triage, reports, and a dashboard work. Broader repository
-selection, comments, CLI query commands, and persisted analysis remain on the
+**Today:** index issues and PRs from a repository list or a user/organization owner,
+refresh PR review and CI signals, record local triage, and explore reports and a dashboard.
+Comments, CLI query commands, and persisted analysis remain on the
 [roadmap](docs/roadmap.md).
 
 ## Try it
@@ -27,6 +27,9 @@ uv sync --locked
 uv run gh-maintainer sync
 uv run gh-maintainer report
 ```
+
+Use `sync --owner OWNER` for a named user or organization, or repeat
+`sync --repo OWNER/REPO --repo OTHER/REPO` to select repositories across owners.
 
 The index lives at `.data/maintainer.sqlite` by default; use `--db PATH` to choose another.
 To explore the dashboard without GitHub credentials:

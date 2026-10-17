@@ -48,6 +48,19 @@ class Setting(Base):
     value: Mapped[str]
 
 
+class Owner(Base):
+    __tablename__ = "owners"
+    id: Mapped[str] = mapped_column(primary_key=True)
+    login: Mapped[str]
+    kind: Mapped[str]
+
+
+class RepositoryOwner(Base):
+    __tablename__ = "repo_owners"
+    repo_id: Mapped[str] = mapped_column(ForeignKey("repos.id"), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("owners.id"), index=True)
+
+
 class Repository(Base):
     __tablename__ = "repos"
     id: Mapped[str] = mapped_column(primary_key=True)

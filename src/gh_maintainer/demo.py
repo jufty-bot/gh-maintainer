@@ -36,7 +36,7 @@ async def seed_demo(database: Database) -> None:
             "description": description,
             "archived": False,
             "private": name == "infrastructure",
-            "owner": {"login": "example"},
+            "owner": {"login": "example", "id": "demo"},
             "language": language,
         }
         for index, (name, description, language) in enumerate(

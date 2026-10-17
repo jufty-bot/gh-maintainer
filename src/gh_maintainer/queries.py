@@ -12,14 +12,15 @@ from gh_maintainer.clock import now, timestamp
 from gh_maintainer.models import (
     Item,
     Observation,
+    Owner,
     Repository,
-    Setting,
     SyncRun,
     TriageDecision,
 )
 from gh_maintainer.policies import STALE_DAYS, present_item
 from gh_maintainer.repositories import item_snapshot, repo_snapshot, triage_snapshot
 from gh_maintainer.schemas import (
+    AccountSnapshot,
     Counts,
     ItemDetail,
     ItemFilters,
@@ -152,9 +153,13 @@ class CatalogQueries:
         )
 
     async def overview(self) -> Overview:
-        owner = await self.session.scalar(
-            select(Setting.value).where(Setting.key == "owner")
-        )
+        owners = [
+            AccountSnapshot.model_validate(record, from_attributes=True)
+            for record in await self.session.scalars(
+                select(Owner).order_by(Owner.login)
+            )
+        ]
+        owner = owners[0].login if len(owners) == 1 else None
         run = await self.session.scalar(
             select(SyncRun).order_by(SyncRun.id.desc()).limit(1)
         )
@@ -226,6 +231,7 @@ class CatalogQueries:
         )
         return Overview(
             owner=owner,
+            owners=owners,
             generated_at=self.at,
             latest_run=latest,
             counts=counts,

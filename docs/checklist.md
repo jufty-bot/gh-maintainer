@@ -8,8 +8,8 @@ Split partial work into separate tasks instead of marking an entire milestone co
 
 ## Existing foundation
 
-- [x] Discover the authenticated personal account's owned repositories and filter item
-  syncing with repeatable `--repo`. See the [source adapter](https://github.com/jufty-bot/gh-maintainer/blob/main/src/gh_maintainer/github.py)
+- [x] Discover owner inventories or resolve explicit repositories with repeatable `--repo`.
+  See the [source adapter](https://github.com/jufty-bot/gh-maintainer/blob/main/src/gh_maintainer/github.py)
   and [CLI](https://github.com/jufty-bot/gh-maintainer/blob/main/src/gh_maintainer/cli.py).
 - [x] Backfill open/closed issues and open/closed/merged PRs, then refresh incrementally
   with overlap and periodic reconciliation. See [sync](https://github.com/jufty-bot/gh-maintainer/blob/main/src/gh_maintainer/sync.py) and
@@ -29,12 +29,19 @@ These references establish the starting inventory; they do not record a fresh te
 
 Acceptance criteria: [roadmap milestone 1](roadmap.md#1-repository-selection-and-coverage).
 
-- [ ] Specify repository-list and named-owner CLI selection, including validation.
-- [ ] Migrate the single-owner storage contract to support explicit mixed-owner lists.
-- [ ] Resolve selected repositories directly and discover named user/organization owners.
-- [ ] Scope presence reconciliation so subset syncs retain unrelated repository coverage.
-- [ ] Test pagination, access failures, renames/transfers, scope changes, and legacy upgrades.
-- [ ] Document working commands and update the roadmap status.
+- [x] Specify repository-list and named-owner CLI selection, including validation.
+- [x] Migrate the single-owner storage contract to support explicit mixed-owner lists.
+- [x] Resolve selected repositories directly and discover named user/organization owners.
+- [x] Scope presence reconciliation so subset syncs retain unrelated repository coverage.
+- [x] Test pagination, access failures, renames/transfers, scope changes, and legacy upgrades.
+- [x] Document working commands and update the roadmap status.
+
+Evidence: [selection and CLI tests](https://github.com/jufty-bot/gh-maintainer/blob/main/tests/test_selection.py),
+[SDK pagination/routing tests](https://github.com/jufty-bot/gh-maintainer/blob/main/tests/test_github.py),
+[migration preservation tests](https://github.com/jufty-bot/gh-maintainer/blob/main/tests/test_migrations.py),
+and [selection usage](usage.md#select-repositories). Validation: `uv run pytest -q`
+passed all 41 tests; Ruff lint/format and `uv run mypy src` passed.
+Strict MkDocs build, `uv build`, and Alembic's schema comparison also passed.
 
 ## 2. Issue and PR conversations
 

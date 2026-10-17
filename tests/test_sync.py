@@ -125,17 +125,14 @@ async def test_expired_worker_is_fenced_out_of_commit(database: Database) -> Non
     assert all(item.available for item in await catalog.items("1"))
 
 
-async def test_owner_swap_rejected_and_rename_preserves_identity(
+async def test_owner_rename_preserves_identity(
     database: Database,
 ) -> None:
     source, catalog = FakeSource(), CatalogRepository(database)
     await SyncService(database, source).run()
-    source.login, source.user_id = "other", "88"
-    with pytest.raises(ValueError, match="different owner"):
-        await SyncService(database, source).run()
-    source.user_id = "77"
+    source.login = "other"
     source.inventory = [
-        {**REPO, "full_name": "other/project", "owner": {"login": "other"}}
+        {**REPO, "full_name": "other/project", "owner": {"login": "other", "id": 77}}
     ]
     await SyncService(database, source).run()
     assert (await catalog.repo("1")).name == "other/project"
@@ -143,7 +140,7 @@ async def test_owner_swap_rejected_and_rename_preserves_identity(
         assert (await CatalogQueries(session).overview()).owner == "other"
         assert (await CatalogQueries(session).page(ItemFilters())).total == 3
         runs = (await session.scalars(select(SyncRun).order_by(SyncRun.id))).all()
-        assert [run.status for run in runs] == ["complete", "failed", "complete"]
+        assert [run.status for run in runs] == ["complete", "complete"]
 
 
 async def test_lease_cleans_up_after_heartbeat_failure(database: Database) -> None:

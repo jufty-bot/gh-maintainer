@@ -18,6 +18,8 @@ from gh_maintainer.schemas import (
     RepositorySnapshot,
     State,
     SyncResult,
+    owner_name,
+    repository_name,
 )
 
 OVERLAP = timedelta(minutes=5)
@@ -93,37 +95,61 @@ class SyncService:
         )
         return signals_error
 
-    async def run(self, full: bool = False, only: set[str] | None = None) -> SyncResult:
+    async def run(
+        self,
+        full: bool = False,
+        only: set[str] | None = None,
+        owner: str | None = None,
+    ) -> SyncResult:
+        if only is not None and owner is not None:
+            raise ValueError("Select either repositories or an owner, not both.")
+        if only is not None:
+            if not only:
+                raise ValueError("Select at least one repository.")
+            only = {repository_name(name) for name in only}
+        if owner is not None:
+            owner = owner_name(owner)
         async with SyncLease(self.database) as lease:
             run_id = await self.journal.start(lease)
             errors: list[str] = []
             synced = 0
             try:
-                owner = await self.source.account()
                 repos: list[RepositorySnapshot] = []
-                async for batch in self.source.repositories():
-                    repos.extend(
-                        repo
-                        for repo in batch
-                        if RepositoryPayload.model_validate(
-                            repo.raw
-                        ).owner.login.lower()
-                        == owner.login.lower()
-                    )
-                if only and only - {repo.name for repo in repos}:
-                    raise ValueError(
-                        "Requested repositories are not visible in the owned inventory."
-                    )
-                await self.catalog.discover(owner, repos, lease)
+                account = None
+                public_only = False
+                if only:
+                    for name in sorted(only):
+                        try:
+                            repos.append(await self.source.repository(name))
+                        except (GitHubError, ValueError) as error:
+                            errors.append(f"{name}: {error}")
+                            await self.catalog.fail_selection(name, str(error), lease)
+                else:
+                    account = await self.source.account(owner)
+                    if owner and account.kind == "User":
+                        try:
+                            authenticated = await self.source.account()
+                            public_only = authenticated.id != account.id
+                        except GitHubError:
+                            # App credentials may lack /user access.
+                            public_only = True
+                    async for batch in self.source.repositories(account):
+                        for repo in batch:
+                            payload = RepositoryPayload.model_validate(repo.raw)
+                            if payload.owner.id == account.id:
+                                repos.append(repo)
+                # Aliases and redirects may resolve multiple names to the same ID.
+                repos = list({repo.id: repo for repo in repos}.values())
+                await self.catalog.discover(
+                    account, repos, lease, public_only=public_only
+                )
                 for repo in repos:
-                    if only and repo.name not in only:
-                        continue
                     self.progress(f"Syncing {repo.name}")
                     try:
-                        error = await self._repository(repo, full, lease)
+                        signals_error = await self._repository(repo, full, lease)
                         synced += 1
-                        if error:
-                            errors.append(f"{repo.name}: {error}")
+                        if signals_error:
+                            errors.append(f"{repo.name}: {signals_error}")
                     except (GitHubError, ValueError) as error:
                         await self.catalog.fail_repo(repo.id, str(error), lease)
                         errors.append(f"{repo.name}: {error}")
@@ -134,7 +160,11 @@ class SyncService:
                     run_id, status, self.source.calls, "\n".join(errors) or None, lease
                 )
                 return SyncResult(
-                    owner=owner.login,
+                    owner=account.login if account else None,
+                    scope="owner" if account else "repositories",
+                    coverage="explicit"
+                    if only
+                    else ("public-only" if public_only else "credential-visible"),
                     discovered=len(repos),
                     synced=synced,
                     status=status,
