@@ -72,6 +72,13 @@ artifacts are retained; incomplete follow-ups are not counted as passes. Final-c
 regressions, clean-wheel upgrade/installation and live guidance checks were performed by
 the primary agent and are implementation checks, not another independent trial.
 
+Hosted CI exposed a documentation example that executed optional Task tooling during
+the build; it is now a plain example. Reading that failed job's real ANSI logs also
+exposed newer `gh` escape-sequence opt-in behavior. The adapter now retries only that
+specific refusal, with regressions for both old and new CLI behavior. The primary agent
+retrieved the failed job's 18,557-character log through the corrected adapter; log SHA-256
+was `5e4521488de9832fb5c3f079f339210f8aeb916a0f311d8a5d33d6bb954cf74c`.
+
 ## Live-source pilot
 
 The primary implementation agent synced only public `jufty-bot/gh-maintainer` into a

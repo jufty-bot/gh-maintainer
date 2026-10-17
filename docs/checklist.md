@@ -231,7 +231,7 @@ provider/host and broad remote-action evaluations above remain explicit extensio
 - [ ] Confirm hosted main CI, including Docker bundle smoke.
 - [ ] Publish matching versioned wheel/source/skills/checksums and verify downloaded assets.
 
-Local validation: all 135 Python tests and 12 desktop/mobile browser tests passed;
+Local validation: all 137 Python tests and 12 desktop/mobile browser tests passed;
 Ruff lint/format, application mypy, strict documentation build, local links, six skill
 validators, source/wheel build, skill ZIP/checksums and isolated installed-wheel smoke
 passed. Chromium used local extracted libraries and font configuration because the

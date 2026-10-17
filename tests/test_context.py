@@ -278,6 +278,30 @@ async def test_gh_transport_is_read_only_and_sanitizes_errors(monkeypatch):
     assert "secret" not in str(error.value)
 
 
+@pytest.mark.parametrize("requires_opt_in", [False, True])
+async def test_gh_log_transport_supports_old_and_new_cli(monkeypatch, requires_opt_in):
+    calls = []
+    log = "\x1b[31mregression failed\x1b[0m"
+
+    def run(command, **_kwargs):
+        calls.append(list(command))
+        if requires_opt_in and len(calls) == 1:
+            return SimpleNamespace(
+                returncode=1,
+                stdout="",
+                stderr="the response contains terminal escape sequences; "
+                "pass --allow-escape-sequences to output it anyway",
+            )
+        return SimpleNamespace(returncode=0, stdout=log, stderr="")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    assert context.gh_api("repos/owner/project/actions/jobs/5/logs") == log
+    assert len(calls) == (2 if requires_opt_in else 1)
+    assert "--allow-escape-sequences" not in calls[0]
+    if requires_opt_in:
+        assert calls[1] == [*calls[0], "--allow-escape-sequences"]
+
+
 @pytest.mark.usefixtures("api")
 async def test_context_cli_retains_local_records(database, item):
     path = database.engine.url.database

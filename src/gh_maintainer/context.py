@@ -72,14 +72,26 @@ def gh_api(endpoint: str, payload: dict[str, Any] | None = None) -> Any:
     else:
         command += ["--input", "-"]
     try:
-        result = subprocess.run(  # noqa: S603
-            command,
-            input=json.dumps(payload) if payload is not None else None,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
+        for attempt in range(2):
+            result = subprocess.run(  # noqa: S603
+                command,
+                input=json.dumps(payload) if payload is not None else None,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            # Newer gh versions require an explicit opt-in for ANSI job logs.
+            # Retry only that refusal; older versions never receive the new flag.
+            if (
+                attempt == 0
+                and endpoint.endswith("/logs")
+                and result.returncode
+                and "the response contains terminal escape sequences" in result.stderr
+            ):
+                command.append("--allow-escape-sequences")
+                continue
+            break
     except (OSError, subprocess.TimeoutExpired):
         raise ValueError(
             "GitHub context requires gh authentication and a working connection."

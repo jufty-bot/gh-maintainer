@@ -5,6 +5,9 @@ It leaves the SQLite source index and local decisions unchanged. Sync continues
 to use PyGithub; local queries and analysis still work without `gh` or credentials.
 Install/authenticate `gh` for context, or supply its supported token environment.
 Requests explicitly target github.com and have a 30-second subprocess timeout.
+For ANSI job logs, newer `gh` versions can refuse control characters. The adapter retries
+that specific refusal once with the supported opt-in; older versions keep the original
+request. Log content remains escaped inside the context packet's JSON output.
 
 ```bash
 gh-maintainer --db "$DB" context OWNER/REPO#42 --format json
