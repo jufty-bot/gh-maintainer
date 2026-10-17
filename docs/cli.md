@@ -110,3 +110,32 @@ Successful commands, including empty lists, exit 0. Argument parsing errors exit
 items, validation failures, stale writes, and runtime failures exit 1 with an error on
 stderr. Sync retains its complete/partial JSON contract and exits nonzero on partial
 coverage. Use `--db PATH` or `GH_MAINTAINER_DB` to choose the index.
+
+
+## Manage the database
+
+```bash
+uv run gh-maintainer db                 # Print the selected absolute path
+uv run gh-maintainer db path            # Same as above
+uv run gh-maintainer db delete --yes    # Permanently delete the selected index
+uv run gh-maintainer --db .data/maintainer.sqlite db path
+```
+
+The default is `maintainer.sqlite` in the platform user data directory supplied by
+[platformdirs](https://platformdirs.readthedocs.io/en/latest/api.html#user-data-directory).
+Selection precedence is `--db PATH`, then a nonempty `GH_MAINTAINER_DB`, then the platform
+default. `--db` works before the command, after `db`, or after `path`/`delete`.
+The bare `db` command defaults to `path`; output is one absolute path line for scripts.
+These commands need no credentials and never open, create, or migrate SQLite.
+`:memory:` has no file to manage and returns an error.
+
+Stop any sync/watch/dashboard processes using the index before deletion. `delete` requires
+`--yes` and removes the database plus its SQLite `-wal`, `-shm`, and `-journal` sidecars.
+This also removes local summaries, classifications, rankings, triage, and processing
+checkpoints. It leaves the parent directory and other indexes in place. Missing files
+are ignored; filesystem errors return exit 1. The next data command creates a fresh index.
+
+Existing `.data/maintainer.sqlite` files are not moved or deleted automatically. To keep
+using one, pass `--db .data/maintainer.sqlite` or set `GH_MAINTAINER_DB` to its absolute
+path. Switching to the new default starts a separate index; local decisions remain only
+in the original file.

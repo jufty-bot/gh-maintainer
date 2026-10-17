@@ -22,6 +22,7 @@ New contributors should start with [project context](project-context.md) and
 | Select all repositories belonging to an owner | Implemented: `--owner` accepts users and organizations; default is the authenticated user | Other users' inventories are public-only; use explicit lists for accessible private repositories |
 | Ingest all issues and PRs | Implemented within the selected scope, including closed and merged items | Credential-limited polling coverage |
 | Ingest their comments | Implemented: issue conversations, inline review comments, and review bodies, including replies and raw line context | GraphQL thread resolution state is a later extension |
+| Database location and management | Implemented: platform user data default, explicit overrides, `db path`, and `db delete --yes` | Existing working-directory indexes remain selectable; no automatic move |
 | Incremental SQLite storage | Implemented for items and comments: checkpoints, overlap, reconciliation, atomic commits, migrations | Review bodies require a full per-PR listing each sync |
 | Efficient querying through the CLI | Implemented: repositories, PRs/issues, details, comments, status, and activity with SQL pagination and JSON | Keep public contracts stable as skills are added |
 | Additional tables for analysis and triage | Implemented: persisted summaries, classifications, rankings, triage, and processing checkpoints | Analysis is supplied by humans/agents; no built-in model provider |

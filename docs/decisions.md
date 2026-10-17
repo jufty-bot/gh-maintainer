@@ -164,3 +164,22 @@ start with the public commands already available.
 The collection strategy, context schema, caching, and external write contracts remain
 design work in the [agent skills plan](agent-skills.md). This entry records a direction,
 not a completed implementation decision.
+
+
+## D10. Platform user data directory and explicit deletion
+
+**Decision:** Use `platformdirs` for the default SQLite location, with no version or author
+subdirectory. Preserve `--db` and `GH_MAINTAINER_DB` overrides; share the default with
+standalone Alembic. Add `db path` (also bare `db`) and `db delete --yes` without opening SQLite.
+
+**Why:** A maintenance index should be usable from any checkout or working directory.
+The library handles operating-system conventions and environment settings without custom
+path logic. Inspection should not create an index, and deletion must also work for a
+file that cannot be migrated. An explicit deletion flag makes scripted intent clear.
+
+**Tradeoff:** Existing working-directory indexes do not move automatically, since they
+can contain local decisions. Users select them explicitly. Deletion includes local state
+and SQLite sidecars; callers must stop processes using the file first.
+
+Evidence: `database.default_path`, `cli.py`, `migrations/env.py`, and
+`tests/test_cli_db.py`. See [database management](cli.md#manage-the-database).

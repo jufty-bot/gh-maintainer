@@ -26,8 +26,9 @@ uv run gh-maintainer comments OWNER/REPO#42 --format json
 ```
 
 Omit `--owner` to sync your own repositories, or repeat `--repo OWNER/REPO` to select a
-list across owners. Data lives in `.data/maintainer.sqlite`; use `--db PATH` for another
-index. Local queries and decisions work offline after sync.
+list across owners. Data lives in your platform’s user data directory; `gh-maintainer db`
+shows the path. Use `--db PATH` for another index. Local queries and decisions work
+offline after sync.
 
 Use `classify`, `summarize`, `rank`, and `triage` to save decisions, then `mark-processed`
 to acknowledge an inspected revision. `changes` shows observed pushes, comments, and

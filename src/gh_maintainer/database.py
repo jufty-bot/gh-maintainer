@@ -3,15 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sqlite3
 from pathlib import Path
 
 from aiosqlite import Connection as SQLiteConnection
 from alembic import command
 from alembic.config import Config
+from platformdirs import user_data_path
 from sqlalchemy import Connection, event
 from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+
+
+def default_path() -> str:
+    return os.getenv("GH_MAINTAINER_DB") or str(
+        user_data_path("gh-maintainer", appauthor=False) / "maintainer.sqlite"
+    )
 
 
 class Database:

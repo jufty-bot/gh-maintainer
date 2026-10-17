@@ -12,6 +12,7 @@ dependencies = [
   "alembic>=1.16,<2",
   "pygithub>=2.10,<3",
   "pydantic>=2.10,<3",
+  "platformdirs>=4,<5",
   "urllib3>=2.2,<3"
 ]
 authors = [

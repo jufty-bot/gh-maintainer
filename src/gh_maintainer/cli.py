@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import os
 import sys
 from pathlib import Path
 
@@ -12,7 +11,7 @@ import uvicorn
 from sqlalchemy.exc import SQLAlchemyError
 
 from gh_maintainer.clock import parse_date
-from gh_maintainer.database import Database
+from gh_maintainer.database import Database, default_path
 from gh_maintainer.demo import seed_demo
 from gh_maintainer.github import PyGithubSource, resolve_token
 from gh_maintainer.queries import CatalogQueries
@@ -45,7 +44,9 @@ def parser() -> argparse.ArgumentParser:
         description="Index and maintain GitHub repositories in SQLite."
     )
     root.add_argument(
-        "--db", default=os.getenv("GH_MAINTAINER_DB", ".data/maintainer.sqlite")
+        "--db",
+        default=default_path(),
+        help="SQLite path (GH_MAINTAINER_DB or the platform user data directory).",
     )
     commands = root.add_subparsers(dest="command", required=True)
     for name in (
@@ -67,9 +68,23 @@ def parser() -> argparse.ArgumentParser:
         "summarize",
         "rank",
         "mark-processed",
+        "db",
     ):
         command = commands.add_parser(name)
         command.add_argument("--db", default=argparse.SUPPRESS)
+        if name == "db":
+            actions = command.add_subparsers(dest="db_action")
+            command.set_defaults(db_action="path")
+            for action in ("path", "delete"):
+                operation = actions.add_parser(action)
+                operation.add_argument("--db", default=argparse.SUPPRESS)
+                if action == "delete":
+                    operation.add_argument(
+                        "--yes",
+                        action="store_true",
+                        required=True,
+                        help="Confirm deletion, including local analysis and triage.",
+                    )
         if name in {"sync", "watch"}:
             command.add_argument(
                 "--full", action="store_true", help="Reconcile all historical items."
@@ -335,6 +350,18 @@ async def read_command(database: Database, args: argparse.Namespace) -> None:
 
 
 async def run(args: argparse.Namespace) -> int:
+    if args.command == "db":
+        if args.db == ":memory:":
+            raise ValueError("An in-memory database has no file to manage.")
+        path = Path(args.db).resolve()
+        if args.db_action == "path":
+            output(str(path))
+        else:
+            # Do not open SQLite: management must also work on missing/invalid files.
+            for suffix in ("", "-wal", "-shm", "-journal"):
+                Path(str(path) + suffix).unlink(missing_ok=True)
+            output(f"Deleted database: {path}")
+        return 0
     database = Database(args.db)
     try:
         await database.initialize()

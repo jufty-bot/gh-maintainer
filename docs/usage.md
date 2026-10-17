@@ -16,7 +16,11 @@ uv run gh-maintainer serve
 
 Open **http://127.0.0.1:8765**. The first sync backfills historical items. Later syncs are
 incremental; repository discovery runs every time. The default database is
-`.data/maintainer.sqlite`; `--db PATH` or `GH_MAINTAINER_DB` selects another index.
+`maintainer.sqlite` in the platform user data directory chosen by `platformdirs`
+(for example, `~/.local/share/gh-maintainer/maintainer.sqlite` on Linux, respecting
+`XDG_DATA_HOME`). `--db PATH` or `GH_MAINTAINER_DB` selects another index.
+Run `gh-maintainer db path` to see the absolute path without creating a file.
+See [database management](cli.md#manage-the-database) for deletion and existing indexes.
 
 ### Select repositories
 

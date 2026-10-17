@@ -26,6 +26,20 @@ Split partial work into separate tasks instead of marking an entire milestone co
 
 These references establish the starting inventory; they do not record a fresh test run.
 
+## Database file management
+
+- [x] Use `platformdirs` for the default user data location in the CLI and standalone Alembic.
+- [x] Preserve `--db` / `GH_MAINTAINER_DB` overrides and leave existing indexes in place.
+- [x] Add `db` / `db path` inspection and explicit `db delete --yes`, including SQLite sidecars.
+- [x] Test path precedence, inspection without creation, deletion confirmation, sidecars,
+  missing files, filesystem errors, and in-memory database rejection.
+
+Evidence: `database.default_path`, `cli.py`, `migrations/env.py`, and
+[database CLI tests](https://github.com/jufty-bot/gh-maintainer/blob/main/tests/test_cli_db.py).
+Validation: all 66 tests passed, including 11 database-management cases. Ruff lint/format,
+mypy, strict MkDocs, and `git diff --check` passed.
+See [database management](cli.md#manage-the-database) for usage and existing-index handling.
+
 ## 1. Repository selection and coverage
 
 Acceptance criteria: [roadmap milestone 1](roadmap.md#1-repository-selection-and-coverage).

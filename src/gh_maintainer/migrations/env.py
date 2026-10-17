@@ -1,14 +1,13 @@
 """Alembic works both through the application and the developer CLI."""
 
 import asyncio
-import os
 
 from alembic import context
 from alembic.runtime.migration import MigrationContext
 from sqlalchemy import JSON, Boolean, Column, Connection, Integer, Text
 from sqlalchemy.types import TypeEngine
 
-from gh_maintainer.database import Database
+from gh_maintainer.database import Database, default_path
 from gh_maintainer.models import Base
 
 
@@ -65,7 +64,7 @@ def run(connection: Connection) -> None:
 
 
 async def run_cli() -> None:
-    database = Database(os.getenv("GH_MAINTAINER_DB", ".data/maintainer.sqlite"))
+    database = Database(default_path())
     try:
         async with database.engine.connect() as connection:
             await connection.execution_options(migration=True)

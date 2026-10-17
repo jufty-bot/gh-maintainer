@@ -50,6 +50,20 @@ upsert their resolved repositories. Login changes and repository transfers retai
 source records, and local decisions. PR-specific node IDs come from PR details for GraphQL
 enrichment. Legacy owner metadata remains stored for compatibility.
 
+## Database location and management
+
+`database.default_path()` selects `GH_MAINTAINER_DB` when nonempty, otherwise
+`platformdirs.user_data_path("gh-maintainer", appauthor=False) / "maintainer.sqlite"`.
+Both the application CLI and standalone Alembic commands use it; CLI `--db` takes
+precedence. Resolving the default does not create directories. `Database` creates the
+parent when a data command opens the index.
+
+`db`/`db path` prints the absolute selected path, and `db delete --yes` removes that file
+and its SQLite sidecars without initializing the engine or applying migrations. Stop
+other processes using the file first. This is file management, not a schema migration:
+old working-directory indexes stay in place and can still be selected explicitly.
+See [database commands](cli.md#manage-the-database) and [D10](decisions.md#d10-platform-user-data-directory-and-explicit-deletion).
+
 ## Data model
 
 `models.py` describes the current ORM schema; packaged migrations define its creation and
