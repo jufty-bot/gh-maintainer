@@ -1,0 +1,144 @@
+# Scope and roadmap
+
+gh-maintainer's foundation is a CLI that builds and maintains a local GitHub index.
+It accepts a list of repositories or an owner, ingests all issues, pull requests, and
+their comments incrementally into SQLite, and stores derived summaries, classifications,
+rankings, and triage in additional tables. After this baseline is complete, the repository's
+focus shifts to agent skills for operating the CLI and maintaining repositories on behalf
+of humans.
+
+This document describes intended scope and completion criteria. Planned capabilities
+and table names below are proposals, not commands or schemas available today.
+Agents track task status and validation evidence in the [implementation checklist](checklist.md)
+and update this roadmap's scope and current-status table as relevant changes land.
+
+## Current implementation
+
+| Baseline capability | Status | Remaining work |
+| --- | --- | --- |
+| Select an explicit repository list | Partial: repeatable `sync --repo` / `watch --repo` filters the authenticated user's owned inventory | Resolve selected repositories directly, including repositories across owners |
+| Select all repositories belonging to an owner | Partial: discovers repositories owned by the authenticated personal account | Accept an explicit user or organization owner |
+| Ingest all issues and PRs | Implemented within the current inventory scope, including closed and merged items | Preserve coverage when expanding repository selection |
+| Ingest their comments | Missing: bodies and PR signal rollups are stored, comments are not | Backfill and incrementally refresh conversations and PR review content |
+| Incremental SQLite storage | Implemented for items: repository checkpoints, overlap, reconciliation, atomic commits, migrations | Extend those guarantees to comments and additional selection scopes |
+| Efficient querying through the CLI | Partial: SQL-backed dashboard queries and JSON/Markdown report exports | Expose filtered, paginated list/detail queries without a running web server |
+| Additional tables for analysis and triage | Partial: `triage` stores local decisions; ranking is computed at query time | Persist summaries, classifications, and rankings with provenance and freshness |
+| Agent skills for repository maintenance | Future focus | Build against the completed CLI baseline |
+
+The current tables are `metadata`, `repos`, `items`, `changes`, `triage`, and `runs`,
+plus Alembic's schema version table. There are no comment, summary, classification, or
+ranking tables yet. The dashboard and reports are useful consumers of the index; the
+baseline must also be usable entirely through the CLI.
+
+## Baseline delivery sequence
+
+### 1. Repository selection and coverage
+
+Support two clear selection modes: an explicit list of `owner/repository` names, or all
+repositories belonging to a named user or organization. Preserve the existing default
+of syncing the authenticated user's repositories. An explicit list must work across owners
+when the credential can access those repositories.
+
+The current database binds to one stable personal owner ID. Revisit that contract before
+adding mixed-owner lists, and migrate existing databases without losing records or local
+decisions. Keep repository IDs as identities across renames and transfers.
+
+Completion criteria:
+
+- CLI selection and validation are documented for both modes, including how conflicting
+  selection options are handled.
+- Owner discovery follows all pages and reports credential-limited coverage explicitly.
+- Syncing a subset does not mark unrelated repositories absent. Only a successful complete
+  inventory can reconcile presence within its own scope.
+- Inaccessible repositories and failed discovery produce visible errors without advancing
+  checkpoints or discarding existing history.
+
+### 2. Complete issue and PR conversations
+
+For planning purposes, "comments" includes issue conversation comments on both issues
+and PRs, PR review bodies, and inline PR review comments with their reply relationships.
+Retain thread identity and resolution context where the source exposes it. These are
+distinct source record types, even when presented together as one conversation.
+
+Add versioned migrations and source adapters for these records. Store stable source IDs,
+parent item links, authors, bodies, creation/update times, URLs, and raw payloads. Include
+open, closed, and merged items in historical backfills.
+
+Completion criteria:
+
+- Listing follows pagination to exhaustion, and repeat syncs upsert records without
+  duplicates. Edits update the stored record.
+- Each source stream has an appropriate checkpoint or refresh strategy. Do not rely on
+  the parent item's timestamp alone to discover comment edits or review changes.
+- Periodic reconciliation detects records no longer returned by a successful complete
+  listing and retains their history with availability metadata. Failed or partial listings
+  do not imply deletion.
+- Failed fetches preserve the affected stream's prior checkpoint and committed data;
+  incomplete conversation coverage is queryable and visible in sync results.
+- Contract tests cover pagination, edits, replies, repeated syncs, partial failure, and
+  reconciliation, including conversations on closed issues and merged PRs.
+
+### 3. Query the index through the CLI
+
+Expose repository inventory, item lists, item details, comments, and synchronization
+coverage through CLI commands. Reuse the SQL query layer and provide stable JSON output
+alongside readable output. Exact command names can be chosen during implementation.
+
+Completion criteria:
+
+- A caller can filter by repository, item kind, state, and triage disposition, and inspect
+  a complete conversation with pagination and deterministic ordering.
+- Filtering, ordering, and pagination execute in SQLite; routine queries do not require
+  loading the full portfolio into memory.
+- Query commands work offline against a populated database without GitHub credentials.
+- IDs, freshness, missing coverage, exit codes, and JSON contracts are documented so an
+  agent can distinguish no results from a failed operation.
+
+### 4. Persist summaries, classifications, rankings, and triage
+
+Keep ingested source records separate from derived analysis. Add tables for summaries,
+classifications, and rankings; extend the existing `triage` table only where needed.
+Each result should link to its item and record its producer/version, generation time,
+and the source revision or fingerprint it used. Freshness must account for conversation
+changes as well as item changes. Rankings that depend on elapsed time also need an
+explicit evaluation time and refresh policy.
+
+The initial schema should support CLI-written results from rules or agents. A built-in
+model provider is not required to establish the storage and query contract.
+
+Completion criteria:
+
+- CLI operations can write and query summaries, classifications, and ranked queues.
+- Results have inspectable reasons or supporting source references where appropriate,
+  and stale results are distinguishable from current ones.
+- Recomputing analysis is repeatable and does not overwrite source data or human triage
+  decisions. Existing local decisions continue to survive synchronization.
+- Migrations preserve existing indexes, and tests cover provenance, freshness,
+  idempotent writes, and query behavior.
+
+## Baseline completion gate
+
+The baseline is complete when a human or agent can use only the CLI to select repositories
+or an owner, backfill their issues, PRs, and conversations, run a safe incremental refresh,
+query that data efficiently, and write/read persisted analysis and local triage. That path
+must have documented output contracts and tests for interruption, partial coverage,
+reconciliation, and upgrades from existing databases.
+
+## Agent skills after the baseline
+
+The next focus is skills that teach agents to use these CLI contracts: inspect sync
+coverage, read complete conversations, produce grounded summaries and classifications,
+prioritize work, and record maintenance decisions for humans. Skills should build on the
+CLI rather than duplicate ingestion logic or require private Python interfaces.
+
+Local analysis and triage are distinct from GitHub actions. Future workflows that comment,
+label, close, or merge need explicit action contracts and human authorization boundaries.
+The current CLI makes no such GitHub changes.
+
+## Later extensions
+
+Webhooks, a GitHub App, resumable staging for very large backfills, and additional source
+domains such as releases, discussions, and security alerts can follow the baseline.
+Dashboard expansion is secondary to completing the CLI and its data contracts. Polling
+cannot reconstruct events that occurred entirely between observations, and coverage always
+depends on what the credential can access.

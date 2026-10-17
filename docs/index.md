@@ -1,25 +1,52 @@
 # gh-maintainer
 
-A self-hosted Python index and maintenance queue for repositories owned by one GitHub
-account. SQLite stores source records, observed changes, successful sync checkpoints,
-and local triage decisions. FastAPI serves a read-only dashboard.
+Build a local GitHub maintenance database, then put agents to work with it.
+
+gh-maintainer is a CLI with a simple goal:
+
+- Ingest a list of repositories or all repositories belonging to an owner.
+- Collect every issue, pull request, and their comments.
+- Keep that data up to date incrementally in a queryable SQLite database.
+- Store summaries, classifications, rankings, and triage in additional tables.
+
+Once this baseline is complete, this repository will focus on agent skills that teach
+agents to operate the CLI and maintain repositories on behalf of humans.
+
+**Today:** incremental issue/PR indexing for the authenticated user's owned repositories,
+PR review and CI signals, local triage, reports, and a dashboard work. Broader repository
+selection, comments, CLI query commands, and persisted analysis remain on the
+[roadmap](roadmap.md).
+
+## Try it
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then run from this checkout:
 
 ```bash
 uv sync --locked
-# Authenticate using gh auth login or export GH_TOKEN.
+# Authenticate with gh auth login, or export GH_TOKEN / GITHUB_TOKEN.
 uv run gh-maintainer sync
-uv run gh-maintainer serve
+uv run gh-maintainer report
 ```
 
-Open http://127.0.0.1:8765. Run `gh-maintainer watch --interval 900` for regular updates,
-`gh-maintainer report` for a Markdown digest, and `gh-maintainer triage --help` for local
-decisions. Use `--db PATH` for a separate owner or an offline demo database.
+The index lives at `.data/maintainer.sqlite` by default; use `--db PATH` to choose another.
+To explore the dashboard without GitHub credentials:
 
-The index follows repository listing pagination, retains closed and merged items,
-refreshes open PR signals independently, and shows incomplete synchronization explicitly.
-Its coverage is limited to repositories visible to the credential. This version indexes
-personal ownership, item bodies and PR signal summaries; it does not yet ingest comments,
-review threads, organizations, or webhooks.
+```bash
+uv run gh-maintainer --db .data/demo.sqlite demo
+uv run gh-maintainer --db .data/demo.sqlite serve
+```
 
-See the [architecture and data contracts](architecture.md), the generated Python API
-reference, and the [contributor guide](contributing.md).
+Open **http://127.0.0.1:8765**. The current CLI reads GitHub and saves local decisions;
+it does not change your GitHub repositories.
+
+## Help build it
+
+Start with the [roadmap](roadmap.md) and [implementation checklist](checklist.md).
+Agents should read [AGENTS.md](https://github.com/jufty-bot/gh-maintainer/blob/main/AGENTS.md) and keep those planning documents current as work lands.
+
+- [Usage and deployment](usage.md)
+- [Architecture and data contracts](architecture.md)
+- [Contributing and development](contributing.md)
+
+Built with Python, SQLAlchemy, and PyGithub, using the
+[juftin/cookiecutter-python](https://github.com/juftin/cookiecutter-python) template.

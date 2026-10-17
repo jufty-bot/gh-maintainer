@@ -1,0 +1,156 @@
+# Using gh-maintainer
+
+This guide covers the current CLI, local dashboard, storage guarantees, and deployment.
+See the [roadmap](roadmap.md) for planned capabilities and the [contributor guide](contributing.md) for development.
+
+## Start locally
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and authenticate with
+`gh auth login`, or export `GH_TOKEN` / `GITHUB_TOKEN`.
+
+```bash
+uv sync --locked
+uv run gh-maintainer sync
+uv run gh-maintainer serve
+```
+
+Open **http://127.0.0.1:8765**. The first sync backfills historical items. Later syncs are
+incremental; repository discovery runs every time. The default database is
+`.data/maintainer.sqlite`; `--db PATH` or `GH_MAINTAINER_DB` selects another index.
+
+The dashboard reads your local index. **Refresh** rereads SQLite; use `sync` or `watch`
+to fetch new GitHub data. No credentials are needed to serve an already populated index.
+
+To explore without GitHub access:
+
+```bash
+uv run gh-maintainer --db .data/demo.sqlite demo
+uv run gh-maintainer --db .data/demo.sqlite serve
+```
+
+## A maintenance process
+
+1. **Discover and index.** Include token-visible owned repositories, including forks,
+   private repositories, and archives. Organization ownership is outside this first version.
+2. **Refresh regularly.** Run `uv run gh-maintainer watch --interval 900` in a worker,
+   or invoke `sync` from cron. The worker runs immediately, then waits 15 minutes.
+3. **Review the queue.** Failing checks, conflicts, requested changes, review requests,
+   stale items, and unassigned issues get explicit reasons. Drafts remain visible;
+   archived repositories retain history and are excluded from the active queue.
+4. **Record a decision.** Mark an item planned, waiting, snoozed, or locally done, with
+   a next-action note. Local decisions survive synchronization.
+5. **Export a digest.** Produce Markdown for daily review or JSON for other tools.
+6. **Reconcile.** Every seven days, each repository gets a full item reconciliation.
+   `sync --full` forces one immediately. Items missing from a successful full listing
+   remain in history with `available=false`; missing repositories are retained as
+   `present=false`. Neither flag claims that an item was deleted.
+
+```bash
+# Discover all repositories, but backfill items for one repository first
+uv run gh-maintainer sync --repo YOUR_LOGIN/YOUR_REPOSITORY
+
+# Generate reports
+uv run gh-maintainer report --output maintenance.md
+uv run gh-maintainer report --format json --output portfolio.json
+
+# Use an item's node ID from its dashboard details or JSON export
+uv run gh-maintainer triage I_EXAMPLE planned --note 'Reproduce with current release'
+uv run gh-maintainer triage I_EXAMPLE waiting --note 'Waiting for author response'
+uv run gh-maintainer triage I_EXAMPLE snoozed --until 2026-12-01T09:00:00Z
+uv run gh-maintainer triage I_EXAMPLE done
+```
+
+`done` is a local triage decision, separate from GitHub's open/closed status. An item
+returns to the inbox when its source `updated_at` advances after that decision.
+Snoozes expire automatically. The dashboard currently displays decisions; edits use
+these CLI commands. The app never merges PRs, closes issues, sends messages, or changes
+GitHub labels.
+
+## What the index contains
+
+- Repository identity, ownership, visibility, archive/fork flags, and raw API metadata.
+- Every listed issue and PR, including open, closed, draft, and merged PR states.
+- Titles, bodies, authors, labels, assignees, timestamps, URLs, and raw issue payloads.
+- PR detail payloads, current-head check rollups, review decisions, mergeability, and
+  the separate time at which PR signals were successfully observed.
+- An append-only log of observed source changes, per-repository checkpoints and errors,
+  run history, and local triage notes.
+
+Issue IDs and PR IDs are different in GitHub. Items use the **issue node ID** as their
+local identity; the PR's own node ID is retained separately for GraphQL enrichment.
+Repository IDs survive renames. Raw payloads preserve fields for future analysis.
+
+### Correctness and limits
+
+REST listing follows `Link` pagination to exhaustion and avoids the search API's
+1,000-result ceiling. Incremental issue queries use `state=all`, a checkpoint taken
+**before** fetching, and a five-minute overlap. Every previously open PR is refreshed
+on every sync: CI and review changes need not advance the issue timestamp.
+
+A repository's item updates, observations, and checkpoint commit in one SQLite
+transaction. Failed repositories keep their previous checkpoint and data. Failed
+GraphQL enrichment preserves the old signals and their timestamp, marks the run partial,
+and displays effective signals as unknown. Retries are bounded, respect rate-limit
+headers, and stop rather than sleep beyond 30 seconds. Serial requests avoid API fanout.
+A renewable database lease prevents concurrent syncs; after a crashed process, the lease
+expires within five minutes. Sync exits nonzero on partial coverage so a scheduler can alert.
+
+Coverage always means **repositories visible to the credential**. A fine-grained token
+limited to selected repositories cannot reveal repositories it was not granted. Use a
+credential covering the owner's full inventory when completeness matters. Fine-grained
+permissions should include metadata, issues, pull requests, checks, and commit statuses
+for all intended repositories; additional GitHub permission policies can restrict signals.
+Existing GitHub CLI credentials work without being copied into configuration files.
+
+This is a polling index, not a complete GitHub event archive. It cannot reconstruct
+transitions that happened entirely between syncs or before the first backfill. GitHub
+pagination is not a snapshot; overlap and periodic reconciliation help recover concurrent
+changes. PR reviews/check rollups are retained, but individual review threads, issue
+comments, commits, workflow history, releases, discussions, and security alerts are not
+backfilled yet. A null or unavailable check result is **unknown**, never a passing check.
+Green checks and approval do not establish that branch rules permit merging.
+
+The first backfill fetches details for every PR and can take time on large repositories.
+The dashboard filters, counts, and paginates in SQL. Full report exports still load the
+portfolio, and ingestion stages one repository before committing it atomically. This
+release targets personal portfolios rather than a company-wide data warehouse. Incremental
+checkpoints are per repository; interrupted backfills restart that repository.
+
+## Database migrations and compatibility
+
+All commands initialize the database through packaged Alembic migrations. The baseline
+validates and adopts the original schema without rewriting source records, observations,
+triage notes, or checkpoints. Unknown schemas are rejected. Back up the SQLite file using
+its backup API before upgrading an existing deployment.
+
+```bash
+uv run gh-maintainer migrate
+# Developers can inspect/generate later schema changes:
+uv run alembic check
+uv run alembic revision --autogenerate -m "Describe schema change"
+```
+
+`GH_MAINTAINER_DB` selects the database for both CLI and Alembic commands. Migrations
+are serialized with a SQLite write lock. Compatible legacy TEXT/JSON, INTEGER/Boolean,
+and primary-key nullability declarations are retained during schema autogeneration.
+SQLAlchemy 2.0 is pinned to preserve the template's Python 3.10 support.
+
+Sync JSON now reports `source_calls`, counting SDK operations rather than claiming an
+exact HTTP request count (the SDK owns pagination and retries). Historical counts remain
+stored. Item, repository, triage, and dashboard data retain their existing meaning.
+
+## Self-host with Docker Compose
+
+```bash
+cp .env.example .env
+# Set GH_TOKEN in .env, then:
+docker compose up -d --build
+```
+
+The dashboard binds to **127.0.0.1:8765** on the host. A separate worker syncs every
+15 minutes and both share a named SQLite volume. Only the worker receives a GitHub
+credential. Use `docker compose logs -f worker` to inspect synchronization.
+The dashboard has no user authentication; keep it local or put it behind an authenticated
+private proxy. SQLite files and exports may contain private repository data. Back up using
+SQLite's backup API or stop both processes before copying the volume.
+

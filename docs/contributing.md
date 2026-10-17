@@ -1,10 +1,44 @@
 # Contributing
 
+Build toward the CLI baseline in the [roadmap](roadmap.md); use the
+[implementation checklist](checklist.md) to track progress. Once that baseline is complete,
+the focus shifts to agent skills for repository maintenance. Agents should follow
+[AGENTS.md](https://github.com/jufty-bot/gh-maintainer/blob/main/AGENTS.md).
+Update planning documents in the same change as implementation, and keep detailed
+operating instructions in [Usage](usage.md) so the README stays concise.
+
+## Validation
+
+You can use uv directly without installing Task:
+
+```bash
+uv sync --locked
+uv run pytest
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy src
+uv build
+```
+
+Tests use source fakes, mocked PyGithub responses, and temporary SQLite databases without
+a GitHub token. Run focused tests while developing, then the checks relevant to the change.
+The CI test matrix covers Python 3.10–3.14. API documentation is available at `/api/docs`
+while the local app is running.
+
+For documentation changes:
+
+```bash
+uv run --locked --group docs mkdocs build --strict
+git diff --check
+```
+
+The documentation home page is generated from `README.md` by `docs/gen_pages.py`.
+Keep the fallback `docs/index.md` aligned with the README as well.
+
 ## Environment Setup
 
-This project requires two core dependencies: **[uv]** (Python package
-manager) and **[task]** (task runner). Once both are installed, you can use
-`task` to interact with the project for all development workflows.
+This project uses **[uv]** (Python package manager). **[task]** is an optional task runner
+for the equivalent development workflows described below.
 
 1. [Install uv](https://docs.astral.sh/uv/getting-started/installation/)
 

@@ -3,6 +3,9 @@
 site_name: gh-maintainer
 nav:
     - Home 🏠: index.md
+    - Usage and deployment: usage.md
+    - Scope and roadmap: roadmap.md
+    - Implementation checklist: checklist.md
     - Architecture: architecture.md
     - API Documentation 🤖: reference/
     - Contributing 🤝: contributing.md

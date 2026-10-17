@@ -1,5 +1,9 @@
 # Architecture and data contracts
 
+This page describes the current implementation. The [scope and roadmap](roadmap.md)
+defines the intended CLI baseline, remaining ingestion and analysis work, and the later
+focus on agent skills.
+
 ```mermaid
 flowchart LR
     G[GitHub] --> P[PyGithub adapter / single SDK thread]
@@ -101,10 +105,11 @@ can perform multiple HTTP requests; old counts remain stored in the original col
 
 Coverage is limited to repositories visible to the credential. This is a polling index;
 observations do not reconstruct transitions between polls or events before the first sync.
-Issue comments/review threads, organizations, webhooks, releases and security findings are
-future ingestion domains. Initial staging is still per repository; resumable disk-backed
-staging should precede very large backfills. Stored observations currently have no automatic
-retention policy. GitHub bodies remain untrusted and are rendered as plain text.
+Issue comments/review content and explicit owner/organization scopes are remaining baseline
+work. Webhooks, releases and security findings are later extensions. Initial staging is
+still per repository; resumable disk-backed staging should precede very large backfills.
+Stored observations currently have no automatic retention policy. GitHub bodies remain
+untrusted and are rendered as plain text.
 
 ## References
 

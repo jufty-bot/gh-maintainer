@@ -34,6 +34,9 @@ for path in sorted(source_code.rglob("*.py")):
 # Exclude parts that are between two exact `<!--skip-->` lines
 readme_content = Path("README.md").read_text()
 readme_content = "\n".join(readme_content.split("\n<!--skip-->\n")[::2])
-readme_content = readme_content.replace("](docs/", "](")
+readme_content = readme_content.replace("](docs/", "](").replace(
+    "](AGENTS.md)",
+    "](https://github.com/jufty-bot/gh-maintainer/blob/main/AGENTS.md)",
+)
 with mkdocs_gen_files.open("index.md", "w") as index_file:
     index_file.write(readme_content)
