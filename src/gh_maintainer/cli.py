@@ -15,6 +15,7 @@ from gh_maintainer.clock import parse_date
 from gh_maintainer.database import Database, default_path
 from gh_maintainer.demo import seed_demo
 from gh_maintainer.github import PyGithubSource, resolve_token
+from gh_maintainer.logging import configure_logging
 from gh_maintainer.queries import CatalogQueries
 from gh_maintainer.report import markdown
 from gh_maintainer.repositories import AnalysisService, TriageService
@@ -34,10 +35,6 @@ from gh_maintainer.web import create_app
 
 def output(text: str) -> None:
     click.echo(text)
-
-
-def progress(text: str) -> None:
-    click.echo(text, err=True)
 
 
 @click.group(
@@ -513,6 +510,8 @@ async def read_command(database: Database, args: SimpleNamespace) -> None:
 
 
 async def run(args: SimpleNamespace) -> int:
+    if args.command in {"sync", "watch"}:
+        configure_logging()
     if args.command == "db":
         if args.db == ":memory:":
             raise ValueError("An in-memory database has no file to manage.")
@@ -533,7 +532,7 @@ async def run(args: SimpleNamespace) -> int:
             try:
                 while True:
                     source.calls = 0
-                    result = await SyncService(database, source, progress).run(
+                    result = await SyncService(database, source).run(
                         args.full, set(args.repo) if args.repo else None, args.owner
                     )
                     output(result.model_dump_json(indent=2))

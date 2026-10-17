@@ -165,6 +165,11 @@ watch interval (minimum 60) in `cli.py`. SDK retry waits beyond 30 seconds are d
 a later sync. The SDK owns HTTP pagination/retries; `source_calls` counts adapter operations,
 not exact HTTP requests.
 
+The sync service emits structlog events with run and repository context, fetch progress,
+counts, elapsed time, and errors. The CLI configures human-readable console rendering on
+stderr for `sync` and `watch`; JSON command results remain on stdout. Repository completion
+events follow successful commits, and partial runs emit a warning.
+
 ## Querying and triage
 
 The item endpoint executes a count and a SELECT with SQL filtering, ordering, LIMIT and
