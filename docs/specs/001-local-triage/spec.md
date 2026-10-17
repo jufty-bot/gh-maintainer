@@ -2,7 +2,7 @@
 
 **Feature ID:** `001-local-triage`
 **Created:** 2026-10-17
-**Status:** Implemented with author-run evaluations; independent-agent success (SC-001) remains unverified.
+**Status:** Implemented; author-run and independent installed-skill acceptance are recorded.
 **Input:** Deliver the first useful maintenance skill over gh-maintainer's existing CLI,
 with reproducible evaluation fixtures and installation instructions.
 

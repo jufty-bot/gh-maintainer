@@ -1,7 +1,7 @@
 # Tasks: Local repository triage skill
 
 **Inputs:** [Specification](spec.md), [implementation plan](plan.md).
-**Status:** T001–T018 implemented and validated. Independent acceptance validation remains open (T019).
+**Status:** T001–T018 implemented and validated. Independent acceptance validation is recorded for T019 in the 0.2.0 release.
 **Format:** `T### [US#] description`; tasks are ordered by dependency. Paths below are
 implementation destinations relative to the repository root.
 
@@ -76,10 +76,10 @@ activity, and incomplete/stale inspection never acknowledges unseen revisions.
 
 ## Validation follow-up
 
-- [ ] T019 Validate SC-001 with an independent agent/session loading only published
-  installation/skill docs and synthetic inputs. The implementation-session walkthrough
-  is author-run evidence, not an independent pass. Also grow coverage for retry-budget
-  exhaustion, authorized optional writes, read-only runs, and other agent hosts.
+- [x] T019 Validate SC-001 with an independent agent/session loading only published
+  installation/skill docs and synthetic inputs. See [independent acceptance](../../evaluations/release.md) for installed-skill
+  triage, ranking, read-only behavior and actual retry exhaustion. Further native agent
+  discovery remains an extension.
 
 ## Evidence
 
@@ -91,7 +91,7 @@ seed/advance the same cases manually without a custom evaluation runner.
 T014–T016: [Recorded author-run evaluations](../../evaluations/local-triage.md) cover
 all 13 scenarios, a clean copied skill, source-grounded results and stopping decisions.
 The full public command transcript is retained. All 25 focused skill/maintenance tests
-and the skill-creator validator passed. Independent-agent success remains unverified.
+and the skill-creator validator passed. Independent-agent success is recorded separately in the 0.2.0 acceptance report.
 
 T017: README/navigation/orientation link the shipped skill, [D11](../../decisions.md#d11-repository-owned-triage-skill-over-public-commands)
 records accepted choices, and the broader skills roadmap remains open.

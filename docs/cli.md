@@ -3,6 +3,10 @@
 Run `gh-maintainer sync` to fetch GitHub data. The commands below read or write the local
 SQLite index and work without credentials. They do not change GitHub labels, comments,
 or item state. Prefix commands with `uv run` when working from this checkout.
+For packaged installation and bundled workflows see [releases](releases.md) and [skills](skills.md).
+`policy` validates explicit [repository rules](policy.md); `context ITEM` fetches
+[live technical evidence](context.md) through gh, outside the indexed-query loop.
+`skills --install PATH` copies bundled instructions without opening SQLite.
 
 ## Help and command discovery
 
@@ -132,6 +136,8 @@ before opening the database. Unknown items, invalid analysis or triage decisions
 stale writes, and runtime failures exit 1 with an error on stderr. Interrupting a running
 command exits 130. Sync retains its complete/partial JSON contract and exits nonzero on
 partial coverage; progress goes to stderr, keeping stdout available for JSON.
+`context` also exits 1 with a useful JSON packet when evidence is incomplete, clipped,
+unavailable or has further pages; inspect its explicit coverage fields.
 
 
 ## Manage the database

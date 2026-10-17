@@ -2,8 +2,8 @@
 
 Agents maintain this checklist alongside implementation changes. The [roadmap](roadmap.md)
 defines scope and acceptance criteria; [AGENTS.md](https://github.com/jufty-bot/gh-maintainer/blob/main/AGENTS.md)
-defines the maintenance workflow. The CLI baseline and first local triage skill are
-implemented; further skills and richer context remain. Checked items describe verified work. Add code/test references
+defines the maintenance workflow. The CLI baseline, six skills, policy and technical context are
+implemented; further provider/host coverage and scale extensions remain. Checked items describe verified work. Add code/test references
 and validation evidence when closing a task.
 Split partial work into separate tasks instead of marking an entire milestone complete.
 
@@ -150,7 +150,7 @@ Ruff lint/format, mypy, strict MkDocs, Alembic schema comparison, and package bu
 
 Scope and acceptance criteria: [agent skills roadmap](agent-skills.md). Checked tasks
 describe shipped work; unchecked tasks remain open. Keep evidence beside each completed
-task and split partial work explicitly. Richer context commands remain unimplemented.
+task and split partial work explicitly. Current contracts are documented in [context](context.md).
 
 ### S1. Local maintenance skills
 
@@ -162,11 +162,11 @@ task and split partial work explicitly. Richer context commands remain unimpleme
 - [x] Choose the first skill's directory/package layout and document the decision in [D11](decisions.md#d11-repository-owned-triage-skill-over-public-commands).
 - [x] Deliver coverage-inspection and local issue/PR triage instructions with [runnable examples](skills.md).
 - [x] Deliver grounded summaries and policy-driven optional classification/rank instructions in the first skill.
-- [ ] Extend/evaluate standalone prioritization and classification workflows with repository-specific policies.
+- [x] Extend/evaluate standalone prioritization and classification workflows with repository-specific policies.
 - [x] Deliver follow-up instructions for never-processed and changed items, including closed/merged items.
 - [x] Require pagination, source references, repository policy inputs, and inspected-revision guards in those workflows.
 - [x] Validate initial completion/waiting behavior against offline fixtures and document author-run limitations.
-- [ ] Validate SC-001 in an independent agent session without implementation-session context.
+- [x] Validate SC-001 in an independent agent session without implementation-session context.
 
 Evidence: `skills/gh-maintainer-triage/`, `tests/fixtures/triage/scenarios.json`,
 `tests/triage_fixtures.py`, `tests/test_triage_skill.py`, and
@@ -174,40 +174,68 @@ Evidence: `skills/gh-maintainer-triage/`, `tests/fixtures/triage/scenarios.json`
 transcript. All 113 tests passed, including the 25 focused skill/maintenance checks.
 Ruff lint/format, application and fixture-helper mypy, strict MkDocs, the skill-creator
 validator, local links, and `git diff --check` passed. These are distinct forms of evidence;
-independent-agent reliability remains open. No runtime code or dependency changed.
+these first-skill results preceded the independent release evaluation below.
+No runtime code or dependency changed in that initial triage delivery.
 
 ### S2. Repository and change context
 
-- [ ] Design the smallest public context contracts needed by a concrete skill.
-- [ ] Retrieve repository guidance and identify its source/version and applicable scope.
-- [ ] Retrieve changed files/diffs and relevant code bound to base/head SHAs.
-- [ ] Retrieve individual CI check details/logs and distinguish old-head results.
-- [ ] Retrieve outstanding review/thread state and related work/policy evidence as needed.
-- [ ] Assemble a bounded context packet with provenance, freshness, pagination, and explicit missing coverage.
-- [ ] Test changed heads/guidance, missing artifacts, incomplete credentials, and truncated output.
+- [x] Design the smallest public context contracts needed by a concrete skill.
+- [x] Retrieve repository guidance and identify its source/version and applicable scope.
+- [x] Retrieve changed files/diffs and relevant code bound to base/head SHAs.
+- [x] Retrieve individual CI check details/logs and distinguish old-head results.
+- [x] Retrieve outstanding review/thread state and related work/policy evidence as needed.
+- [x] Assemble a bounded context packet with provenance, freshness, pagination, and explicit missing coverage.
+- [x] Test changed heads/guidance, missing artifacts, incomplete credentials, and truncated output.
 
 ### S3. Technical maintenance skills
 
-- [ ] Deliver PR review instructions with file/line evidence and a head-freshness check.
-- [ ] Deliver CI diagnosis instructions with reproducible checks and useful next actions.
-- [ ] Deliver issue reproduction/fix instructions with repository-specific validation and reviewable patches.
-- [ ] Define authorized external-action contracts, outcome references, and retry/intervening-change handling for the workflows that need them.
+- [x] Deliver PR review instructions with file/line evidence and a head-freshness check.
+- [x] Deliver CI diagnosis instructions with reproducible checks and useful next actions.
+- [x] Deliver issue reproduction/fix instructions with repository-specific validation and reviewable patches.
+- [x] Define authorized external-action contracts, outcome references, and retry/intervening-change handling for the workflows that need them.
 
 ### S4. Portfolio workflows
 
-- [ ] Deliver backlog/dependency maintenance workflows with explicit scope and policy.
-- [ ] Deliver release-preparation workflows grounded in the repository's release process.
-- [ ] Deliver bounded recurring reviews and useful handoffs that resume from stored revisions.
+- [x] Deliver backlog/dependency maintenance workflows with explicit scope and policy.
+- [x] Deliver release-preparation workflows grounded in the repository's release process.
+- [x] Deliver bounded recurring reviews and useful handoffs that resume from stored revisions.
 
 ### S5. Packaging and evaluation
 
 - [x] Document first-skill installation, tool baseline, provenance version, and direct-loading method in [skill usage](skills.md).
 - [x] Package the first skill with self-contained references; validate a clean copy and documented offline inputs.
-- [ ] Independently validate installation/discovery and task completion in another session/agent host.
+- [x] Independently validate installation/direct loading and task completion in fresh sessions.
+- [ ] Evaluate native automatic discovery across additional agent hosts.
 - [x] Evaluate initial pagination, stale-write, missing-context, prior-decision, and hostile-source cases for the first skill.
-- [ ] Add technical-review/action regression cases as S2–S4 capabilities land.
+- [x] Add bounded technical-review and local-repair evaluations; preserve exact-head and before/after evidence.
+- [ ] Extend failing-provider, remote-action and dependency/release-preparation behavioral coverage.
 - [x] Record reproducible initial evidence and public CLI compatibility in the [evaluation report](evaluations/local-triage.md).
 - [ ] Grow independent and boundary-case evaluations as skills and public CLI contracts change.
+
+## Complete maintenance release (0.2.0)
+
+Scope: [specification](specs/002-complete-release/spec.md), [tasks](specs/002-complete-release/tasks.md).
+Evidence: [release acceptance](evaluations/release.md), including independent evaluator
+transcripts and real-source pilot results. These checks cover the requested release scope;
+provider/host and broad remote-action evaluations above remain explicit extensions.
+
+- [x] Ship six self-contained skills, wheel resources, public installation and a versioned ZIP/manifest/checksums.
+- [x] Add explicit policy provenance and optional guarded label/rank/disposition/permission checks.
+- [x] Add live commit-bound guidance, patches/files, checks/job logs and review-thread context with explicit limits.
+- [x] Validate installed-wheel query/analysis/processing and legacy upgrade outside the checkout.
+- [x] Run Python matrix plus quality/docs/build/install gates on PRs and direct main pushes.
+- [x] Independently evaluate bounded triage, policy ranking, no-write runs, preservation, hostile content and actual retry exhaustion.
+- [x] Independently exercise bounded technical review, CI evidence and reproduced local repair with red/green regression.
+- [x] Complete real public-source sync, guarded local summary/ack and unchanged-resume pilot in a disposable index.
+- [x] Fix the independently discovered legacy-adoption validation defect with five malformed-schema regressions.
+- [ ] Confirm hosted main CI, including Docker bundle smoke.
+- [ ] Publish matching versioned wheel/source/skills/checksums and verify downloaded assets.
+
+Local validation: all 133 tests passed; Ruff lint/format, application mypy, source/wheel
+build, skill ZIP/checksums and isolated installed-wheel smoke passed. Final docs/link/skill
+checks and hosted CI/publication results are recorded when complete. No new runtime
+dependency or database schema was introduced. The initial migration's legacy-adoption
+validation now rejects incompatible keys, types and required nullability before adoption.
 
 ## Documentation maintenance
 

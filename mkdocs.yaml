@@ -5,8 +5,12 @@ nav:
     - Home 🏠: index.md
     - Usage and deployment: usage.md
     - CLI workflows: cli.md
+    - Installation and releases: releases.md
+    - Repository policy: policy.md
+    - Technical context: context.md
     - Local triage skill: skills.md
     - Triage evaluation: evaluations/local-triage.md
+    - Release validation: evaluations/release.md
     - Project context: project-context.md
     - Design decisions: decisions.md
     - Scope and roadmap: roadmap.md
@@ -16,6 +20,10 @@ nav:
         - Plan: specs/001-local-triage/plan.md
         - Tasks: specs/001-local-triage/tasks.md
     - Implementation checklist: checklist.md
+    - Complete release:
+        - Specification: specs/002-complete-release/spec.md
+        - Plan: specs/002-complete-release/plan.md
+        - Tasks: specs/002-complete-release/tasks.md
     - Architecture: architecture.md
     - API Documentation 🤖: reference/
     - Contributing 🤝: contributing.md

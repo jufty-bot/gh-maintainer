@@ -3,6 +3,10 @@ FROM python:${PYTHON_VERSION}-slim-bookworm
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y gh \
+    && rm -rf /var/lib/apt/lists/*
+
 # configure uv
 ENV UV_LINK_MODE=copy \
     UV_LOCKED=1 \
@@ -21,6 +25,7 @@ COPY LICENSE /app/LICENSE
 COPY pyproject.toml /app/pyproject.toml
 COPY uv.lock /app/uv.lock
 COPY src/gh_maintainer /app/src/gh_maintainer
+COPY skills /app/skills
 
 # Install project
 RUN --mount=from=ghcr.io/astral-sh/uv,source=/uv,target=/bin/uv \

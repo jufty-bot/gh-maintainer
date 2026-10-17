@@ -14,8 +14,8 @@ analysis and triage, and resume work after new activity.
 
 The intended product has two parts: a small CLI that owns data access and local state,
 and agent skills that teach maintenance workflows using its public commands. The CLI
-baseline and [local triage skill](skills.md) are implemented. The next focus is further
-skills and context needed for code review and changes. A dashboard and reports are additional clients
+baseline, [policy](policy.md), [technical context](context.md), and six
+[maintenance skills](skills.md) are implemented. A dashboard and reports are additional clients
 of the index. They are useful, but completing agent workflows takes priority over UI work.
 
 ## Current capabilities and boundaries
@@ -24,17 +24,17 @@ of the index. They are useful, but completing agent workflows takes priority ove
 | --- | --- | --- |
 | Selection | Explicit repository lists across owners; user/organization inventories | Coverage is limited by the credential and selected listing mode |
 | Ingestion | Open/closed issues, open/closed/merged PRs, comments, inline review comments, review bodies | Polling observations cannot reconstruct everything between syncs |
-| Queries | Inventory, item details, comments, PR status, activity; SQL filters/pagination and JSON | Diffs, repository files, individual check logs, and GraphQL thread resolution are not fetched |
+| Queries | Inventory, item details, comments, PR status, activity; SQL filters/pagination and JSON | Technical context is fetched live on demand, separately from indexed conversations |
 | Local analysis | Summaries, classification labels, ranks, and triage notes | Callers supply the content; there is no model invocation or built-in taxonomy |
 | Continuity | Source revisions, stale analysis, processing checkpoints, changes since processing | Acknowledgement is shared per item, not tracked independently per agent |
-| GitHub integration | PyGithub REST/GraphQL reads; environment tokens or existing `gh` credentials | The command is `gh-maintainer`, not an installed `gh` extension; no GitHub write commands |
-| Agent skills | Local triage skill, self-contained references, offline fixtures and recorded author-run evaluations | Independent-agent validation and further S1–S5 workflows remain open |
+| GitHub integration | PyGithub sync and authenticated `gh api` technical-context reads | The command is `gh-maintainer`, not an installed `gh` extension; no GitHub write commands |
+| Agent skills | Six bundled skills, self-contained references, offline fixtures and recorded evaluations | Detailed evaluated scope and remaining provider/host limits are recorded per release |
 
 The remaining context and skill dependencies are detailed in the [agent skills plan](agent-skills.md).
 The first skill follows the [local triage plan](specs/001-local-triage/plan.md), with its
-specification and completed task list alongside it. Read the [evaluation](evaluations/local-triage.md)
-for observed cases and limits; initial author-run evidence is distinct from independent validation.
-Do not describe proposed `context`, diff, or CI-log commands as available features.
+specification and completed task list alongside it. Read the [release evaluation](evaluations/release.md)
+for independent cases and limits; initial author-run evidence is distinct from independent validation.
+Use the [context contract](context.md) for live evidence and explicit pagination/gaps.
 
 ## Essential concepts
 
@@ -104,7 +104,7 @@ their existing modules; a new feature does not normally need a new service frame
 | Query/filter/priority behavior | `queries.py`, `policies.py` | `tests/test_reports_web.py` checks SQL/pure-policy parity; maintenance tests cover freshness |
 | Database location/file management | `database.default_path`, `cli.py`, `migrations/env.py` | `tests/test_cli_db.py` covers defaults, overrides, and deletion |
 | CLI or JSON behavior | `cli.py`, `schemas.py`, the query/write services | `tests/test_cli.py` and `tests/test_cli_db.py` cover the command boundary; `tests/test_maintenance.py` covers an offline workflow |
-| Agent skills | `skills/gh-maintainer-triage/`; public CLI calls | `tests/test_triage_skill.py`, `tests/triage_fixtures.py`, and [recorded evaluation](evaluations/local-triage.md) |
+| Policy/context/skill resources | `config.py`, `context.py`, `skillpack.py`, `skills/`; public CLI calls | `tests/test_policy.py`, `tests/test_context.py`, `tests/test_skillpack.py`, and [release evaluation](evaluations/release.md) |
 
 `tests/fakes.py` is the token-free source implementation for sync tests. `demo.py` supplies
 an offline portfolio. `database.py` owns engine/session lifecycle and migrations. Follow

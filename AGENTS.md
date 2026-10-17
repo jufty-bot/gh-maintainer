@@ -4,8 +4,9 @@
 
 Maintain a small CLI that indexes GitHub issues, PRs, and conversations incrementally in
 SQLite and stores local summaries, classifications, ranks, triage, and processing state.
-That baseline and the first local triage skill are implemented. Extend the skills that
-operate the CLI for humans, adding context only as those workflows need it.
+The baseline, repository policy, live technical context and six maintenance skills are
+implemented. Extend the public contracts and evaluations without adding infrastructure
+that current workflows do not need.
 
 Prioritize the CLI and its data contracts. The dashboard and reports consume the index.
 Keep current capabilities distinct from planned ones in documentation and command examples.
@@ -23,8 +24,10 @@ Start with project context, then read the contracts and plans relevant to the ta
 - [Design decisions](docs/decisions.md): accepted choices, rationale, tradeoffs, and proposed directions.
 - [Roadmap](docs/roadmap.md): scope, delivery order, and completion criteria.
 - [Agent skills plan](docs/agent-skills.md): workflow stages, missing context, evaluations, and open decisions.
-- [Local triage skill](docs/skills.md): installation, compatibility, and token-free walkthrough.
-- [First triage skill implementation](docs/specs/001-local-triage/plan.md): specification and completed implementation tasks; independent evaluation remains open.
+- [Maintenance skills](docs/skills.md): bundled workflows, installation and walkthrough.
+- [Repository policy](docs/policy.md) and [technical context](docs/context.md): local guards and commit-bound evidence.
+- [Release plan](docs/specs/002-complete-release/plan.md) and [validation](docs/evaluations/release.md): delivery scope and acceptance evidence.
+- [First triage skill implementation](docs/specs/001-local-triage/plan.md): specification, completed tasks and independent acceptance evidence.
 - [Triage evaluation](docs/evaluations/local-triage.md): author-run evidence and explicit limits.
 - [Implementation checklist](docs/checklist.md): verified progress and remaining work.
 - [Architecture](docs/architecture.md): module boundaries and storage contracts.

@@ -19,7 +19,7 @@
         [
             "@semantic-release/exec",
             {
-                "prepareCmd": "uv version ${nextRelease.version} && uv build"
+                "prepareCmd": "uv version ${nextRelease.version} && uv build --clear && uv run --locked python scripts/build_release.py"
             }
         ],
         [
@@ -38,6 +38,12 @@
                     },
                     {
                         "path": "dist/*.tar.gz"
+                    },
+                    {
+                        "path": "dist/gh-maintainer-skills-*.zip"
+                    },
+                    {
+                        "path": "dist/SHA256SUMS-*.txt"
                     }
                 ]
             }

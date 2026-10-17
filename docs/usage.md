@@ -1,6 +1,8 @@
 # Using gh-maintainer
 
-This guide covers the current CLI, local dashboard, storage guarantees, and deployment.
+This guide covers the CLI, local dashboard, storage guarantees, and deployment.
+For packaged installation see [releases](releases.md); agents should read [skills](skills.md),
+[policy](policy.md), and [technical context](context.md).
 See the [roadmap](roadmap.md) for planned capabilities and the [contributor guide](contributing.md) for development.
 
 ## Start locally

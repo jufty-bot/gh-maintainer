@@ -1,18 +1,31 @@
-# Local triage skill
+# Maintenance skills
 
 `gh-maintainer-triage` teaches an agent to inspect a bounded issue/PR queue, save
 source-grounded local summaries, apply delegated policy, and acknowledge only inspected
 revisions. It includes changed closed/merged items, prior decisions, pagination, and
-incomplete coverage. This is conversation triage; code review and CI diagnosis remain
-in the [skills roadmap](agent-skills.md).
+incomplete coverage. The bundle also supplies prioritization, technical review, CI
+diagnosis, issue repair and portfolio workflows:
+
+| Skill | Task |
+| --- | --- |
+| `gh-maintainer-triage` | Bounded conversation triage and activity follow-up |
+| `gh-maintainer-prioritize` | Policy-grounded classification and ranking |
+| `gh-maintainer-review` | Commit-bound PR code review |
+| `gh-maintainer-ci` | Individual CI/check/log diagnosis |
+| `gh-maintainer-fix` | Issue reproduction and validated local fixes |
+| `gh-maintainer-maintain` | Portfolio follow-up, digests, backlog/release preparation |
+
+Instructions do not prove behavior: see the [release validation](evaluations/release.md)
+for cases actually exercised and remaining limits. The [roadmap](agent-skills.md)
+continues to track richer scenarios and future extensions.
 
 ## Prerequisites and compatibility
 
 Use Python 3.10+ and `uv sync --locked` from this checkout, or an installed
-`gh-maintainer` executable. Skill version `gh-maintainer-triage/v1` was validated against
-CLI `0.1.0`, baseline commit `d8f1b8b`, including Click help and revision-guarded writes.
-Because package versions may not identify unreleased changes, record the checkout commit
-as well as `gh-maintainer --version`. No application dependency or migration is added.
+`gh-maintainer` executable. The current bundle requires CLI `0.2.0+`: triage is
+`gh-maintainer-triage/v2`; other workflows use `/v1`. The earlier triage v1 evaluation
+remains a historical CLI 0.1.0 result. Record skill marker, installed version, checkout
+commit when available, and policy hash. No new runtime dependency or migration is added.
 
 The agent needs a shell and permission to read the selected index and perform the requested
 local writes. Existing indexes work offline without GitHub credentials. A separately
@@ -21,24 +34,20 @@ requested sync uses `GH_TOKEN` / `GITHUB_TOKEN` or `gh auth login` as described 
 
 ## Load or install
 
-The repository owns the entire self-contained directory
-[`skills/gh-maintainer-triage`](https://github.com/jufty-bot/gh-maintainer/tree/main/skills/gh-maintainer-triage).
-Copy the directory and its `references/` together. For a Codex setup using a user skills
-directory, run from the checkout (choose a new destination; do not overwrite an existing
-customized skill):
+The wheel bundles all skills. Follow [installation](releases.md), then copy the complete
+directories into a **new** destination (existing skills are never overwritten):
 
 ```bash
-skill_root="${CODEX_HOME:-$HOME/.codex}/skills"
-mkdir -p "$skill_root"
-test ! -e "$skill_root/gh-maintainer-triage" && cp -R skills/gh-maintainer-triage "$skill_root/"
+gh-maintainer skills --format json
+gh-maintainer skills --install /absolute/new/agent-skills
 ```
 
 Reload skill discovery in the agent before invoking `$gh-maintainer-triage`. Automatic
 discovery varies between hosts. The validated method is **direct loading in Codex**:
 ask it to read the copied `SKILL.md` by its absolute path, follow it, and read its relative
 references as needed. This portable method also works in agents with file/shell access;
-native discovery in other agents has not been evaluated. Installing the Python wheel
-alone does not install the skill; copy it from a checkout of the desired revision.
+native discovery in other agents has not been evaluated. Installing the wheel makes
+the resources available; `skills --install` copies them to the agent's selected location.
 
 Example request (replace paths/repository):
 
@@ -52,8 +61,10 @@ snoozes, classifications and ranks. Report blockers and remaining work.
 Default scope is one repository, 10 candidate items, issues before PRs, 100 records/page,
 indexed freshness, summary writes plus completed-triage acknowledgements, and one full
 reread/retry per item after revision conflict. A read-only request writes nothing.
-For labels, ranks, or disposition changes, provide the permitted updates and applicable
-taxonomy/rubric. No taxonomy is invented when policy is missing. Processing is shared
+For labels, ranks, or disposition changes, provide the selected [policy file](policy.md)
+and permitted updates. Skills read its hash and pass `--policy` on writes. Technical
+skills use [context packets](context.md), a matching checkout, and project checks.
+No taxonomy is invented when policy is missing. Processing is shared
 per item; it is not a private checkpoint for each agent.
 
 ## Token-free walkthrough
@@ -87,8 +98,10 @@ uv run --locked pytest tests/test_triage_skill.py tests/test_maintenance.py -q
 
 Other scenarios and their pass criteria are in the skill's
 [evaluation reference](https://github.com/jufty-bot/gh-maintainer/blob/main/skills/gh-maintainer-triage/references/evaluation.md).
-For source races, use `python -m tests.triage_fixtures advance PATH --scenario race`
-between reads and writes. See the [recorded evaluation](evaluations/local-triage.md)
+For source races on **PR #2**, use `python -m tests.triage_fixtures advance PATH --scenario race`
+between reads and writes. `--generation 2` injects a second head/comment change on that
+PR for retry-budget evaluation. Issue #1 is unchanged by this fixture action.
+See the [recorded evaluation](evaluations/local-triage.md)
 for actual observed behavior, contract results, and limitations. Scripted tests alone
 do not validate agent decisions.
 

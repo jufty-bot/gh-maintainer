@@ -21,6 +21,18 @@ jobs:
                   persist-credentials: false
             - name: setup-uv
               uses: astral-sh/setup-uv@6b9c6063abd6010835644d4c2e1bef4cf5cd0fca # v6.0.1
+              with:
+                  python-version: '3.12'
+            - name: Validate release candidate
+              run: |
+                  uv run --locked pytest -q
+                  uv run --locked ruff check .
+                  uv run --locked ruff format --check .
+                  uv run --locked mypy src
+                  uv run --locked --group docs mkdocs build --strict
+                  uv build
+                  uv run --locked python scripts/build_release.py
+                  uv run --locked python scripts/check_install.py
             - name: Semantic Release
               uses: juftin/actions/semantic-release@v1
               with:
@@ -44,7 +56,7 @@ jobs:
                   task: docs
                   install: true
                   github-token: ${{ secrets.GITHUB_TOKEN }}
-                  args: build
+                  args: build --strict
             - name: Publish Docs
               uses: juftin/actions/github-pages@v1
               id: deployment

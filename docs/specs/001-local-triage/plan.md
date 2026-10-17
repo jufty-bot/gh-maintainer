@@ -74,8 +74,9 @@ Implementation outcome: no application changes, dependencies, commands, or migra
 The shared fixture helper makes the same cases reproducible outside pytest. The
 [evaluation record](../../evaluations/local-triage.md) retains full public command
 output in compressed JSONL alongside readable findings. Author-run evaluations exercise
-US1–US3; independent-agent SC-001 validation and additional boundary evaluations remain
-open and are not claimed by this implementation.
+US1–US3; independent-agent SC-001, read-only, policy and retry-exhaustion validation was
+subsequently completed for [release 0.2.0](../../evaluations/release.md). Further
+provider/host boundary evaluations remain extensions.
 
 ## Phase 1: Establish the workflow and evaluation inputs
 

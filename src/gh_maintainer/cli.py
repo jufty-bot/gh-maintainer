@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +13,8 @@ import uvicorn
 from sqlalchemy.exc import SQLAlchemyError
 
 from gh_maintainer.clock import parse_date
+from gh_maintainer.config import PolicyFile, RepositoryPolicy, check_policy, load_policy
+from gh_maintainer.context import ContextRequest, context_for
 from gh_maintainer.database import Database, default_path
 from gh_maintainer.demo import seed_demo
 from gh_maintainer.github import PyGithubSource, resolve_token
@@ -29,6 +32,7 @@ from gh_maintainer.schemas import (
     owner_name,
     repository_name,
 )
+from gh_maintainer.skillpack import install_skills, skill_directory
 from gh_maintainer.sync import SyncService
 from gh_maintainer.web import create_app
 
@@ -109,6 +113,42 @@ def db_delete(ctx: click.Context, db: str | None, yes: bool) -> None:
     ctx.invoke(execute, command="db", db=db, db_action="delete")
 
 
+@main.command("policy")
+@click.option("--repo", required=True, type=repository_name)
+@click.option(
+    "--file",
+    "policy_file",
+    type=click.Path(path_type=Path, dir_okay=False),
+    default=Path(".gh-maintainer.json"),
+)
+@click.option(
+    "--init",
+    "initialize",
+    is_flag=True,
+    help="Create a new starter policy; refuses existing files.",
+)
+@click.option("--format", type=click.Choice(["text", "json"]), default="text")
+@click.option("--db", help="Override the SQLite index path (unused by policy).")
+@click.pass_context
+def policy_command(ctx: click.Context, **options: object) -> None:
+    """Validate and show repository policy, or create it with --init."""
+    ctx.invoke(execute, command="policy", **options)
+
+
+@main.command("skills")
+@click.option(
+    "--install",
+    type=click.Path(path_type=Path, file_okay=False),
+    help="Copy bundled skills into this directory; never overwrites.",
+)
+@click.option("--format", type=click.Choice(["text", "json"]), default="text")
+@click.option("--db", help="Override the SQLite index path (unused by skills).")
+@click.pass_context
+def skills_command(ctx: click.Context, **options: object) -> None:
+    """List bundled maintenance skills or install them for your agent."""
+    ctx.invoke(execute, command="skills", **options)
+
+
 @click.pass_context
 def execute(ctx: click.Context, **options: object) -> None:
     """Bridge Click parameters to the async application lifecycle."""
@@ -159,6 +199,7 @@ def register_commands() -> None:
         "summarize": "Save supplied summary TEXT; use - to read from stdin.",
         "rank": "Save a supplied rank SCORE; higher values sort first.",
         "mark-processed": "Acknowledge an item's current source revision.",
+        "context": "Fetch live guidance, code, CI, or review context through gh.",
     }
     for name, summary in descriptions.items():
         description = summary
@@ -304,6 +345,13 @@ def register_commands() -> None:
         if name in {"classify", "summarize", "rank", "mark-processed", "triage"}:
             params.append(
                 click.Option(
+                    ["--policy"],
+                    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+                    help="Validate this write against the repository's JSON policy.",
+                )
+            )
+            params.append(
+                click.Option(
                     ["--revision"],
                     type=click.IntRange(min=1),
                     help="Reject the write if the source revision has changed.",
@@ -363,6 +411,38 @@ def register_commands() -> None:
                     type=parse_date,
                     metavar="TIMESTAMP",
                     help="ISO timestamp with timezone, required when snoozing.",
+                ),
+            ]
+        if name == "context":
+            params += [
+                click.Argument(["item_id"]),
+                click.Option(
+                    ["--section"],
+                    type=click.Choice(
+                        [
+                            "overview",
+                            "guidance",
+                            "files",
+                            "file",
+                            "checks",
+                            "threads",
+                            "logs",
+                        ]
+                    ),
+                    default="overview",
+                ),
+                click.Option(["--limit"], type=click.IntRange(1, 100), default=100),
+                click.Option(["--page"], type=click.IntRange(min=1), default=1),
+                click.Option(["--cursor"], help="Review-thread continuation cursor."),
+                click.Option(
+                    ["--path"], help="Repository-relative file or nested guidance path."
+                ),
+                click.Option(
+                    ["--ref"], type=click.Choice(["head", "base"]), default="head"
+                ),
+                click.Option(["--job-id"], type=click.IntRange(min=1)),
+                click.Option(
+                    ["--max-chars"], type=click.IntRange(1, 1000000), default=30000
                 ),
             ]
         main.add_command(
@@ -510,6 +590,37 @@ async def read_command(database: Database, args: SimpleNamespace) -> None:
 
 
 async def run(args: SimpleNamespace) -> int:
+    if args.command == "policy":
+        if args.initialize:
+            policy = PolicyFile(repositories={args.repo: RepositoryPolicy()})
+            with args.policy_file.open("x", encoding="utf-8") as stream:
+                stream.write(policy.model_dump_json(indent=2) + "\n")
+        selected = load_policy(args.policy_file, args.repo)
+        display(selected, selected.model_dump_json(indent=2), args)
+        return 0
+    if args.command == "skills":
+        names = (
+            install_skills(args.install)
+            if args.install
+            else sorted(
+                path.name
+                for path in skill_directory().iterdir()
+                if (path / "SKILL.md").is_file()
+            )
+        )
+        output(
+            json.dumps(
+                {
+                    "skills": names,
+                    "installed_to": str(args.install.resolve())
+                    if args.install
+                    else None,
+                }
+            )
+            if args.format == "json"
+            else "\n".join(names)
+        )
+        return 0
     if args.command in {"sync", "watch"}:
         configure_logging()
     if args.command == "db":
@@ -527,6 +638,26 @@ async def run(args: SimpleNamespace) -> int:
     database = Database(args.db)
     try:
         await database.initialize()
+        if args.command == "context":
+            async with database.sessions() as session:
+                item = (await CatalogQueries(session).show(args.item_id)).item
+            request = ContextRequest(
+                **{name: getattr(args, name) for name in ContextRequest.model_fields}
+            )
+            packet = await context_for(item, request)
+            display(packet, packet.model_dump_json(indent=2), args)
+            return 0 if packet.complete else 1
+        if getattr(args, "policy", None):
+            async with database.sessions() as session:
+                item = (await CatalogQueries(session).show(args.item_id)).item
+            selected = load_policy(args.policy, item.repo)
+            check_policy(
+                selected.policy,
+                args.command,
+                labels=getattr(args, "labels", ()),
+                score=getattr(args, "score", None),
+                disposition=getattr(args, "disposition", None),
+            )
         if args.command in {"sync", "watch"}:
             source = PyGithubSource(await resolve_token())
             try:

@@ -17,7 +17,7 @@ Local query/analysis commands also work without a model service or a running web
 
 **Tradeoff:** Agents still need instructions, repository guidance, code context, and
 authorization for the requested work. Having indexed a PR does not constitute a code review.
-The local triage skill is available; the CLI does not run an agent or generate analysis itself.
+Six bundled maintenance skills are available; the CLI does not run an agent or generate analysis itself.
 
 Evidence: command entry point in `cli.py`, query/write boundaries in `queries.py` and
 `repositories.py`, and the offline workflow in `tests/test_maintenance.py`.
@@ -43,11 +43,13 @@ lazy pagination, on one dedicated worker thread. Library behavior needs adapter 
 Evidence: `pyproject.toml`, `models.py`, `schemas.py`, `github.py`, and the SDK thread and
 pagination tests in `tests/test_github.py`.
 
-## D3. Reuse gh credentials; make API calls through PyGithub
+## D3. Reuse gh credentials; keep ingestion in PyGithub
 
 **Decision:** `resolve_token()` uses `GH_TOKEN` / `GITHUB_TOKEN` when supplied; otherwise
 it invokes `gh auth token --hostname github.com`. The token is passed explicitly into
-PyGithub. PyGithub does not discover gh authentication on its own.
+PyGithub. PyGithub does not discover gh authentication on its own. On-demand technical
+context uses authenticated `gh api` read requests, with explicit github.com targeting,
+timeouts and commit provenance; it never changes the stored index.
 
 **Why:** Existing gh logins are useful without making every API operation a subprocess or
 requiring users to copy credentials into another configuration file. Local reads and
@@ -151,24 +153,25 @@ Schema changes need upgrade/preservation tests and an Alembic comparison check.
 
 Evidence: `database.py`, `migrations/versions/`, and `tests/test_migrations.py`.
 
-## D9. Fetch richer maintenance context when a workflow needs it (proposed direction)
+## D9. Fetch richer maintenance context when a workflow needs it
 
 **Current boundary:** The CLI stores item/conversation context and aggregate PR signals.
-It does not fetch repository guidance, diffs, file contents, individual CI logs, branch
-rules, or GraphQL review-thread resolution.
+The `context` command now fetches guidance, diffs/files, individual checks/job logs and
+review threads on demand. Branch rules and external CI-provider integrations remain
+extensions; see [technical context](context.md).
 
-**Planned direction:** Add small public context operations driven by skill needs. Reuse
+**Implemented direction:** Public context operations are driven by skill needs. Reuse
 GitHub/Git tooling and fetch large or rapidly changing artifacts on demand; retain source
-references, relevant SHAs/revisions, timestamps, and missing coverage. The proposed
-`context ITEM --format json` command is not implemented.
+references, relevant SHAs/revisions, timestamps, and missing coverage. The public
+`context ITEM --format json` command is implemented with explicit section selection.
 
 **Why:** Avoid turning SQLite into a speculative mirror of every repository artifact or
 building a general agent platform before the workflows exist. Basic triage skills can
 start with the public commands already available.
 
-The collection strategy, context schema, caching, and external write contracts remain
-design work in the [agent skills plan](agent-skills.md). This entry records a direction,
-not a completed implementation decision.
+The [context contract](context.md) records the implemented collection/schema boundaries.
+Caching, external providers and further action history remain extensions in the
+[agent skills plan](agent-skills.md).
 
 
 ## D10. Platform user data directory and explicit deletion
@@ -194,8 +197,9 @@ Evidence: `database.default_path`, `cli.py`, `migrations/env.py`, and
 **Decision:** Ship `skills/gh-maintainer-triage/SKILL.md` with relative policy/evaluation
 references. Version its instructions/provenance as `gh-maintainer-triage/v1` and record
 both CLI package version and checkout baseline. Copy the complete directory for agent
-installation; direct file loading is the validated portable method. Python wheels do
-not install skills. No workflow runner, dependency, table, or CLI command was added.
+installation; direct file loading is the validated portable method. Python wheels now bundle resources; `skills --install` copies complete directories
+without overwriting existing skills (see D12). The initial triage delivery needed no
+workflow runner, dependency, table, or new CLI command.
 
 **Why:** The current CLI already supports bounded local triage. Instructions can teach
 coverage checks, all-state pagination, guarded writes, and grounded handoffs without
@@ -211,3 +215,35 @@ agent reliability. There is no mandatory model evaluation service.
 
 Evidence: [skill installation](skills.md), `tests/test_triage_skill.py`, and the
 [evaluation report and public transcript](evaluations/local-triage.md).
+
+## D12. Small policy, context and distribution additions
+
+**Decision:** Version-1 JSON policy is explicit per repository and validated by Pydantic.
+`policy` reports its absolute path/hash; optional `--policy` guards local writes using
+exact label vocabularies, rank bands, dispositions and allowed commands. Budgets and
+freshness are skill inputs. Manual writes without policy remain supported.
+
+Technical context is fetched on demand through authenticated `gh api` in `context.py`,
+outside SQLite transactions, with a bounded subprocess timeout. Packets retain observed
+time, indexed revision, immutable head/base and blob identities, continuation, missing
+evidence, truncation and a final head/base stability check. File reads handle forks;
+guidance comes from the base revision. Context does not update processing or source data.
+
+The existing Hatch build bundles all six skill directories. `skills --install` copies
+them without overwriting; a release ZIP includes hashes/version provenance. CI validates
+the built wheel outside the checkout, including a legacy upgrade, on every main push/PR.
+Publication follows the same validation gates.
+
+**Why:** These are the capabilities required by the requested end-to-end maintenance
+workflows. Existing Click, Pydantic, Git/gh and standard-library packaging tools suffice;
+there are no new runtime dependencies, schema tables or model/orchestration services.
+
+**Tradeoff:** Context requires installed/authenticated gh and live access; offline index
+commands remain available. String budgets bound returned evidence, not network transfer.
+GitHub listing/size limits and nested reply gaps remain explicit. Source guards do not
+lock concurrent local-analysis or policy-file edits. Policy is not a sandbox, and a
+skill is not permission to publish remote changes.
+
+Evidence: [policy](policy.md), [context](context.md), [releases](releases.md),
+`tests/test_policy.py`, `tests/test_context.py`, `tests/test_skillpack.py`, and
+[release validation](evaluations/release.md).

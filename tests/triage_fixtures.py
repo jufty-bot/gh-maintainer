@@ -86,7 +86,9 @@ def source_for(scenario: str) -> FakeSource:
     return source
 
 
-async def populate(path: Path, scenario: str, *, advance: bool = False) -> None:
+async def populate(
+    path: Path, scenario: str, *, advance: bool = False, generation: int = 1
+) -> None:
     if not advance and path.exists():
         raise ValueError("Fixture seed requires a new database path.")
     if advance and (
@@ -108,11 +110,15 @@ async def populate(path: Path, scenario: str, *, advance: bool = False) -> None:
                     ),
                 ]
             else:
-                source.head_sha = source.signal_head = "updated-head"
+                source.head_sha = source.signal_head = (
+                    "updated-head" if generation == 1 else f"updated-head-{generation}"
+                )
                 source.conversation[-1] = conversation(
                     2,
                     1,
-                    "Edited: new head changes the default behavior; inspect again.",
+                    "Edited: new head changes the default behavior; inspect again."
+                    if generation == 1
+                    else f"Edited: source update {generation} needs inspection.",
                 )
             await SyncService(database, source).run()
             return
@@ -180,9 +186,15 @@ def main() -> None:
     parser.add_argument("action", choices=["seed", "advance"])
     parser.add_argument("database", type=Path)
     parser.add_argument("--scenario", choices=SCENARIOS, default="ordinary")
+    parser.add_argument("--generation", type=int, choices=range(1, 11), default=1)
     args = parser.parse_args()
     asyncio.run(
-        populate(args.database, args.scenario, advance=args.action == "advance")
+        populate(
+            args.database,
+            args.scenario,
+            advance=args.action == "advance",
+            generation=args.generation,
+        )
     )
 
 

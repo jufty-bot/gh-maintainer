@@ -18,6 +18,42 @@ pytestmark = pytest.mark.anyio
 TABLES = ("metadata", "repos", "items", "changes", "triage", "runs")
 
 
+@pytest.mark.parametrize(
+    "old,new",
+    [
+        ("PRIMARY KEY", ""),
+        (", UNIQUE(repo_id,number)", ""),
+        (" REFERENCES repos(id)", ""),
+        ("number INTEGER NOT NULL", "number TEXT NOT NULL"),
+        ("repo_id TEXT NOT NULL", "repo_id TEXT"),
+    ],
+)
+async def test_same_names_with_invalid_constraints_or_types_are_refused(
+    tmp_path, old, new
+):
+    path = tmp_path / "malformed.sqlite"
+    schema = (Path(__file__).parent / "fixtures/legacy.sql").read_text()
+    assert old in schema
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.executescript(schema.replace(old, new))
+        before = connection.execute(
+            "SELECT name,sql FROM sqlite_master WHERE type='table' ORDER BY name"
+        ).fetchall()
+    database = Database(path)
+    try:
+        with pytest.raises(RuntimeError, match="Unrecognized"):
+            await database.initialize()
+    finally:
+        await database.close()
+    with closing(sqlite3.connect(path)) as connection:
+        assert (
+            connection.execute(
+                "SELECT name,sql FROM sqlite_master WHERE type='table' ORDER BY name"
+            ).fetchall()
+            == before
+        )
+
+
 def legacy_database(path: Path) -> dict[str, list[tuple]]:
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.executescript(

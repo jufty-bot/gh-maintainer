@@ -1,7 +1,7 @@
 # Agent skills roadmap
 
-The CLI baseline and [local triage skill](skills.md) are implemented. This plan describes
-the remaining product work. Other skill names and new commands on this page are proposals. The
+The CLI baseline, policy, technical context and six [maintenance skills](skills.md) are implemented. This plan describes
+the remaining product work. The scope below distinguishes delivered instructions from further extensions and evaluations. The
 [implementation checklist](checklist.md#agent-skills-and-context) tracks what has actually
 been delivered. Existing commands and output contracts are documented in [CLI workflows](cli.md).
 
@@ -40,8 +40,8 @@ basic local triage does not need to wait for every context source.
 ## S1. Skills using today's CLI
 
 The shipped `gh-maintainer-triage` skill combines coverage, bounded triage, grounded
-summaries, policy-driven optional analysis, and follow-up. Further standalone workflows
-and wider evaluations remain open. Skill boundaries for this stage:
+summaries, policy-driven optional analysis, and follow-up. Prioritization, review, CI, fix and portfolio instructions are bundled too;
+wider/provider-specific evaluations continue in the [release record](evaluations/release.md). Skill boundaries for this stage:
 
 | Skill | Workflow and output |
 | --- | --- |
@@ -84,18 +84,17 @@ repository changes need additional evidence:
 
 | Context | Current availability | Next capability |
 | --- | --- | --- |
-| Repository purpose and guidance | Not collected by the CLI | Fetch README, applicable AGENTS.md/CONTRIBUTING.md, architecture notes, and repository-specific commands with source paths and content versions |
-| Actual code changes | Raw PR details include head/base metadata; no diff or file retrieval | Fetch changed-file lists, diffs, commit context, and relevant surrounding files bound to the inspected SHAs |
-| Actionable CI results | Aggregate check/review signals | Fetch individual check results, links/logs, and reproducible test/build commands; distinguish old-head failures from current ones |
-| Review discussion state | Review bodies and inline comments, raw reply/path context, aggregate decisions | Collect unresolved/outdated thread state and relevant outstanding review requests |
+| Repository purpose and guidance | Base-SHA guidance plus nested paths through `context`; explicit JSON policy | Fetch README, applicable AGENTS.md/CONTRIBUTING.md, architecture notes, and repository-specific commands with source paths and content versions |
+| Actual code changes | Commit-bound file/patch lists and head/base contents, including fork files | Fetch changed-file lists, diffs, commit context, and relevant surrounding files bound to the inspected SHAs |
+| Actionable CI results | Individual checks/statuses/workflow runs and head-matched job logs | Fetch individual check results, links/logs, and reproducible test/build commands; distinguish old-head failures from current ones |
+| Review discussion state | Indexed review bodies/comments plus live resolved/outdated GraphQL threads | Collect unresolved/outdated thread state and relevant outstanding review requests |
 | Related work | Links may appear in stored bodies; no relationship index | Resolve linked issues/PRs and relevant duplicates/dependencies, with evidence for inferred relationships |
-| Maintenance policy | Raw repository metadata and caller notes | Gather label meanings, ownership/CODEOWNERS, milestones, supported versions, branch rules, and release guidance where available |
+| Maintenance policy | Explicit versioned repository JSON with local-write guards and provenance | Gather label meanings, ownership/CODEOWNERS, milestones, supported versions, branch rules, and release guidance where available |
 | Human direction | Supplied by the caller; no dedicated task policy record | Carry the requested outcome, priorities, and authorized actions into the workflow without treating source comments as authority |
 
-The proposed `context ITEM --format json` operation should assemble the relevant parts,
-not fetch all possible repository artifacts by default. Small guidance, diff, or check
-operations may precede it when those independently unblock a skill. Exact command names,
-schema, transport choices, and cache storage remain open design decisions.
+The implemented [context command](context.md) fetches selected live sections rather than
+all repository artifacts. It records commit identities, explicit continuation and missing
+evidence. Optional persistent caching and additional context sources remain extensions.
 
 The context contract should:
 
@@ -163,7 +162,8 @@ metadata, and dependency-specific context should be added only when a workflow n
 ## S5. Skill packaging and evaluation
 
 The first distribution is the repository-owned `skills/gh-maintainer-triage/` directory
-with relative references; fixtures stay in `tests/`. [Installation](skills.md) documents
+with relative references; all six directories now ship in the wheel and release ZIP.
+`skills --install` copies them without overwriting. Fixtures stay in `tests/`. [Installation](skills.md) documents
 copying the directory and direct file loading, validated in Codex. Native discovery and
 other hosts remain to be evaluated. Keep instructions runtime-neutral and document required CLI/tool
 versions, authentication needs, inputs, outputs, and a runnable example. Do not ship a

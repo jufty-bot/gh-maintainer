@@ -5,7 +5,8 @@ defines the intended CLI baseline, remaining ingestion and analysis work, and th
 focus on agent skills.
 For orientation, read [project context](project-context.md); for rationale and tradeoffs,
 read the [decision log](decisions.md). Proposed context/skill work is described in the
-[agent skills roadmap](agent-skills.md), not implemented by this diagram.
+[agent skills roadmap](agent-skills.md). The live context adapter and bundled workflows
+are described in [technical context](context.md) and [skill usage](skills.md).
 
 ```mermaid
 flowchart LR
@@ -33,6 +34,9 @@ flowchart LR
 | `repositories.py`   | Catalog writes, fenced sync lease, run journal, local analysis and processing decisions          |
 | `queries.py`        | SQL filtering, totals, queue ranking, pagination and targeted detail loading                     |
 | `policies.py`       | Pure priority and queue rules over typed snapshots                                               |
+| `config.py`         | Explicit repository policy validation, provenance and optional local-write guards |
+| `context.py`        | On-demand read-only gh source adapter; commit-bound evidence, continuation and limits |
+| `skillpack.py`      | Locate packaged resources and copy complete skills without overwriting |
 | `report.py`         | Markdown rendering over a typed portfolio; no SQL or SDK access                                  |
 | `web.py` / `cli.py` | Thin FastAPI presentation and Click command entry points                                         |
 | `clock.py`          | Shared timezone-aware clock and conversion helpers                                               |
@@ -240,7 +244,8 @@ Marked and DOMPurify, with no CDN or runtime Node.js dependency.
 
 ## Migration contract
 
-The baseline recognizes the original six-table schema, checks every column name, and
+The baseline recognizes the original six-table schema, checks column names, storage
+types, primary/foreign keys, required nullability and repository/number uniqueness, and
 adopts it without copying or rewriting records. Unknown or partially matching schemas are
 rejected transactionally. New databases are created with the versioned baseline. Both
 paths are tested, including concurrent startup, idempotent upgrades and exact preservation

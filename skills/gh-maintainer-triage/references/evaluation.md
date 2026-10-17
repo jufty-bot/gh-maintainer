@@ -18,7 +18,8 @@ uv run --locked gh-maintainer --db "$case_dir/index.sqlite" repos --format json
 Fixtures and tests are development artifacts, not part of the installed skill. The
 helper `tests.triage_fixtures` supports `seed` and `advance` and lists cases with `--help`.
 `seed` refuses existing files. `advance` injects a synthetic source push/comment edit
-for `race`/`partial-write`, or new closed/merged discussion for `closed-merged`.
+on PR #2 for `race`/`partial-write` (issue #1 is unchanged), or new closed/merged
+discussion for `closed-merged`. `--generation 2` injects a second change on PR #2.
 Only fixture setup injects source data; the agent must operate through public commands.
 Use page size 2 for queue pagination, size 100 for the 101-comment discussion.
 
