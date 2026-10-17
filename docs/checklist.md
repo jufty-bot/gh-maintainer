@@ -2,8 +2,8 @@
 
 Agents maintain this checklist alongside implementation changes. The [roadmap](roadmap.md)
 defines scope and acceptance criteria; [AGENTS.md](https://github.com/jufty-bot/gh-maintainer/blob/main/AGENTS.md)
-defines the maintenance workflow. The CLI baseline is implemented; skills and richer
-context are the next work. Checked items describe verified work. Add code/test references
+defines the maintenance workflow. The CLI baseline and first local triage skill are
+implemented; further skills and richer context remain. Checked items describe verified work. Add code/test references
 and validation evidence when closing a task.
 Split partial work into separate tasks instead of marking an entire milestone complete.
 
@@ -136,7 +136,8 @@ are fixed until refreshed; source changes invalidate their freshness.
 - [x] Validate the [baseline completion gate](roadmap.md#baseline-completion-gate) through
   the CLI, including interruption, partial coverage, reconciliation, and database upgrades.
 - [x] Document the complete workflow and its output contracts for humans and agents.
-- [ ] Ship maintenance skills, tracked by stage below.
+- [x] Ship the first local triage skill, tracked below.
+- [ ] Complete the remaining maintenance skills and context stages.
 
 Baseline validation: `uv run pytest -q` passed all 55 tests, including offline CLI use,
 interruption/retry, comment pagination and edits, processing freshness, and legacy upgrades.
@@ -144,23 +145,33 @@ Ruff lint/format, mypy, strict MkDocs, Alembic schema comparison, and package bu
 
 ## Agent skills and context
 
-Scope and acceptance criteria: [agent skills roadmap](agent-skills.md). All implementation
-tasks below are future work; documenting them does not imply that skills or new context
-commands exist. Keep evidence beside each completed task and split partial work explicitly.
+Scope and acceptance criteria: [agent skills roadmap](agent-skills.md). Checked tasks
+describe shipped work; unchecked tasks remain open. Keep evidence beside each completed
+task and split partial work explicitly. Richer context commands remain unimplemented.
 
 ### S1. Local maintenance skills
 
 - [x] Define the first triage skill's specification, implementation approach, and ordered
   tasks using Spec Kit template structure. See the [plan](specs/001-local-triage/plan.md)
-  and [feature task list](specs/001-local-triage/tasks.md); all implementation tasks remain pending.
+  and [feature task list](specs/001-local-triage/tasks.md).
   Planning validation: strict MkDocs, local Markdown link checks, unique/ordered task IDs,
   and `git diff --check` passed. No runtime code changed.
-- [ ] Choose the first skill's directory/package layout and document the decision.
-- [ ] Deliver coverage-inspection and local issue/PR triage instructions with runnable examples.
-- [ ] Deliver grounded summarization/classification and prioritization workflows using local analysis commands.
-- [ ] Deliver follow-up instructions for never-processed and changed items, including closed/merged items.
-- [ ] Require pagination, source references, repository policy inputs, and inspected-revision guards in those workflows.
-- [ ] Validate completion/waiting behavior against representative offline fixtures and document limitations.
+- [x] Choose the first skill's directory/package layout and document the decision in [D11](decisions.md#d11-repository-owned-triage-skill-over-public-commands).
+- [x] Deliver coverage-inspection and local issue/PR triage instructions with [runnable examples](skills.md).
+- [x] Deliver grounded summaries and policy-driven optional classification/rank instructions in the first skill.
+- [ ] Extend/evaluate standalone prioritization and classification workflows with repository-specific policies.
+- [x] Deliver follow-up instructions for never-processed and changed items, including closed/merged items.
+- [x] Require pagination, source references, repository policy inputs, and inspected-revision guards in those workflows.
+- [x] Validate initial completion/waiting behavior against offline fixtures and document author-run limitations.
+- [ ] Validate SC-001 in an independent agent session without implementation-session context.
+
+Evidence: `skills/gh-maintainer-triage/`, `tests/fixtures/triage/scenarios.json`,
+`tests/triage_fixtures.py`, `tests/test_triage_skill.py`, and
+[13 author-run evaluation cases](evaluations/local-triage.md) with a retained public
+transcript. All 113 tests passed, including the 25 focused skill/maintenance checks.
+Ruff lint/format, application and fixture-helper mypy, strict MkDocs, the skill-creator
+validator, local links, and `git diff --check` passed. These are distinct forms of evidence;
+independent-agent reliability remains open. No runtime code or dependency changed.
 
 ### S2. Repository and change context
 
@@ -187,11 +198,13 @@ commands exist. Keep evidence beside each completed task and split partial work 
 
 ### S5. Packaging and evaluation
 
-- [ ] Document installation targets, required tool versions, and skill compatibility policy.
-- [ ] Make the first shipped skill installable and runnable by another agent from repository docs.
-- [ ] Evaluate relevant pagination, stale-write, missing-context, prior-decision, and untrusted-content cases for each skill.
+- [x] Document first-skill installation, tool baseline, provenance version, and direct-loading method in [skill usage](skills.md).
+- [x] Package the first skill with self-contained references; validate a clean copy and documented offline inputs.
+- [ ] Independently validate installation/discovery and task completion in another session/agent host.
+- [x] Evaluate initial pagination, stale-write, missing-context, prior-decision, and hostile-source cases for the first skill.
 - [ ] Add technical-review/action regression cases as S2–S4 capabilities land.
-- [ ] Record reproducible evaluation evidence and keep skill instructions aligned with public CLI changes.
+- [x] Record reproducible initial evidence and public CLI compatibility in the [evaluation report](evaluations/local-triage.md).
+- [ ] Grow independent and boundary-case evaluations as skills and public CLI contracts change.
 
 ## Documentation maintenance
 

@@ -28,7 +28,7 @@ New contributors should start with [project context](project-context.md) and
 | Efficient querying through the CLI | Implemented: Click commands with descriptive help, validated options, repositories, PRs/issues, details, comments, status, SQL pagination, and JSON | Keep public contracts stable as skills are added |
 | Additional tables for analysis and triage | Implemented: persisted summaries, classifications, rankings, triage, and processing checkpoints | Analysis is supplied by humans/agents; no built-in model provider |
 | Track processing and later activity | Implemented: source revisions, pending/changed filters, activity kinds, and guarded acknowledgements | Only observed activity can be recorded |
-| Agent skills for repository maintenance | Future focus | Build against the completed CLI baseline |
+| Agent skills for repository maintenance | First local triage skill implemented with installation, offline fixtures and author-run evaluations | Independent validation, broader S1 workflows and S2–S5 extensions |
 
 The current tables are `metadata`, `owners`, `repo_owners`, `repos`, `items`, `comments`,
 `changes`, `triage`, `runs`, `processing`, `summaries`, `classifications`, and `rankings`,
@@ -147,18 +147,19 @@ reconciliation, and upgrades from existing databases.
 
 The automated baseline path is implemented and validated by the offline CLI workflow,
 SDK pagination, processing freshness, interruption/retry, and legacy migration tests.
-The [checklist](checklist.md) records validation. Agent skills are the next milestone.
+The [checklist](checklist.md) records validation. The first local triage skill builds on this baseline.
 
 ## Agent skills after the baseline
 
-The baseline is implemented. The next focus is usable skills, beginning with the local
-workflows supported by today's CLI. No maintenance skills are shipped yet. The
+The baseline and [first local triage skill](skills.md) are implemented. The next focus
+is independent evaluation, further local workflows, and context driven by those skills. The
 [agent skills roadmap](agent-skills.md) owns the detailed scope and acceptance criteria.
 
 The first delivery is scoped in the [local triage specification](specs/001-local-triage/spec.md),
 [implementation plan](specs/001-local-triage/plan.md), and
 [ordered tasks](specs/001-local-triage/tasks.md). Those artifacts cover one S1 triage workflow
-and initial S5 packaging/evaluation; they do not mark those stages complete.
+and initial S5 packaging/evaluation; they do not mark those stages complete. The
+[evaluation report](evaluations/local-triage.md) records 13 author-run cases and limits.
 
 | Stage | Work | Prerequisite |
 | --- | --- | --- |
@@ -177,8 +178,8 @@ Local analysis and triage are distinct from GitHub actions. Future workflows tha
 label, close, or merge need explicit action contracts and human authorization boundaries.
 The current CLI makes no such GitHub changes.
 
-Open choices include skill packaging/installation targets, policy inputs, context schemas
-and caching, evaluation tooling, and whether particular workflows need an action ledger or
+Open choices include additional agent installation targets, structured policy inputs,
+context schemas and caching, independent evaluation, and whether workflows need an action ledger or
 per-agent checkpoints. Decide these when the relevant workflow requires them, record the
 rationale in [decisions](decisions.md), and track completion in the [checklist](checklist.md).
 

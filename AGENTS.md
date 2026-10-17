@@ -4,8 +4,8 @@
 
 Maintain a small CLI that indexes GitHub issues, PRs, and conversations incrementally in
 SQLite and stores local summaries, classifications, ranks, triage, and processing state.
-That baseline is implemented. The next focus is agent skills that operate the CLI and
-maintain repositories for humans, plus the context those workflows actually need.
+That baseline and the first local triage skill are implemented. Extend the skills that
+operate the CLI for humans, adding context only as those workflows need it.
 
 Prioritize the CLI and its data contracts. The dashboard and reports consume the index.
 Keep current capabilities distinct from planned ones in documentation and command examples.
@@ -23,7 +23,9 @@ Start with project context, then read the contracts and plans relevant to the ta
 - [Design decisions](docs/decisions.md): accepted choices, rationale, tradeoffs, and proposed directions.
 - [Roadmap](docs/roadmap.md): scope, delivery order, and completion criteria.
 - [Agent skills plan](docs/agent-skills.md): workflow stages, missing context, evaluations, and open decisions.
-- [First triage skill implementation](docs/specs/001-local-triage/plan.md): scoped specification, approach, and ordered tasks; implementation is pending.
+- [Local triage skill](docs/skills.md): installation, compatibility, and token-free walkthrough.
+- [First triage skill implementation](docs/specs/001-local-triage/plan.md): specification and completed implementation tasks; independent evaluation remains open.
+- [Triage evaluation](docs/evaluations/local-triage.md): author-run evidence and explicit limits.
 - [Implementation checklist](docs/checklist.md): verified progress and remaining work.
 - [Architecture](docs/architecture.md): module boundaries and storage contracts.
 - [CLI workflows](docs/cli.md): query, analysis, processing, and activity contracts.

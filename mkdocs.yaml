@@ -5,6 +5,8 @@ nav:
     - Home 🏠: index.md
     - Usage and deployment: usage.md
     - CLI workflows: cli.md
+    - Local triage skill: skills.md
+    - Triage evaluation: evaluations/local-triage.md
     - Project context: project-context.md
     - Design decisions: decisions.md
     - Scope and roadmap: roadmap.md

@@ -1,17 +1,17 @@
 # Tasks: Local repository triage skill
 
-**Inputs:** [Specification](spec.md), [implementation plan](plan.md).  
-**Status:** All implementation tasks are pending. This planning commit ships no skill.  
+**Inputs:** [Specification](spec.md), [implementation plan](plan.md).
+**Status:** T001–T018 implemented and validated. Independent acceptance validation remains open (T019).
 **Format:** `T### [US#] description`; tasks are ordered by dependency. Paths below are
-proposed implementation destinations relative to the repository root.
+implementation destinations relative to the repository root.
 
 ## Phase 1: Shared foundation
 
-- [ ] T001 Define the skill version, invocation inputs, defaults, local-write scope, outcome
+- [x] T001 Define the skill version, invocation inputs, defaults, local-write scope, outcome
   rules, and compatible CLI baseline in `skills/gh-maintainer-triage/SKILL.md`.
-- [ ] T002 Add scenario descriptions in `tests/fixtures/triage/scenarios.json` and temporary
+- [x] T002 Add scenario descriptions in `tests/fixtures/triage/scenarios.json` and temporary
   index setup in `tests/test_triage_skill.py`, reusing `tests/fakes.py` where suitable.
-- [ ] T003 Add the case matrix, observable assertions, and transcript/evidence format in
+- [x] T003 Add the case matrix, observable assertions, and transcript/evidence format in
   `skills/gh-maintainer-triage/references/evaluation.md`. Separate contract checks from
   observed skill behavior; include every FR-012 scenario.
 
@@ -20,15 +20,15 @@ recording any agent success. No new production framework or schema is required.
 
 ## Phase 2: US1 — Bounded local triage (P1)
 
-- [ ] T004 [US1] Document repository coverage/freshness checks, fixed database selection,
+- [x] T004 [US1] Document repository coverage/freshness checks, fixed database selection,
   all-state discovery, and combined issue/PR item-budget allocation in
   `skills/gh-maintainer-triage/SKILL.md`.
-- [ ] T005 [US1] Document candidate collection before queue mutation, paginated item evidence,
+- [x] T005 [US1] Document candidate collection before queue mutation, paginated item evidence,
   final revision recheck, guarded summary/triage writes, verification, and bounded handoff in
   `skills/gh-maintainer-triage/SKILL.md`.
-- [ ] T006 [US1] Explain optional caller taxonomies/ranking rubrics and retention of prior
+- [x] T006 [US1] Explain optional caller taxonomies/ranking rubrics and retention of prior
   notes/snoozes in `skills/gh-maintainer-triage/references/triage-policy.md`; link it from the skill.
-- [ ] T007 [US1] Add focused fixture/CLI checks for ordinary triage, 101 comments, a multi-page
+- [x] T007 [US1] Add focused fixture/CLI checks for ordinary triage, 101 comments, a multi-page
   pending queue that shrinks after processing, prior decisions, and missing policy in
   `tests/test_triage_skill.py`. Reuse existing storage/freshness tests.
 
@@ -37,12 +37,12 @@ public commands, with source-grounded outputs, correct provenance, and no lost c
 
 ## Phase 3: US2 — Activity and incomplete work (P1)
 
-- [ ] T008 [US2] Add changed closed/merged items and push/comment-edit race scenarios to
+- [x] T008 [US2] Add changed closed/merged items and push/comment-edit race scenarios to
   `tests/fixtures/triage/scenarios.json`; exercise guarded rejection and rereading in
   `tests/test_triage_skill.py`.
-- [ ] T009 [US2] Add missing/failed coverage, unavailable items, evidence limits, partial
+- [x] T009 [US2] Add missing/failed coverage, unavailable items, evidence limits, partial
   writes, and unchanged-rerun cases in `tests/test_triage_skill.py`.
-- [ ] T010 [US2] Document the one-retry rule, non-atomic local writes, pending blocked work,
+- [x] T010 [US2] Document the one-retry rule, non-atomic local writes, pending blocked work,
   shared processing semantics, and honest partial-effect reporting in
   `skills/gh-maintainer-triage/SKILL.md` and its evaluation reference.
 
@@ -51,28 +51,55 @@ activity, and incomplete/stale inspection never acknowledges unseen revisions.
 
 ## Phase 4: US3 — Installation and observed evaluation (P2)
 
-- [ ] T011 [US3] Write `docs/skills.md` with prerequisites, compatible CLI baseline, one
+- [x] T011 [US3] Write `docs/skills.md` with prerequisites, compatible CLI baseline, one
   verified agent installation/load method, a portable direct-load fallback, and a token-free walkthrough.
-- [ ] T012 [US3] Add shipped-file/reference checks in `tests/test_triage_skill.py` and verify
+- [x] T012 [US3] Add shipped-file/reference checks in `tests/test_triage_skill.py` and verify
   copied skill references resolve without relying on this checkout's absolute paths.
-- [ ] T013 [US3] Add hostile-source and conflicting-guidance cases to
+- [x] T013 [US3] Add hostile-source and conflicting-guidance cases to
   `tests/fixtures/triage/scenarios.json` and their observable rubric to the evaluation reference.
-- [ ] T014 [US1] Run ordinary and pagination scenarios with an actual agent; record sanitized
+- [x] T014 [US1] Run ordinary and pagination scenarios with an actual agent; record sanitized
   commands, public before/after output, outcomes, and unresolved limits in `docs/evaluations/local-triage.md`.
-- [ ] T015 [US2] Run activity, incomplete coverage, prior-decision, and rerun scenarios with
+- [x] T015 [US2] Run activity, incomplete coverage, prior-decision, and rerun scenarios with
   an actual agent; record results in `docs/evaluations/local-triage.md`.
-- [ ] T016 [US3] Verify loading from a clean destination and run hostile-source cases with
+- [x] T016 [US3] Verify loading from a clean destination and run hostile-source cases with
   an actual agent; record the agent/model, skill version, and case verdicts in
   `docs/evaluations/local-triage.md`. Do not count scripted replay as behavioral success.
 
 ## Phase 5: Integration and release evidence
 
-- [ ] T017 Link shipped skill/install/evaluation docs from `README.md`, `docs/index.md`,
+- [x] T017 Link shipped skill/install/evaluation docs from `README.md`, `docs/index.md`,
   `mkdocs.yaml`, `AGENTS.md`, and `docs/project-context.md`. Record accepted packaging/policy
   choices in `docs/decisions.md`; keep prospective capabilities clearly labeled.
-- [ ] T018 Run the plan's validation commands and walkthrough; record evidence in
+- [x] T018 Run the plan's validation commands and walkthrough; record evidence in
   `docs/checklist.md`, update this task list, `docs/roadmap.md`, and `docs/agent-skills.md`.
   Keep unrelated S1–S5 work unchecked and report any failed or unevaluated cases.
+
+## Validation follow-up
+
+- [ ] T019 Validate SC-001 with an independent agent/session loading only published
+  installation/skill docs and synthetic inputs. The implementation-session walkthrough
+  is author-run evidence, not an independent pass. Also grow coverage for retry-budget
+  exhaustion, authorized optional writes, read-only runs, and other agent hosts.
+
+## Evidence
+
+T001–T013: `skills/gh-maintainer-triage/`, `tests/fixtures/triage/scenarios.json`,
+`tests/triage_fixtures.py`, `tests/test_triage_skill.py`, and [installation](../../skills.md).
+The reusable fixture helper was added beside the planned test file so contributors can
+seed/advance the same cases manually without a custom evaluation runner.
+
+T014–T016: [Recorded author-run evaluations](../../evaluations/local-triage.md) cover
+all 13 scenarios, a clean copied skill, source-grounded results and stopping decisions.
+The full public command transcript is retained. All 25 focused skill/maintenance tests
+and the skill-creator validator passed. Independent-agent success remains unverified.
+
+T017: README/navigation/orientation link the shipped skill, [D11](../../decisions.md#d11-repository-owned-triage-skill-over-public-commands)
+records accepted choices, and the broader skills roadmap remains open.
+
+T018: all 113 tests passed (including 14 new skill contract cases); Ruff lint/format,
+mypy for application and fixture helper, strict MkDocs, copied-skill validation,
+local links, and `git diff --check` passed. The walkthrough used a clean copied skill
+and disposable indexes. No runtime code, dependencies, or schemas changed.
 
 ## Dependencies and delivery
 

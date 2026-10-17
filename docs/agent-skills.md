@@ -1,13 +1,15 @@
 # Agent skills roadmap
 
-The CLI baseline is implemented; no maintenance skills are shipped yet. This plan describes
-the next product work. Skill names and new commands on this page are proposals. The
+The CLI baseline and [local triage skill](skills.md) are implemented. This plan describes
+the remaining product work. Other skill names and new commands on this page are proposals. The
 [implementation checklist](checklist.md#agent-skills-and-context) tracks what has actually
 been delivered. Existing commands and output contracts are documented in [CLI workflows](cli.md).
 
 The first implementation slice has a [specification](specs/001-local-triage/spec.md),
 [plan](specs/001-local-triage/plan.md), and [task list](specs/001-local-triage/tasks.md)
-for one local triage skill with packaging and evaluation. Implementation remains pending.
+for one local triage skill with packaging and evaluation. That slice is implemented;
+[author-run results](evaluations/local-triage.md) distinguish observed behavior from
+scripted contract checks and leave independent-agent validation explicit.
 
 ## What a skill should accomplish
 
@@ -37,7 +39,9 @@ basic local triage does not need to wait for every context source.
 
 ## S1. Skills using today's CLI
 
-Proposed skill boundaries:
+The shipped `gh-maintainer-triage` skill combines coverage, bounded triage, grounded
+summaries, policy-driven optional analysis, and follow-up. Further standalone workflows
+and wider evaluations remain open. Skill boundaries for this stage:
 
 | Skill | Workflow and output |
 | --- | --- |
@@ -158,9 +162,10 @@ metadata, and dependency-specific context should be added only when a workflow n
 
 ## S5. Skill packaging and evaluation
 
-Proposed distribution is repository-owned `SKILL.md` instructions with small supporting
-references/fixtures as needed. The directory layout and installation targets are not yet
-chosen. Keep instructions runtime-neutral where practical and document required CLI/tool
+The first distribution is the repository-owned `skills/gh-maintainer-triage/` directory
+with relative references; fixtures stay in `tests/`. [Installation](skills.md) documents
+copying the directory and direct file loading, validated in Codex. Native discovery and
+other hosts remain to be evaluated. Keep instructions runtime-neutral and document required CLI/tool
 versions, authentication needs, inputs, outputs, and a runnable example. Do not ship a
 skill that depends on undocumented commands or private ORM/SDK interfaces.
 
@@ -189,12 +194,15 @@ the repository documentation and its intended behavior holds across the relevant
 Before implementing the relevant stage, resolve the smallest needed question and record
 the outcome in the [decision log](decisions.md):
 
-- Skill directory layout, naming, installation targets, and compatibility/versioning policy.
-- Repository policy/taxonomy input format and guidance discovery; explicit human instructions
+- Additional installation targets and independent evaluation; the first layout, version
+  marker, and public-CLI approach are recorded in [D11](decisions.md#d11-repository-owned-triage-skill-over-public-commands).
+- Structured repository policy/taxonomy inputs and guidance discovery; the current skill
+  accepts caller-supplied guidance. Explicit human instructions
   take precedence over repository guidance.
 - Context JSON shape, artifact retrieval, freshness checks, and output limits.
 - Whether a workflow needs multiple analyses per producer, independent processing cursors,
   or an action ledger beyond today's latest-result/shared-checkpoint model.
-- The first evaluation runner and whether model-backed tests are needed for that workflow.
+- Whether further workflows need model-backed tests beyond the current offline fixtures
+  and recorded agent walkthroughs.
 
 These open questions should not delay S1 instruction/fixture work on the existing CLI.

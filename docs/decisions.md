@@ -17,7 +17,7 @@ Local query/analysis commands also work without a model service or a running web
 
 **Tradeoff:** Agents still need instructions, repository guidance, code context, and
 authorization for the requested work. Having indexed a PR does not constitute a code review.
-Skills are planned; the CLI does not run an agent or generate analysis itself.
+The local triage skill is available; the CLI does not run an agent or generate analysis itself.
 
 Evidence: command entry point in `cli.py`, query/write boundaries in `queries.py` and
 `repositories.py`, and the offline workflow in `tests/test_maintenance.py`.
@@ -188,3 +188,26 @@ and SQLite sidecars; callers must stop processes using the file first.
 
 Evidence: `database.default_path`, `cli.py`, `migrations/env.py`, and
 `tests/test_cli_db.py`. See [database management](cli.md#manage-the-database).
+
+## D11. Repository-owned triage skill over public commands
+
+**Decision:** Ship `skills/gh-maintainer-triage/SKILL.md` with relative policy/evaluation
+references. Version its instructions/provenance as `gh-maintainer-triage/v1` and record
+both CLI package version and checkout baseline. Copy the complete directory for agent
+installation; direct file loading is the validated portable method. Python wheels do
+not install skills. No workflow runner, dependency, table, or CLI command was added.
+
+**Why:** The current CLI already supports bounded local triage. Instructions can teach
+coverage checks, all-state pagination, guarded writes, and grounded handoffs without
+duplicating ingestion or persistence. Default to indexed freshness and summary/processing
+updates; taxonomy, rank, and disposition changes require delegated policy. Freeze candidate
+IDs before writes shrink pending queues. Preserve notes and snoozes by default.
+
+**Tradeoff:** Processing is shared and writes are not an atomic batch. Revision guards
+protect source revisions, not concurrent local-analysis changes. Guidance is supplied by
+the caller; richer repository/code context remains separate work. Synthetic CLI tests and
+author-run agent walkthroughs are recorded separately; neither establishes independent
+agent reliability. There is no mandatory model evaluation service.
+
+Evidence: [skill installation](skills.md), `tests/test_triage_skill.py`, and the
+[evaluation report and public transcript](evaluations/local-triage.md).

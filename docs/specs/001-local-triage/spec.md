@@ -1,14 +1,16 @@
 # Feature specification: Local repository triage skill
 
-**Feature ID:** `001-local-triage`  
-**Created:** 2026-10-17  
-**Status:** Planned; no skill or evaluation runner is shipped by this specification.  
+**Feature ID:** `001-local-triage`
+**Created:** 2026-10-17
+**Status:** Implemented with author-run evaluations; independent-agent success (SC-001) remains unverified.
 **Input:** Deliver the first useful maintenance skill over gh-maintainer's existing CLI,
 with reproducible evaluation fixtures and installation instructions.
 
 This specification uses the structure of GitHub Spec Kit's
 [specification template](https://github.com/github/spec-kit/blob/main/templates/spec-template.md).
 See the [implementation plan](plan.md) and [tasks](tasks.md).
+Installation and observed results are in [skill usage](../../skills.md) and
+[evaluation evidence](../../evaluations/local-triage.md). No evaluation runner is required.
 
 ## User scenarios and testing
 

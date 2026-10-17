@@ -7,10 +7,10 @@ items, rank the queue, record triage decisions, and track what changed since an 
 last processed. Incremental syncs retain history and flag earlier analysis when new
 activity arrives.
 
-The CLI is the foundation for agent skills that will teach agents to triage issues,
-review PRs, diagnose failures, and maintain repositories on behalf of humans. The index
-and local maintenance commands work today; those skills and richer code/CI context are
-[planned](agent-skills.md).
+The [local triage skill](skills.md) teaches agents to inspect a bounded queue,
+save grounded summaries, preserve human decisions, and resume after new activity.
+Code review, CI diagnosis, and broader maintenance skills are on the
+[roadmap](agent-skills.md).
 
 ## Get started
 
@@ -41,6 +41,7 @@ revision guards, and pagination.
 
 ## Documentation
 
+- [Agent skill](skills.md) — installation, offline example, and evaluation results.
 - [Usage and deployment](usage.md) — authentication, sync coverage, dashboard, and Docker.
 - [Roadmap](roadmap.md) and [agent skills plan](agent-skills.md) — what comes next.
 - [Project context](project-context.md), [architecture](architecture.md), and

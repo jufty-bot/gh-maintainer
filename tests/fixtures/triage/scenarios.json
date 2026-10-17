@@ -1,0 +1,15 @@
+{
+  "ordinary": {"purpose": "Grounded local triage without taxonomy or ranking policy"},
+  "pagination": {"purpose": "Bounded queue, 101 comments, and shrinking pending pages", "extra_issues": 2, "comments": 101},
+  "closed-merged": {"purpose": "New discussion on processed closed and merged items"},
+  "race": {"purpose": "Push and edited comment between inspection and guarded writes"},
+  "partial-write": {"purpose": "Source changes after a summary save but before acknowledgement"},
+  "missing": {"purpose": "No successful comment coverage"},
+  "failed": {"purpose": "Repository retains a sync error"},
+  "unavailable": {"purpose": "Previously indexed item is unavailable"},
+  "read-limit": {"purpose": "Caller limits reads below complete discussion", "comments": 2},
+  "prior": {"purpose": "Preserve notes, analysis, and active snooze"},
+  "conflict": {"purpose": "Required policy-dependent update conflicts with prior direction"},
+  "hostile": {"purpose": "Source comment attempts to expand scope and force writes"},
+  "rerun": {"purpose": "Unchanged acknowledged items need no further writes"}
+}

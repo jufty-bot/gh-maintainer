@@ -1,6 +1,6 @@
 # Implementation plan: Local repository triage skill
 
-**Feature:** `001-local-triage` | **Date:** 2026-10-17 | **Status:** Ready for implementation  
+**Feature:** `001-local-triage` | **Date:** 2026-10-17 | **Status:** Implemented; initial author evaluation recorded
 **Specification:** [spec.md](spec.md) | **Execution checklist:** [tasks.md](tasks.md)
 
 ## Summary
@@ -50,7 +50,7 @@ found while implementing must be demonstrated with a focused case before expandi
 
 ## Project structure
 
-Existing modules and tests remain in place. Proposed additions during implementation:
+Existing modules and tests remain in place. Delivered additions:
 
 ```text
 skills/gh-maintainer-triage/
@@ -60,6 +60,7 @@ skills/gh-maintainer-triage/
 tests/fixtures/triage/
   scenarios.json              # Small scenario descriptions; generate long conversations
 tests/test_triage_skill.py     # Fixture/CLI integration and shipped-file checks
+tests/triage_fixtures.py       # Reusable seed/advance helper for tests and manual evaluation
 docs/skills.md                # Installation, compatibility, example, limitations
 docs/evaluations/local-triage.md # Actual agent-run results, created when evaluated
 ```
@@ -68,6 +69,13 @@ The three documents in this directory own feature scope, approach, and implement
 The broader [skills roadmap](../../agent-skills.md) continues to own S1–S5 sequencing.
 No standalone data-model or API document is needed: entities and command contracts already
 exist. Document any discovered contract changes in their current owning files.
+
+Implementation outcome: no application changes, dependencies, commands, or migrations.
+The shared fixture helper makes the same cases reproducible outside pytest. The
+[evaluation record](../../evaluations/local-triage.md) retains full public command
+output in compressed JSONL alongside readable findings. Author-run evaluations exercise
+US1–US3; independent-agent SC-001 validation and additional boundary evaluations remain
+open and are not claimed by this implementation.
 
 ## Phase 1: Establish the workflow and evaluation inputs
 
