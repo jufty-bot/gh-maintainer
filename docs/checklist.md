@@ -31,6 +31,9 @@ These references establish the starting inventory; they do not record a fresh te
 - [x] Use structlog with readable text on stderr for `sync` and `watch`, preserving
   JSON results on stdout. Include run/repository context, fetch progress, counts,
   elapsed time, and explicit warnings/errors for partial or failed syncs.
+- [x] Format issue and comment sync `since` values as ISO UTC strings, preserving
+  microseconds and keeping full-sync values as `None`. Covered by the logging contract tests.
+  Validation: 15 logging/sync tests, Ruff lint/format, mypy, and strict MkDocs passed.
 
 Evidence: `logging.py`, `sync.py`, `cli.py`, and
 [logging contract tests](https://github.com/jufty-bot/gh-maintainer/blob/main/tests/test_logging.py).

@@ -1,6 +1,7 @@
 """Sync events and the CLI's human-readable stderr output."""
 
 import json
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -26,7 +27,16 @@ async def test_sync_logs_modes_counts_and_run_context(database: Database) -> Non
     starts = [entry for entry in logs if entry["event"] == "Repository sync started"]
     assert [entry["mode"] for entry in starts] == ["full", "incremental"]
     assert starts[0]["since"] is None
-    assert starts[1]["since"] == source.windows[-1]
+    assert (
+        datetime.fromisoformat(starts[1]["since"].replace("Z", "+00:00"))
+        == source.windows[-1]
+    )
+    comments = [entry for entry in logs if entry["event"] == "Fetching comments"]
+    assert comments[0]["since"] is None
+    assert (
+        datetime.fromisoformat(comments[1]["since"].replace("Z", "+00:00"))
+        == source.comment_windows[-1]
+    )
     for entry in starts:
         assert entry["owner"] == "owner"
         assert entry["repository"] == "owner/project"

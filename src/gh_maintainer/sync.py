@@ -11,7 +11,7 @@ from typing import Literal
 import structlog
 from structlog.typing import FilteringBoundLogger
 
-from gh_maintainer.clock import now
+from gh_maintainer.clock import now, timestamp
 from gh_maintainer.database import Database
 from gh_maintainer.github import GitHubError, GitHubSource
 from gh_maintainer.repositories import CatalogRepository, SyncJournal, SyncLease
@@ -64,7 +64,10 @@ class SyncService:
             previous.synced_at - OVERLAP if previous.synced_at and not full else None
         )
         log = log.bind(mode="full" if full else "incremental")
-        log.info("Repository sync started", since=since)
+        log.info(
+            "Repository sync started",
+            since=timestamp(since) if since is not None else None,
+        )
         existing = {item.id: item for item in await self.catalog.items(repo.id)}
         rows: dict[str, ItemSnapshot] = {}
         async for batch in self.source.issues(repo, since):
@@ -93,7 +96,10 @@ class SyncService:
         )
         comments: list[CommentSnapshot] = []
         by_number = {item.number: item for item in [*existing.values(), *rows.values()]}
-        log.info("Fetching comments", since=comments_since)
+        log.info(
+            "Fetching comments",
+            since=timestamp(comments_since) if comments_since is not None else None,
+        )
         async for comment_batch in self.source.comments(repo, comments_since):
             for comment in comment_batch:
                 if (
