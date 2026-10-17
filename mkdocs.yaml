@@ -5,7 +5,10 @@ nav:
     - Home 🏠: index.md
     - Usage and deployment: usage.md
     - CLI workflows: cli.md
+    - Project context: project-context.md
+    - Design decisions: decisions.md
     - Scope and roadmap: roadmap.md
+    - Agent skills roadmap: agent-skills.md
     - Implementation checklist: checklist.md
     - Architecture: architecture.md
     - API Documentation 🤖: reference/

@@ -11,6 +11,8 @@ This document tracks baseline scope, completion criteria, and the next focus on 
 The status table distinguishes implemented functionality from future work.
 Agents track task status and validation evidence in the [implementation checklist](checklist.md)
 and update this roadmap's scope and current-status table as relevant changes land.
+New contributors should start with [project context](project-context.md) and
+[design decisions](decisions.md). The detailed next-stage plan is [Agent skills](agent-skills.md).
 
 ## Current implementation
 
@@ -144,14 +146,31 @@ The [checklist](checklist.md) records validation. Agent skills are the next mile
 
 ## Agent skills after the baseline
 
-The next focus is skills that teach agents to use these CLI contracts: inspect sync
-coverage, read complete conversations, produce grounded summaries and classifications,
-prioritize work, and record maintenance decisions for humans. Skills should build on the
-CLI rather than duplicate ingestion logic or require private Python interfaces.
+The baseline is implemented. The next focus is usable skills, beginning with the local
+workflows supported by today's CLI. No maintenance skills are shipped yet. The
+[agent skills roadmap](agent-skills.md) owns the detailed scope and acceptance criteria:
+
+| Stage | Work | Prerequisite |
+| --- | --- | --- |
+| S1 | Coverage inspection, triage, summaries/classifications, prioritization, and activity follow-up | Current public CLI |
+| S2 | Repository guidance, code/diff context, actionable CI, review state, and a bounded context packet | Small additions driven by the skills |
+| S3 | Code review, failure diagnosis, issue reproduction, and reviewable fixes | Relevant S2 context and a checkout |
+| S4 | Backlog/dependency maintenance, release preparation, and recurring portfolio reviews | Proven earlier workflows and repository policy |
+| S5 | Installable/versioned instructions and regression evaluations | Starts with S1 and grows with each stage |
+
+Skills should call public commands rather than duplicate ingestion or use private Python/SQL
+interfaces. They need evidence, repository-specific policy, explicit outcomes, source/revision
+references, and evaluation cases. A proposed `context ITEM --format json` command can assemble
+richer evidence later; it is not implemented and should not block basic local triage skills.
 
 Local analysis and triage are distinct from GitHub actions. Future workflows that comment,
 label, close, or merge need explicit action contracts and human authorization boundaries.
 The current CLI makes no such GitHub changes.
+
+Open choices include skill packaging/installation targets, policy inputs, context schemas
+and caching, evaluation tooling, and whether particular workflows need an action ledger or
+per-agent checkpoints. Decide these when the relevant workflow requires them, record the
+rationale in [decisions](decisions.md), and track completion in the [checklist](checklist.md).
 
 ## Later extensions
 

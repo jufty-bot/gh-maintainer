@@ -2,10 +2,10 @@
 
 ## Purpose and priorities
 
-Build a CLI that accepts a repository list or an owner, ingests every issue, pull request,
-and their comments incrementally into SQLite, and stores summaries, classifications,
-rankings, and triage in additional tables. Once that baseline is complete, this repository
-will focus on agent skills that operate the CLI and maintain repositories for humans.
+Maintain a small CLI that indexes GitHub issues, PRs, and conversations incrementally in
+SQLite and stores local summaries, classifications, ranks, triage, and processing state.
+That baseline is implemented. The next focus is agent skills that operate the CLI and
+maintain repositories for humans, plus the context those workflows actually need.
 
 Prioritize the CLI and its data contracts. The dashboard and reports consume the index.
 Keep current capabilities distinct from planned ones in documentation and command examples.
@@ -17,7 +17,12 @@ The CLI should be easy to maintain; a larger application platform is outside its
 
 ## Read before changing code
 
+Start with project context, then read the contracts and plans relevant to the task.
+
+- [Project context](docs/project-context.md): orientation, current state, concepts, and code/test map.
+- [Design decisions](docs/decisions.md): accepted choices, rationale, tradeoffs, and proposed directions.
 - [Roadmap](docs/roadmap.md): scope, delivery order, and completion criteria.
+- [Agent skills plan](docs/agent-skills.md): workflow stages, missing context, evaluations, and open decisions.
 - [Implementation checklist](docs/checklist.md): verified progress and remaining work.
 - [Architecture](docs/architecture.md): module boundaries and storage contracts.
 - [CLI workflows](docs/cli.md): query, analysis, processing, and activity contracts.
@@ -27,8 +32,9 @@ The CLI should be easy to maintain; a larger application platform is outside its
 ## Maintain the planning documents
 
 Update the roadmap and checklist in the same change as relevant implementation work.
-The roadmap owns scope and completion criteria; the checklist owns task status and
-evidence. Link between them instead of copying long requirements into multiple places.
+The roadmap/skills plan own scope and completion criteria; the checklist owns task status
+and evidence. The decision log owns rationale. Link between them instead of copying long
+requirements into multiple places.
 
 - Check off a task only when its behavior is implemented and validated. Add a reference
   to the relevant code, tests, or documentation and record the validation performed.
@@ -37,10 +43,11 @@ evidence. Link between them instead of copying long requirements into multiple p
 - Update the roadmap's current-status table when capabilities change. Add newly discovered
   work to the appropriate milestone, and explain substantive changes to scope or order.
 - Keep usage and architecture docs aligned with changes to commands, schemas, and contracts.
+- Record substantive design decisions and tradeoffs, including changes to previous choices.
 - Keep the README concise and inviting. Put detailed plans, checklists, and operating
   instructions in `docs/` and link to them from the README.
-- Keep future agent skills grounded in public CLI contracts. Mark skills as a later stage
-  until the baseline completion criteria are met.
+- Ground agent skills in public CLI contracts. Start with supported workflows; clearly
+  label proposed skills/context commands and add only the missing capabilities they need.
 
 ## Implementation contracts
 

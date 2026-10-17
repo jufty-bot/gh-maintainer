@@ -1,11 +1,13 @@
 # Contributing
 
-Build toward the CLI baseline in the [roadmap](roadmap.md); use the
-[implementation checklist](checklist.md) to track progress. Once that baseline is complete,
-the focus shifts to agent skills for repository maintenance. Agents should follow
+Start with [project context](project-context.md), the [design decisions](decisions.md),
+and the [architecture](architecture.md). The CLI baseline is implemented; the next focus
+is [agent skills](agent-skills.md) and the context they need. Use the [roadmap](roadmap.md)
+for scope and the [implementation checklist](checklist.md) to track progress. Agents should follow
 [AGENTS.md](https://github.com/jufty-bot/gh-maintainer/blob/main/AGENTS.md).
 Update planning documents in the same change as implementation, and keep detailed
-operating instructions in [Usage](usage.md) so the README stays concise.
+operating instructions in [Usage](usage.md) and [CLI workflows](cli.md) so the README stays focused.
+Keep proposed interfaces clearly distinct from commands available in the checkout.
 
 ## Validation
 

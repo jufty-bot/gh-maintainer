@@ -3,6 +3,9 @@
 This page describes the current implementation. The [scope and roadmap](roadmap.md)
 defines the intended CLI baseline, remaining ingestion and analysis work, and the later
 focus on agent skills.
+For orientation, read [project context](project-context.md); for rationale and tradeoffs,
+read the [decision log](decisions.md). Proposed context/skill work is described in the
+[agent skills roadmap](agent-skills.md), not implemented by this diagram.
 
 ```mermaid
 flowchart LR
@@ -47,6 +50,43 @@ upsert their resolved repositories. Login changes and repository transfers retai
 source records, and local decisions. PR-specific node IDs come from PR details for GraphQL
 enrichment. Legacy owner metadata remains stored for compatibility.
 
+## Data model
+
+`models.py` describes the current ORM schema; packaged migrations define its creation and
+upgrades. `schemas.py` defines validated source and output contracts. This table explains
+the roles; it does not replace those definitions.
+
+| Table | Identity/link | Purpose |
+| --- | --- | --- |
+| `metadata` | String key | Legacy owner settings and the renewable sync lease |
+| `owners` | Stable account ID | User/organization display login and kind |
+| `repo_owners` | Repository ID → owner ID | Current membership for scoped inventory reconciliation |
+| `repos` | Stable repository ID | Raw metadata, presence, archive flag, item/comment/signal checkpoints, reconciliation time, and latest error |
+| `items` | Issue node ID; unique repository ID + number | Normalized issue/PR identity and state, raw issue/PR payloads, signal snapshot/time, availability, source revision |
+| `comments` | Comment/review node ID; parent repository ID + number | Conversation/inline/review content, author, timestamps, raw reply/line context, availability |
+| `changes` | Increasing local observation ID; item ID | Event kind, local revision when known, observation time, before/after source snapshots |
+| `triage` | One row per item | Disposition, note, snooze deadline, decision time, and inspected revision |
+| `summaries` | One row per item | Latest caller-supplied summary and analysis provenance |
+| `classifications` | One row per item | Latest local label set and analysis provenance |
+| `rankings` | One row per item | Latest fixed numeric rank and analysis provenance |
+| `processing` | One row per item | Shared acknowledged revision, actor, and check time |
+| `runs` | Increasing local run ID | Start/finish, complete/partial/failed status, errors, and source-call telemetry |
+
+Analysis provenance is `source_revision`, `producer`, `reason`, and `updated_at`. A new
+save replaces the previous result of that type; producer is not part of the primary key.
+Item/comment snapshots retain history through observations, but analysis/triage writes do not
+currently have a separate append-only action history.
+
+Comments have a composite foreign key to their parent item's repository/number pair and
+an index for conversation ordering. Item availability and repository presence are retained
+flags, not deletion assertions. `changes` payloads can describe either an item or a comment;
+consumers must inspect the event kind rather than assume every snapshot has item fields.
+Legacy observations have no inferred revision. Pending review timestamps can be null.
+
+JSON columns store parsed source documents. Normalized dates use `UTCDateTime`, which
+persists canonical UTC text for compatibility with the original SQLite schema and returns
+aware datetimes. Source URLs and display names can change without becoming identities.
+
 ## Async lifecycle and transactions
 
 The application owns one async engine/session factory, with a fresh `AsyncSession` per
@@ -77,6 +117,39 @@ and a token check inside catalog write transactions. An expired worker cannot ov
 new worker's results. Interrupted run records are marked on the next successful lease
 acquisition. Request sessions can read while the worker fetches GitHub data. SQLite remains
 a single-writer database; aiosqlite provides event-loop integration, not parallel writers.
+
+## One sync through the system
+
+1. `cli.py` resolves credentials only for `sync` / `watch`, then creates the source and
+   service. The service claims a lease and starts a run record.
+2. The source resolves explicit repository names or finishes the selected owner's inventory.
+   Discovery commits owner/repository metadata with scoped presence reconciliation. Explicit
+   lookup failures are recorded per selection; an incomplete owner inventory is not applied.
+3. For each repository, `SyncService._repository` chooses full or incremental item/comment
+   windows from the last successful checkpoints. It stages validated source snapshots.
+4. It fetches comment feeds, resolves previously unknown parents, and refreshes review
+   bodies. Open PRs are also refreshed even when no issue timestamp changed. PR detail
+   requests provide the PR node IDs and head context used for signal enrichment.
+5. The catalog commits items, comments, observed changes, availability, source revisions,
+   and checkpoints atomically. Missing source records are reconciled only from the relevant
+   successful complete listing. Local analysis, triage, and processing rows are preserved.
+6. The journal finishes the run with coverage and errors; CLI JSON reports complete or
+   partial status. `watch` sleeps and repeats; each run rediscovers its selection.
+
+| Failure | Result |
+| --- | --- |
+| Owner inventory fails midway | Run fails; the staged inventory is not applied |
+| Item/comment/review page or PR detail fails | Repository source updates/checkpoints roll back, error is recorded, other repositories can continue |
+| GraphQL signals fail | Usable item/comment data commits; prior signal data/time is retained and effectively unknown; run is partial |
+| Explicit repository is inaccessible | Existing source data/checkpoint is retained, matching repository error is recorded, other selections continue |
+| Worker loses its lease | Fenced catalog writes fail; an expired worker cannot overwrite a new worker |
+| Process stops during fetch | Staged data is uncommitted; the next run can retry from stored checkpoints |
+
+Defaults are declared in code: five-minute overlap and seven-day reconciliation in
+`sync.py`; a five-minute lease with 30-second heartbeat in `repositories.py`; 900-second
+watch interval (minimum 60) in `cli.py`. SDK retry waits beyond 30 seconds are deferred to
+a later sync. The SDK owns HTTP pagination/retries; `source_calls` counts adapter operations,
+not exact HTTP requests.
 
 ## Querying and triage
 
@@ -110,6 +183,24 @@ stale writes; marking processed requires complete repository coverage.
 The CLI reuses the SQL query layer for lists, details, comments, and activity history.
 Processing, triage, and classification filters and rank sorting execute in SQLite with
 deterministic pagination. All local query and maintenance commands work without credentials.
+
+### Example: reconsidering an inspected PR
+
+| Step | Source revision | Processing checkpoint | Consequence |
+| --- | --- | --- | --- |
+| Agent inspects and acknowledges a PR | 4 | 4 | Processing state is `processed` |
+| A sync observes a new head or edited comment | 5 | 4 | Analysis for revision 4 is stale; processing state is `changed` |
+| An unchanged poll succeeds | 5 | 4 | No additional revision is created |
+| Agent tries to save/acknowledge with `--revision 4` | 5 | 4 | Write fails; the agent must inspect the new context |
+| Agent saves analysis for revision 5 | 5 | 4 | Analysis is current; work remains pending until explicit acknowledgement |
+| Agent acknowledges revision 5 | 5 | 5 | Processing state returns to `processed` |
+
+Never-processed items have no processing row. `pending` includes never-processed and
+changed items; a state filter still applies, so callers need `--state all` when looking
+for closures/merges. Acknowledgement checks stored repository error/comment coverage;
+it does not contact GitHub or impose an automatic maximum age on the last successful sync.
+The revision guard is optional in the CLI and should be supplied by skills using an
+earlier inspection. Full user-facing contracts are in [CLI workflows](cli.md).
 
 ## Migration contract
 

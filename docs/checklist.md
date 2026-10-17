@@ -2,8 +2,9 @@
 
 Agents maintain this checklist alongside implementation changes. The [roadmap](roadmap.md)
 defines scope and acceptance criteria; [AGENTS.md](https://github.com/jufty-bot/gh-maintainer/blob/main/AGENTS.md)
-defines the maintenance workflow. Checked items describe existing work, not completion of
-the whole baseline. Add code/test references and validation evidence when closing a task.
+defines the maintenance workflow. The CLI baseline is implemented; skills and richer
+context are the next work. Checked items describe verified work. Add code/test references
+and validation evidence when closing a task.
 Split partial work into separate tasks instead of marking an entire milestone complete.
 
 ## Existing foundation
@@ -99,18 +100,65 @@ are fixed until refreshed; source changes invalidate their freshness.
 - [x] Validate the [baseline completion gate](roadmap.md#baseline-completion-gate) through
   the CLI, including interruption, partial coverage, reconciliation, and database upgrades.
 - [x] Document the complete workflow and its output contracts for humans and agents.
-- [ ] After the baseline is complete, build skills for inspecting coverage, reading
-  conversations, summarizing, classifying, ranking, and recording maintenance decisions.
+- [ ] Ship maintenance skills, tracked by stage below.
 
 Baseline validation: `uv run pytest -q` passed all 55 tests, including offline CLI use,
 interruption/retry, comment pagination and edits, processing freshness, and legacy upgrades.
 Ruff lint/format, mypy, strict MkDocs, Alembic schema comparison, and package builds passed.
+
+## Agent skills and context
+
+Scope and acceptance criteria: [agent skills roadmap](agent-skills.md). All implementation
+tasks below are future work; documenting them does not imply that skills or new context
+commands exist. Keep evidence beside each completed task and split partial work explicitly.
+
+### S1. Local maintenance skills
+
+- [ ] Choose the first skill's directory/package layout and document the decision.
+- [ ] Deliver coverage-inspection and local issue/PR triage instructions with runnable examples.
+- [ ] Deliver grounded summarization/classification and prioritization workflows using local analysis commands.
+- [ ] Deliver follow-up instructions for never-processed and changed items, including closed/merged items.
+- [ ] Require pagination, source references, repository policy inputs, and inspected-revision guards in those workflows.
+- [ ] Validate completion/waiting behavior against representative offline fixtures and document limitations.
+
+### S2. Repository and change context
+
+- [ ] Design the smallest public context contracts needed by a concrete skill.
+- [ ] Retrieve repository guidance and identify its source/version and applicable scope.
+- [ ] Retrieve changed files/diffs and relevant code bound to base/head SHAs.
+- [ ] Retrieve individual CI check details/logs and distinguish old-head results.
+- [ ] Retrieve outstanding review/thread state and related work/policy evidence as needed.
+- [ ] Assemble a bounded context packet with provenance, freshness, pagination, and explicit missing coverage.
+- [ ] Test changed heads/guidance, missing artifacts, incomplete credentials, and truncated output.
+
+### S3. Technical maintenance skills
+
+- [ ] Deliver PR review instructions with file/line evidence and a head-freshness check.
+- [ ] Deliver CI diagnosis instructions with reproducible checks and useful next actions.
+- [ ] Deliver issue reproduction/fix instructions with repository-specific validation and reviewable patches.
+- [ ] Define authorized external-action contracts, outcome references, and retry/intervening-change handling for the workflows that need them.
+
+### S4. Portfolio workflows
+
+- [ ] Deliver backlog/dependency maintenance workflows with explicit scope and policy.
+- [ ] Deliver release-preparation workflows grounded in the repository's release process.
+- [ ] Deliver bounded recurring reviews and useful handoffs that resume from stored revisions.
+
+### S5. Packaging and evaluation
+
+- [ ] Document installation targets, required tool versions, and skill compatibility policy.
+- [ ] Make the first shipped skill installable and runnable by another agent from repository docs.
+- [ ] Evaluate relevant pagination, stale-write, missing-context, prior-decision, and untrusted-content cases for each skill.
+- [ ] Add technical-review/action regression cases as S2–S4 capabilities land.
+- [ ] Record reproducible evaluation evidence and keep skill instructions aligned with public CLI changes.
 
 ## Documentation maintenance
 
 - [x] Keep a concise README that states the purpose, current status, and quick start.
 - [x] Provide separate usage, architecture, roadmap, and checklist documents.
 - [x] Add AGENTS.md instructions for keeping planning documents current with implementation.
+- [x] Provide project orientation, design rationale, an architecture data map, and a staged skills/context roadmap.
 
-Documentation setup validation passed: `uv run --locked --group docs mkdocs build --strict`,
-`git diff --check`, and Ruff lint/format checks for `docs/gen_pages.py`.
+Documentation validation passed: `uv run --locked --group docs mkdocs build --strict`
+and `git diff --check`. Local Markdown file/heading links and README/home-page consistency
+were checked; the credential-free orientation demo/status/detail examples were exercised.
