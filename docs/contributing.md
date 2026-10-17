@@ -113,7 +113,7 @@ building, and documentation generation.
 
 To see all available tasks, simply run:
 
-```bash exec="on" result="markdown" source="tabbed-left" tabs="task CLI|Output"
+```bash
 task --list-all
 ```
 
