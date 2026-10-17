@@ -12,8 +12,9 @@ import structlog
 from structlog.typing import FilteringBoundLogger
 
 from gh_maintainer.clock import now, timestamp
+from gh_maintainer.concurrency import map_concurrently
 from gh_maintainer.database import Database
-from gh_maintainer.github import GitHubError, GitHubSource
+from gh_maintainer.github import DEFAULT_CONCURRENCY, GitHubError, GitHubSource
 from gh_maintainer.repositories import CatalogRepository, SyncJournal, SyncLease
 from gh_maintainer.schemas import (
     CommentSnapshot,
@@ -39,7 +40,11 @@ class SyncService:
         database: Database,
         source: GitHubSource,
         progress: Callable[[str], None] = lambda _: None,
+        concurrency: int = DEFAULT_CONCURRENCY,
     ) -> None:
+        if concurrency < 1:
+            raise ValueError("Concurrency must be at least 1.")
+        self.concurrency = concurrency
         self.database, self.source, self.progress = database, source, progress
         self.catalog = CatalogRepository(database)
         self.journal = SyncJournal(database)
@@ -68,22 +73,26 @@ class SyncService:
             "Repository sync started",
             since=timestamp(since) if since is not None else None,
         )
-        existing = {item.id: item for item in await self.catalog.items(repo.id)}
         rows: dict[str, ItemSnapshot] = {}
         async for batch in self.source.issues(repo, since):
-            for incoming in batch:
-                item = incoming
-                old = existing.get(item.id)
-                if old:
-                    item = item.model_copy(
-                        update={
-                            "pr": old.pr,
-                            "signals": old.signals,
-                            "signals_at": old.signals_at,
-                        }
-                    )
-                rows[item.id] = item
+            rows.update((item.id, item) for item in batch)
             log.info("Issue batch fetched", batch_items=len(batch), items=len(rows))
+        existing = {
+            item.id: item
+            for item in await self.catalog.items(
+                repo.id, set(rows), include_prs=not full
+            )
+        }
+        for item_id, item in rows.items():
+            old = existing.get(item_id)
+            if old:
+                rows[item_id] = item.model_copy(
+                    update={
+                        "pr": old.pr,
+                        "signals": old.signals,
+                        "signals_at": old.signals_at,
+                    }
+                )
         if not full:
             for item_id, item in existing.items():
                 if item.kind == Kind.PR and item.state == State.OPEN and item.available:
@@ -101,6 +110,10 @@ class SyncService:
             since=timestamp(comments_since) if comments_since is not None else None,
         )
         async for comment_batch in self.source.comments(repo, comments_since):
+            missing = {comment.number for comment in comment_batch} - by_number.keys()
+            for parent in await self.catalog.parents(repo.id, missing):
+                by_number[parent.number] = parent
+                existing[parent.id] = parent
             for comment in comment_batch:
                 if (
                     comment.number not in by_number
@@ -119,26 +132,49 @@ class SyncService:
         review_numbers: set[int] = set()
         candidates = rows.values() if full else by_number.values()
         log.info("Fetching pull request reviews")
-        for item in list(candidates):
-            if item.kind == Kind.PR and item.available:
-                review_numbers.add(item.number)
-                async for review_batch in self.source.reviews(repo, item.number):
-                    comments.extend(review_batch)
-                log.debug("Pull request reviews fetched", number=item.number)
+
+        async def refresh_reviews(item: ItemSnapshot) -> None:
+            review_numbers.add(item.number)
+            async for review_batch in self.source.reviews(repo, item.number):
+                comments.extend(review_batch)
+            log.debug("Pull request reviews fetched", number=item.number)
+
+        await map_concurrently(
+            refresh_reviews,
+            [item for item in candidates if item.kind == Kind.PR and item.available],
+            self.concurrency,
+        )
         open_prs: dict[str, str] = {}
         log.info(
             "Refreshing pull requests",
             pull_requests=sum(item.kind == Kind.PR for item in rows.values()),
         )
-        for item_id, item in list(rows.items()):
-            if item.kind != Kind.PR:
-                continue
-            raw = await self.source.pull(repo, item.number)
+
+        async def refresh_pull(item: ItemSnapshot) -> None:
+            old = existing.get(item.id)
+            # Closed PRs in the overlap window often have not changed. Reapply the
+            # cached detail to preserve merged state; open PRs always get fresh data.
+            if (
+                not full
+                and old is not None
+                and State.OPEN not in (old.state, item.state)
+                and old.raw == item.raw
+                and old.pr is not None
+            ):
+                raw = old.pr
+            else:
+                raw = await self.source.pull(repo, item.number)
             pull = PullPayload.model_validate(raw)
-            rows[item_id] = item.with_pull(raw)
             log.debug("Pull request refreshed", number=item.number)
-            if rows[item_id].state == State.OPEN:
-                open_prs[item_id] = pull.node_id
+            rows[item.id] = item.with_pull(raw)
+            if rows[item.id].state == State.OPEN:
+                open_prs[item.id] = pull.node_id
+
+        await map_concurrently(
+            refresh_pull,
+            [item for item in rows.values() if item.kind == Kind.PR],
+            self.concurrency,
+        )
         signals_error = None
         log.info("Fetching pull request signals", open_pull_requests=len(open_prs))
         try:
@@ -236,20 +272,21 @@ class SyncService:
                     account, repos, lease, public_only=public_only
                 )
                 log.info("Repository discovery finished", discovered=len(repos))
-                for repo in repos:
+
+                async def ingest(repo: RepositorySnapshot) -> tuple[bool, str | None]:
                     self.progress(f"Syncing {repo.name}")
                     repo_log = log.bind(repository=repo.name, repository_id=repo.id)
                     try:
-                        signals_error = await self._repository(
-                            repo, full, lease, repo_log
-                        )
-                        synced += 1
-                        if signals_error:
-                            errors.append(f"{repo.name}: {signals_error}")
+                        error = await self._repository(repo, full, lease, repo_log)
+                        return True, f"{repo.name}: {error}" if error else None
                     except (GitHubError, ValueError) as error:
                         await self.catalog.fail_repo(repo.id, str(error), lease)
-                        errors.append(f"{repo.name}: {error}")
                         repo_log.error("Repository sync failed", error=str(error))
+                        return False, f"{repo.name}: {error}"
+
+                outcomes = await map_concurrently(ingest, repos, self.concurrency)
+                synced = sum(success for success, _ in outcomes)
+                errors.extend(error for _, error in outcomes if error)
                 status: Literal["partial", "complete"] = (
                     "partial" if errors else "complete"
                 )

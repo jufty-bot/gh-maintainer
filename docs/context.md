@@ -2,7 +2,7 @@
 
 `context ITEM` fetches live evidence on demand through authenticated `gh api`.
 It leaves the SQLite source index and local decisions unchanged. Sync continues
-to use PyGithub; local queries and analysis still work without `gh` or credentials.
+to use the async HTTPX adapter; local queries and analysis still work without `gh` or credentials.
 Install/authenticate `gh` for context, or supply its supported token environment.
 Requests explicitly target github.com and have a 30-second subprocess timeout.
 For ANSI job logs, newer `gh` versions can refuse control characters. The adapter retries

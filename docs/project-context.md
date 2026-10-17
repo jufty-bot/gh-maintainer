@@ -27,7 +27,7 @@ of the index. They are useful, but completing agent workflows takes priority ove
 | Queries | Inventory, item details, comments, PR status, activity; SQL filters/pagination and JSON | Technical context is fetched live on demand, separately from indexed conversations |
 | Local analysis | Summaries, classification labels, ranks, and triage notes | Callers supply the content; there is no model invocation or built-in taxonomy |
 | Continuity | Source revisions, stale analysis, processing checkpoints, changes since processing | Acknowledgement is shared per item, not tracked independently per agent |
-| GitHub integration | PyGithub sync and authenticated `gh api` technical-context reads | The command is `gh-maintainer`, not an installed `gh` extension; no GitHub write commands |
+| GitHub integration | async HTTPX sync and authenticated `gh api` technical-context reads | The command is `gh-maintainer`, not an installed `gh` extension; no GitHub write commands |
 | Agent skills | Six bundled skills, self-contained references, offline fixtures and recorded evaluations | Detailed evaluated scope and remaining provider/host limits are recorded per release |
 
 The remaining context and skill dependencies are detailed in the [agent skills plan](agent-skills.md).
@@ -121,7 +121,7 @@ and source revision live in `.github/.copier-answers.yaml`.
 
 ## Implementation preferences
 
-Keep project code small. Use existing Pydantic, SQLAlchemy/Alembic, PyGithub, and CLI
+Keep project code small. Use existing Pydantic, SQLAlchemy/Alembic, HTTPX, and CLI
 capabilities before building custom infrastructure. Established packages are welcome when
 they remove duplication; introducing another layer requires a concrete benefit. The
 project uses one persistence stack; a proposed wrapper should remove concrete project

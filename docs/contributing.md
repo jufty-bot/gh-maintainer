@@ -22,7 +22,7 @@ uv run mypy src
 uv build
 ```
 
-Tests use source fakes, mocked PyGithub responses, and temporary SQLite databases without
+Tests use source fakes, mocked async HTTP responses, and temporary SQLite databases without
 a GitHub token. Run focused tests while developing, then the checks relevant to the change.
 The CI test matrix covers Python 3.10–3.14. API documentation is available at `/api/docs`
 while the local app is running.

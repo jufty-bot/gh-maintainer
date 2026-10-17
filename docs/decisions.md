@@ -25,29 +25,30 @@ Evidence: command entry point in `cli.py`, query/write boundaries in `queries.py
 ## D2. Small project code, established libraries
 
 **Decision:** Use Pydantic for validated source/output contracts, SQLAlchemy with aiosqlite
-for typed SQLite persistence, Alembic for migrations, and PyGithub for GitHub access.
+for typed SQLite persistence, Alembic for migrations, HTTPX for async GitHub access, and aiolimiter for request pacing.
 Click supplies command discovery, help, parameter validation, and version output;
 FastAPI supplies the optional dashboard API. Click replaces the original argparse entry
 point while preserving command names and output schemas, including database management.
 
-**Why:** Libraries own validation, ORM mapping, pagination/transport, and schema upgrades
+**Why:** Libraries own validation, ORM mapping, HTTP transport, rate pacing, and schema upgrades
 instead of duplicating them in project code. Prefer extending existing modules and
 dependencies to adding general frameworks. Preserve the project's Python 3.10 support.
 Click keeps parsing separate from the existing async services and reports invalid
 parameters before database initialization. Boundary tests exercise the real command entry.
 
 **Tradeoff:** SQLAlchemy models and Pydantic snapshots have distinct roles, and migrations
-must still be reviewed. PyGithub is synchronous; the adapter runs all SDK work, including
-lazy pagination, on one dedicated worker thread. Library behavior needs adapter tests.
+must still be reviewed. HTTPX replaces the synchronous PyGithub worker to allow bounded
+parallel ingestion. The adapter owns GitHub pagination, payload validation, cooldowns and
+budget feedback; library behavior needs contract tests.
 
-Evidence: `pyproject.toml`, `models.py`, `schemas.py`, `github.py`, and the SDK thread and
+Evidence: `pyproject.toml`, `models.py`, `schemas.py`, `github.py`, and the async transport, pacing and
 pagination tests in `tests/test_github.py`.
 
-## D3. Reuse gh credentials; keep ingestion in PyGithub
+## D3. Reuse gh credentials; keep ingestion in the async source adapter
 
 **Decision:** `resolve_token()` uses `GH_TOKEN` / `GITHUB_TOKEN` when supplied; otherwise
 it invokes `gh auth token --hostname github.com`. The token is passed explicitly into
-PyGithub. PyGithub does not discover gh authentication on its own. On-demand technical
+the shared HTTPX client. On-demand technical
 context uses authenticated `gh api` read requests, with explicit github.com targeting,
 timeouts and commit provenance; it never changes the stored index.
 
@@ -247,3 +248,27 @@ skill is not permission to publish remote changes.
 Evidence: [policy](policy.md), [context](context.md), [releases](releases.md),
 `tests/test_policy.py`, `tests/test_context.py`, `tests/test_skillpack.py`, and
 [release validation](evaluations/release.md).
+
+
+## D13. Bounded parallel ingestion with shared request pacing
+
+**Decision:** Ingest repositories, PR details and review bodies with bounded async workers.
+Use one pooled HTTPX client, a shared in-flight request cap, and aiolimiter with capacity
+one to prevent bursts. Expose concurrency and requests per second separately. Track REST
+and GraphQL primary budgets and slow resource-specific traffic at 10% remaining; honor
+server cooldowns and GraphQL rate-limit errors in HTTP 200 responses.
+
+**Why:** A single SDK thread serialized independent repository I/O. Incremental syncs
+also reread all historical issues and refetched unchanged closed PR details. Targeted reads
+and cached closed PR details reduce work while keeping review coverage, open PR freshness,
+comment revisions and atomic repository checkpoints intact.
+
+**Tradeoff:** Rate coordination is process-local. Initial backfills still stage a repository
+in memory and restart it after interruption. Review bodies still require complete listings;
+parallel requests remain subject to GitHub's primary and secondary limits. Requested waits
+over 30 seconds defer work to a later sync. HTTP telemetry now counts attempts; older
+SDK-operation counts retain their historical meaning. This supersedes D2/D3's original
+PyGithub transport choice; authentication and local storage contracts are unchanged.
+
+Evidence: `github.py`, `concurrency.py`, `sync.py`, `repositories.py`, and transport,
+conversation, selection, cancellation and checkpoint tests.

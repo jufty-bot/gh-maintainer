@@ -157,3 +157,49 @@ def test_interruption_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:
     result = CliRunner().invoke(cli.main, ["sync"])
     assert result.exit_code == 130
     assert "Traceback" not in result.output
+
+
+@pytest.mark.parametrize("command", ["sync", "watch"])
+def test_request_pacing_options(monkeypatch, command: str) -> None:
+    received = []
+
+    async def run(args):
+        received.append(args)
+        return 0
+
+    monkeypatch.setattr(cli, "run", run)
+    runner = CliRunner()
+    assert runner.invoke(cli.main, [command]).exit_code == 0
+    assert received[-1].concurrency == 4
+    assert received[-1].requests_per_second == 2
+    result = runner.invoke(
+        cli.main,
+        [
+            command,
+            "--concurrency",
+            "4",
+            "--requests-per-second",
+            "0.5",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert received[-1].requests_per_second == 0.5
+
+
+@pytest.mark.parametrize("rate", ["0", "-1", "nan", "inf", "invalid"])
+def test_invalid_request_rate_is_rejected_before_authentication(
+    tmp_path, rate: str
+) -> None:
+    path = tmp_path / "unused.sqlite"
+    result = CliRunner().invoke(
+        cli.main,
+        [
+            "--db",
+            str(path),
+            "sync",
+            "--requests-per-second",
+            rate,
+        ],
+    )
+    assert result.exit_code == 2
+    assert not path.exists()

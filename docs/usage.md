@@ -99,6 +99,9 @@ and changes since the last check.
 # Backfill just one repository
 uv run gh-maintainer sync --repo YOUR_LOGIN/YOUR_REPOSITORY
 
+# Tune parallel ingestion and HTTP pacing (defaults: 4 workers, 2 requests/sec)
+uv run gh-maintainer sync --concurrency 4 --requests-per-second 5
+
 # Generate reports
 uv run gh-maintainer report --output maintenance.md
 uv run gh-maintainer report --format json --output portfolio.json
@@ -162,7 +165,11 @@ Repository IDs survive renames. Raw payloads preserve fields for future analysis
 REST listing follows `Link` pagination to exhaustion and avoids the search API's
 1,000-result ceiling. Incremental issue queries use `state=all`, a checkpoint taken
 **before** fetching, and a five-minute overlap. Every previously open PR is refreshed
-on every sync: CI and review changes need not advance the issue timestamp.
+on every sync: CI and review changes need not advance the issue timestamp. Unchanged
+closed PRs in the overlap window reuse their cached details, including merged state.
+Incremental reads select incoming items, available PRs needed for review coverage, and
+comment parents by number instead of loading all historical issues. Commit reads target
+changed items and comment parents; full reconciliation still checks every stored item.
 
 Repository-level comment feeds use a separate checkpoint and the same five-minute overlap;
 the initial comment backfill and periodic full sync reconcile availability. Every known
@@ -176,7 +183,18 @@ A repository's item updates, observations, and checkpoint commit in one SQLite
 transaction. Failed repositories keep their previous checkpoint and data. Failed
 GraphQL enrichment preserves the old signals and their timestamp, marks the run partial,
 and displays effective signals as unknown. Retries are bounded, respect rate-limit
-headers, and stop rather than sleep beyond 30 seconds. Serial requests avoid API fanout.
+headers, and stop rather than sleep beyond 30 seconds. Repository, PR-detail and review
+workers are bounded by `--concurrency` (default 4), with the same global cap on in-flight
+HTTP requests. One shared `aiolimiter` spaces all HTTP attempts, including pagination,
+redirects and retries, without an initial burst. `--requests-per-second` sets the maximum
+start rate (default 2), independently of concurrency; 5 is an optional faster short-run
+setting, subject to the same GitHub budgets and cooldowns. When REST or GraphQL has at
+most 10% of its primary allowance left, additional pacing spreads that resource's remaining
+allowance until reset. GraphQL rate-limit errors participate in the shared cooldown even
+with HTTP 200. Queued workers recheck server feedback after permit waits and resume paced.
+Failed or cancelled runs cancel and await their outstanding workers before lease release.
+Pacing is local to one source instance; other tools can still consume the same allowance.
+Server cooldowns and budget pacing waits over 30 seconds defer work to the next sync.
 A renewable database lease prevents concurrent syncs; after a crashed process, the lease
 expires within five minutes. Sync exits nonzero on partial coverage so a scheduler can alert.
 
@@ -221,9 +239,9 @@ are serialized with a SQLite write lock. Compatible legacy TEXT/JSON, INTEGER/Bo
 and primary-key nullability declarations are retained during schema autogeneration.
 SQLAlchemy 2.0 is pinned to preserve the template's Python 3.10 support.
 
-Sync JSON now reports `source_calls`, counting SDK operations rather than claiming an
-exact HTTP request count (the SDK owns pagination and retries). Historical counts remain
-stored. Item, repository, triage, and dashboard data retain their existing meaning.
+Sync JSON reports `source_calls`, now counting HTTP attempts including pagination,
+redirects and retries. Historical SDK-operation counts retain their original meaning.
+Item, repository, triage, and dashboard data retain their existing meaning.
 
 ## Self-host with Docker Compose
 

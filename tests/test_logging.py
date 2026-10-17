@@ -102,7 +102,7 @@ async def test_cli_logs_text_to_stderr_and_result_to_stdout(
 ) -> None:
     source = FakeSource()
     monkeypatch.setattr(cli, "resolve_token", AsyncMock(return_value="test-token"))
-    monkeypatch.setattr(cli, "PyGithubSource", lambda _token: source)
+    monkeypatch.setattr(cli, "AsyncGitHubSource", lambda _token, **_options: source)
     close = AsyncMock()
     monkeypatch.setattr(source, "close", close, raising=False)
     config = structlog.get_config()

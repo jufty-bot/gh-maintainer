@@ -38,6 +38,7 @@ from gh_maintainer.schemas import (
     Disposition,
     ItemSnapshot,
     JsonObject,
+    Kind,
     ProcessingView,
     RepositoryPayload,
     RepositorySnapshot,
@@ -243,10 +244,69 @@ class CatalogRepository:
                 raise ValueError("Unknown repository ID.")
             return repo_snapshot(record)
 
-    async def items(self, repo_id: str) -> list[ItemSnapshot]:
+    @staticmethod
+    async def _items(
+        session: AsyncSession,
+        repo_id: str,
+        ids: set[str] | None = None,
+        include_prs: bool = False,
+    ) -> dict[str, Item]:
+        query = select(Item).where(Item.repo_id == repo_id)
+        if ids is None:
+            return {record.id: record for record in await session.scalars(query)}
+        records: dict[str, Item] = {}
+        # Stay below SQLite's variable limit, including on older installations.
+        item_ids = list(ids)
+        for offset in range(0, len(item_ids), 500):
+            batch = item_ids[offset : offset + 500]
+            records.update(
+                (record.id, record)
+                for record in await session.scalars(query.where(Item.id.in_(batch)))
+            )
+        if include_prs:
+            records.update(
+                (record.id, record)
+                for record in await session.scalars(
+                    query.where(
+                        Item.kind == Kind.PR,
+                        Item.available.is_(True),
+                    )
+                )
+            )
+        return records
+
+    async def items(
+        self,
+        repo_id: str,
+        ids: set[str] | None = None,
+        include_prs: bool = False,
+    ) -> list[ItemSnapshot]:
         async with self.database.sessions() as session:
-            records = await session.scalars(select(Item).where(Item.repo_id == repo_id))
-            return [item_snapshot(record) for record in records]
+            records = await self._items(session, repo_id, ids, include_prs)
+            return [item_snapshot(record) for record in records.values()]
+
+    @staticmethod
+    async def _parents(
+        session: AsyncSession, repo_id: str, numbers: set[int]
+    ) -> dict[str, Item]:
+        records: dict[str, Item] = {}
+        values = list(numbers)
+        for offset in range(0, len(values), 500):
+            records.update(
+                (record.id, record)
+                for record in await session.scalars(
+                    select(Item).where(
+                        Item.repo_id == repo_id,
+                        Item.number.in_(values[offset : offset + 500]),
+                    )
+                )
+            )
+        return records
+
+    async def parents(self, repo_id: str, numbers: set[int]) -> list[ItemSnapshot]:
+        async with self.database.sessions() as session:
+            records = await self._parents(session, repo_id, numbers)
+            return [item_snapshot(record) for record in records.values()]
 
     @staticmethod
     def _source_data(snapshot: ItemSnapshot) -> JsonObject:
@@ -308,12 +368,9 @@ class CatalogRepository:
             repo = await session.get(Repository, repo_id)
             if repo is None:
                 raise ValueError("Unknown repository ID.")
-            records = {
-                record.id: record
-                for record in await session.scalars(
-                    select(Item).where(Item.repo_id == repo_id)
-                )
-            }
+            records = await self._items(
+                session, repo_id, None if full else {item.id for item in snapshots}
+            )
             seen: set[str] = set()
             touched: set[str] = set()
             for incoming_snapshot in snapshots:
@@ -321,9 +378,7 @@ class CatalogRepository:
                 if snapshot.repo_id != repo_id:
                     raise ValueError("Item belongs to a different repository.")
                 seen.add(snapshot.id)
-                record = records.get(snapshot.id) or await session.get(
-                    Item, snapshot.id
-                )
+                record = records.get(snapshot.id)
                 before = item_snapshot(record) if record else None
                 changed = before is None or self._source_data(
                     before
@@ -354,13 +409,26 @@ class CatalogRepository:
             # Parent rows must exist before inserting comments with their composite FK.
             await session.flush()
             if comments is not None:
-                parents = {item.number: item for item in records.values()}
                 existing = {
                     record.id: record
                     for record in await session.scalars(
                         select(Comment).where(Comment.repo_id == repo_id)
                     )
                 }
+                # Comment-only activity can touch a closed issue absent from the
+                # incremental issue listing. Load those parents by their numbers.
+                parent_numbers = {comment.number for comment in comments}
+                parent_numbers.update(
+                    comment.number
+                    for comment in existing.values()
+                    if comments_full
+                    or (
+                        comment.kind == "review"
+                        and comment.number in (review_numbers or set())
+                    )
+                )
+                records.update(await self._parents(session, repo_id, parent_numbers))
+                parents = {item.number: item for item in records.values()}
                 incoming = {comment.id: comment for comment in comments}
                 for comment_id, comment_record in existing.items():
                     complete = comments_full or (

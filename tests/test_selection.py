@@ -210,7 +210,7 @@ def test_cli_selection_output_and_exit_status(
         return "test-token"
 
     monkeypatch.setattr(cli, "resolve_token", token)
-    monkeypatch.setattr(cli, "PyGithubSource", lambda _token: source)
+    monkeypatch.setattr(cli, "AsyncGitHubSource", lambda _token, **_options: source)
     selection = ["--repo", "owner/missing"] if explicit else ["--owner", "team"]
     result = CliRunner().invoke(
         cli.main, ["--db", str(tmp_path / "cli.sqlite"), "sync", *selection]

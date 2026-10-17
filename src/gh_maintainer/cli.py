@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,7 +18,12 @@ from gh_maintainer.config import PolicyFile, RepositoryPolicy, check_policy, loa
 from gh_maintainer.context import ContextRequest, context_for
 from gh_maintainer.database import Database, default_path
 from gh_maintainer.demo import seed_demo
-from gh_maintainer.github import PyGithubSource, resolve_token
+from gh_maintainer.github import (
+    DEFAULT_CONCURRENCY,
+    DEFAULT_REQUESTS_PER_SECOND,
+    AsyncGitHubSource,
+    resolve_token,
+)
 from gh_maintainer.logging import configure_logging
 from gh_maintainer.queries import CatalogQueries
 from gh_maintainer.report import markdown
@@ -178,6 +184,13 @@ def execute(ctx: click.Context, **options: object) -> None:
     ctx.exit(code)
 
 
+def request_rate(value: str) -> float:
+    rate = float(value)
+    if not math.isfinite(rate) or rate <= 0:
+        raise ValueError("Request rate must be positive and finite.")
+    return rate
+
+
 def register_commands() -> None:
     """Share option contracts while keeping command help self-contained."""
     descriptions = {
@@ -212,6 +225,18 @@ def register_commands() -> None:
         ]
         if name in {"sync", "watch"}:
             params += [
+                click.Option(
+                    ["--concurrency"],
+                    type=click.IntRange(min=1),
+                    default=DEFAULT_CONCURRENCY,
+                    help="Concurrent repositories and GitHub requests.",
+                ),
+                click.Option(
+                    ["--requests-per-second"],
+                    type=request_rate,
+                    default=DEFAULT_REQUESTS_PER_SECOND,
+                    help="Global HTTP request rate before budget throttling.",
+                ),
                 click.Option(
                     ["--full"], is_flag=True, help="Reconcile all historical items."
                 ),
@@ -659,13 +684,20 @@ async def run(args: SimpleNamespace) -> int:
                 disposition=getattr(args, "disposition", None),
             )
         if args.command in {"sync", "watch"}:
-            source = PyGithubSource(await resolve_token())
+            concurrency = getattr(args, "concurrency", DEFAULT_CONCURRENCY)
+            source = AsyncGitHubSource(
+                await resolve_token(),
+                concurrency=concurrency,
+                requests_per_second=getattr(
+                    args, "requests_per_second", DEFAULT_REQUESTS_PER_SECOND
+                ),
+            )
             try:
                 while True:
                     source.calls = 0
-                    result = await SyncService(database, source).run(
-                        args.full, set(args.repo) if args.repo else None, args.owner
-                    )
+                    result = await SyncService(
+                        database, source, concurrency=concurrency
+                    ).run(args.full, set(args.repo) if args.repo else None, args.owner)
                     output(result.model_dump_json(indent=2))
                     if args.command == "sync":
                         return 0 if result.status == "complete" else 1

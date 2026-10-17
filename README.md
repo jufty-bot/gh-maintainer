@@ -40,7 +40,7 @@ validate repository rules. `context ITEM` fetches live technical evidence throug
 
 The current CLI reads GitHub and writes local data. Analysis is supplied by a human or
 agent; it does not invoke a model or post changes to GitHub. It reuses `gh` authentication
-for PyGithub sync and `gh api` context requests. See [CLI workflows](docs/cli.md) for the full loop,
+for async HTTPX sync and `gh api` context requests. See [CLI workflows](docs/cli.md) for the full loop,
 revision guards, and pagination.
 
 ## Documentation

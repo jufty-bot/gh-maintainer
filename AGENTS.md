@@ -12,7 +12,7 @@ Prioritize the CLI and its data contracts. The dashboard and reports consume the
 Keep current capabilities distinct from planned ones in documentation and command examples.
 Keep the implementation small: extend existing modules and use straightforward commands.
 Use established third-party packages when they remove duplication or custom infrastructure;
-build on the existing Pydantic, SQLAlchemy/Alembic, and PyGithub stack where it fits.
+build on the existing Pydantic, SQLAlchemy/Alembic, and HTTPX stack where it fits.
 Add abstractions only when the current behavior needs them.
 The CLI should be easy to maintain; a larger application platform is outside its purpose.
 

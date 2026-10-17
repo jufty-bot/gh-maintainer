@@ -4,17 +4,18 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 
 from gh_maintainer.clock import now
 from gh_maintainer.database import Database
+from gh_maintainer.github import GitHubError
 from gh_maintainer.models import Observation, Setting, SyncRun
 from gh_maintainer.queries import CatalogQueries
 from gh_maintainer.repositories import CatalogRepository, SyncLease
-from gh_maintainer.schemas import ItemFilters, State
+from gh_maintainer.schemas import ItemFilters, ItemSnapshot, State
 from gh_maintainer.sync import OVERLAP, SyncService
 
-from .fakes import REPO, FakeSource
+from .fakes import REPO, FakeSource, issue
 
 pytestmark = pytest.mark.anyio
 
@@ -158,3 +159,164 @@ async def test_lease_cleans_up_after_heartbeat_failure(database: Database) -> No
             await asyncio.sleep(0)
     async with SyncLease(database):
         pass
+
+
+async def test_incremental_reuses_closed_pr_details_and_preserves_merged_state(
+    database: Database,
+) -> None:
+    source, catalog = FakeSource(), CatalogRepository(database)
+    await SyncService(database, source).run()
+    source.pull_requests.clear()
+    await SyncService(database, source).run()
+    assert source.pull_requests == [("1", 2)]
+    merged = next(item for item in await catalog.items("1") if item.number == 3)
+    assert merged.state == State.MERGED
+    source.items[-1]["title"] = "Edited closed pull request"
+    source.pull_requests.clear()
+    await SyncService(database, source).run()
+    assert set(source.pull_requests) == {("1", 2), ("1", 3)}
+    source.pull_requests.clear()
+    await SyncService(database, source).run(full=True)
+    assert set(source.pull_requests) == {("1", 2), ("1", 3)}
+
+
+async def test_open_pr_refreshes_head_without_an_issue_update(
+    database: Database,
+) -> None:
+    source, catalog = FakeSource(), CatalogRepository(database)
+    await SyncService(database, source).run()
+    source.items = []
+    source.head_sha = source.signal_head = "new-head"
+    await SyncService(database, source).run()
+    item = next(item for item in await catalog.items("1") if item.number == 2)
+    assert item.pr["head"]["sha"] == "new-head"
+    assert item.signals["commits"]["nodes"][0]["commit"]["oid"] == "new-head"
+
+
+async def test_incremental_reads_only_incoming_items_and_open_prs(
+    database: Database,
+) -> None:
+    source = FakeSource()
+    await SyncService(database, source).run()
+    source.items = []
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _many):
+        if statement.startswith("SELECT items."):
+            statements.append(statement)
+
+    event.listen(database.engine.sync_engine, "before_cursor_execute", capture)
+    try:
+        await SyncService(database, source).run()
+    finally:
+        event.remove(database.engine.sync_engine, "before_cursor_execute", capture)
+    assert len(statements) == 2
+    assert "items.kind =" in statements[0]
+    assert "items.id IN" in statements[1]
+
+
+class ParallelSource(FakeSource):
+    def __init__(self) -> None:
+        super().__init__()
+        self.inventory = [
+            {**REPO, "id": number, "full_name": f"owner/project{number}"}
+            for number in range(1, 7)
+        ]
+        self.active = self.peak = 0
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.fail_repo: str | None = None
+        self.crash = False
+
+    async def issues(self, repo, _since):
+        self.active += 1
+        self.peak = max(self.peak, self.active)
+        if self.active == 2:
+            self.started.set()
+        try:
+            await self.release.wait()
+            if self.crash:
+                raise RuntimeError("Unexpected source failure")
+            if repo.id == self.fail_repo:
+                raise GitHubError("Repository unavailable")
+            raw = {**issue(), "node_id": f"I_repo{repo.id}"}
+            yield [ItemSnapshot.from_github(raw, repo.id)]
+        finally:
+            self.active -= 1
+
+
+async def test_repositories_ingest_in_parallel_with_isolated_failures(
+    database: Database,
+) -> None:
+    source = ParallelSource()
+    source.fail_repo = "2"
+    task = asyncio.create_task(SyncService(database, source, concurrency=2).run())
+    try:
+        await asyncio.wait_for(source.started.wait(), timeout=2)
+        assert source.peak == 2
+        source.release.set()
+        result = await task
+    finally:
+        source.release.set()
+        await asyncio.gather(task, return_exceptions=True)
+    assert result.status == "partial"
+    assert result.synced == 5
+    assert source.peak == 2
+    assert result.errors == ["owner/project2: Repository unavailable"]
+    catalog = CatalogRepository(database)
+    assert (await catalog.repo("1")).synced_at is not None
+    assert (await catalog.repo("2")).synced_at is None
+    assert (await catalog.repo("6")).synced_at is not None
+
+
+async def test_parallel_workers_are_drained_before_failed_run_finishes(
+    database: Database,
+) -> None:
+    source = ParallelSource()
+    source.crash = True
+    task = asyncio.create_task(SyncService(database, source, concurrency=2).run())
+    try:
+        await asyncio.wait_for(source.started.wait(), timeout=2)
+        source.release.set()
+        with pytest.raises(RuntimeError, match="Unexpected source failure"):
+            await task
+        assert source.active == 0
+        async with database.sessions() as session:
+            assert (await session.scalar(select(SyncRun.status))) == "failed"
+        async with SyncLease(database):
+            pass
+    finally:
+        source.release.set()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_cancelling_sync_drains_workers_and_releases_lease(
+    database: Database,
+) -> None:
+    source = ParallelSource()
+    task = asyncio.create_task(SyncService(database, source, concurrency=2).run())
+    try:
+        await asyncio.wait_for(source.started.wait(), timeout=2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert source.active == 0
+        async with SyncLease(database):
+            pass
+        async with database.sessions() as session:
+            assert (await session.scalar(select(SyncRun.status))) == "failed"
+    finally:
+        source.release.set()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_repo_filter_limits_parallel_ingestion(database: Database) -> None:
+    source = ParallelSource()
+    source.release.set()
+    result = await SyncService(database, source).run(only={"owner/project3"})
+    assert result.discovered == 1
+    assert result.synced == 1
+    catalog = CatalogRepository(database)
+    with pytest.raises(ValueError, match="Unknown repository"):
+        await catalog.repo("1")
+    assert (await catalog.repo("3")).synced_at is not None

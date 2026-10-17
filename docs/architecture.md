@@ -10,7 +10,7 @@ are described in [technical context](context.md) and [skill usage](skills.md).
 
 ```mermaid
 flowchart LR
-    G[GitHub] --> P[PyGithub adapter / single SDK thread]
+    G[GitHub] --> P[HTTPX async adapter / bounded requests]
     P --> S[Async sync service]
     S --> R[Catalog repository + journal]
     R --> D[(SQLAlchemy + aiosqlite)]
@@ -29,7 +29,7 @@ flowchart LR
 | `models.py`         | Typed SQLAlchemy records, JSON payloads, aware UTC timestamps                                    |
 | `database.py`       | Engine/session lifecycle, SQLite pragmas, serialized Alembic upgrades                            |
 | `migrations/`       | Packaged, versioned schema changes and legacy adoption                                           |
-| `github.py`         | Source protocol and PyGithub adapter; SDK owns transport, retries, authentication and pagination |
+| `github.py`         | Source protocol and HTTPX adapter; bounded async requests, retries, authentication and pagination |
 | `sync.py`           | Discovery, backfill windows, reconciliation, PR refresh and error policy                         |
 | `repositories.py`   | Catalog writes, fenced sync lease, run journal, local analysis and processing decisions          |
 | `queries.py`        | SQL filtering, totals, queue ranking, pagination and targeted detail loading                     |
@@ -111,11 +111,28 @@ The application owns one async engine/session factory, with a fresh `AsyncSessio
 operation or request. Sessions are never shared across concurrent tasks. API startup and
 CLI initialization run Alembic once per engine; request handlers do not initialize schemas.
 
-PyGithub is synchronous. Every SDK operation, including lazy pagination and payload
-extraction, runs on one dedicated executor thread. Network calls never hold a database
-transaction. A narrowly scoped adapter uses the SDK's base raw-payload accessor to avoid
-hydrating every listed issue/repository with another request. Adapter tests verify that
-1,001 issues require 11 listing requests and that SDK work leaves the event loop responsive.
+One HTTPX `AsyncClient` pools connections across bounded repository workers. PR details
+and review bodies also use bounded workers, with a shared semaphore limiting all HTTP
+requests. A capacity-one `aiolimiter.AsyncLimiter` spaces every HTTP attempt (including
+pagination, redirects and retries) without an initial burst. Defaults are four workers
+and two request starts per second, configured independently through `--concurrency` and
+`--requests-per-second` on `sync` and `watch`. Only same-origin HTTPS pagination and
+redirects are followed. Network I/O never holds a database transaction.
+
+An admission lock serializes permits, with network I/O outside that lock. Workers recheck
+cooldowns and primary budgets after permit waits. REST and GraphQL budgets are tracked
+separately; at 10% remaining or below, additional pacing spreads the remaining allowance
+until reset. Out-of-order responses cannot replenish a window's allowance. GraphQL HTTP
+200 rate-limit errors trigger the shared cooldown; ordinary permission errors do not.
+Budget and cooldown coordination remains local to this source instance.
+
+Incremental catalog reads select incoming item IDs, available PRs needed for complete
+review coverage, and comment parents by number. Commits read affected items and comment
+parents; full reconciliation still loads all historical items. Unchanged closed PRs reuse
+cached details, preserving merged state. Review bodies continue to be fully listed each
+sync because GitHub offers no incremental review window. Unexpected failures and
+cancellation cancel and await worker tasks before journal completion and lease release.
+Expected repository errors remain isolated, with deterministic inventory-order reporting.
 
 GitHub batches are staged as validated snapshots. The catalog commits one repository's
 items, comments, observations, availability and checkpoints in one short transaction. A failed page
@@ -165,9 +182,9 @@ a single-writer database; aiosqlite provides event-loop integration, not paralle
 
 Defaults are declared in code: five-minute overlap and seven-day reconciliation in
 `sync.py`; a five-minute lease with 30-second heartbeat in `repositories.py`; 900-second
-watch interval (minimum 60) in `cli.py`. SDK retry waits beyond 30 seconds are deferred to
-a later sync. The SDK owns HTTP pagination/retries; `source_calls` counts adapter operations,
-not exact HTTP requests.
+watch interval (minimum 60) in `cli.py`. Server cooldowns and budget waits beyond 30 seconds
+are deferred to a later sync. `source_calls` counts HTTP attempts, including pagination,
+redirects and retries; historical SDK-operation counts retain their original meaning.
 
 The sync service emits structlog events with run and repository context, fetch progress,
 counts, elapsed time, and errors. The CLI configures human-readable console rendering on
@@ -266,8 +283,9 @@ key types remain visible to autogeneration. Review each future migration before 
 Migration files and the generation template ship inside the wheel and container. Use
 `gh-maintainer migrate` to upgrade, or `alembic revision --autogenerate` and `alembic check`
 from the source checkout. The `--db` option and `GH_MAINTAINER_DB` retain the index selection
-behavior. Sync telemetry is now explicitly named `source_calls` because SDK operations
-can perform multiple HTTP requests; old counts remain stored in the original column.
+behavior. Sync telemetry uses `source_calls` for HTTP attempts, including pagination,
+redirects and retries; historical SDK-operation counts retain their original meaning
+in the original column.
 
 ## Retained limitations
 
@@ -285,4 +303,5 @@ untrusted and are rendered as plain text.
 - [SQLAlchemy async sessions](https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html)
 - [SQLite async dialect](https://docs.sqlalchemy.org/en/20/dialects/sqlite.html#module-sqlalchemy.dialects.sqlite.aiosqlite)
 - [Alembic asyncio migrations](https://alembic.sqlalchemy.org/en/latest/cookbook.html#using-asyncio-with-alembic)
-- [PyGithub utilities](https://pygithub.readthedocs.io/en/stable/utilities.html)
+- [HTTPX async support](https://www.python-httpx.org/async/)
+- [aiolimiter pacing and burst behavior](https://aiolimiter.readthedocs.io/en/stable/)

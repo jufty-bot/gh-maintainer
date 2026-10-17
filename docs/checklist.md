@@ -255,3 +255,21 @@ validation now rejects incompatible keys, types and required nullability before 
 Documentation validation passed: `uv run --locked --group docs mkdocs build --strict`
 and `git diff --check`. Local Markdown file/heading links and README/home-page consistency
 were checked; the credential-free orientation demo/status/detail examples were exercised.
+
+
+## Async incremental sync and request pacing
+
+- [x] Replace the serialized SDK worker with pooled async HTTPX requests for owner inventories, direct repository/issue reads, conversations, reviews and PR signals.
+- [x] Bound repository, PR-detail and review workers while preserving deterministic errors, logs, atomic checkpoints, conversation coverage and local revisions.
+- [x] Target incremental reads to incoming items, available PRs needed for review coverage and comment parents; reuse unchanged closed PR details and avoid new-item per-row reads.
+- [x] Add shared aiolimiter pacing, separate concurrency/rate options, primary-budget feedback, GraphQL HTTP 200 rate-limit handling and cancellation/cooldown regressions.
+- [x] Integrate with the current Click CLI, owner selection, installed skills, release packaging and schema without discarding the intervening main changes.
+
+Evidence: `github.py`, `concurrency.py`, `sync.py`, `repositories.py`,
+`tests/test_github.py`, `tests/test_sync.py`, `tests/test_selection.py`,
+`tests/test_maintenance.py`, `tests/test_logging.py` and `tests/test_cli.py`.
+All 186 Python tests passed on Python 3.14 and 3.10. Ruff lint/format, application mypy,
+strict documentation build, source/wheel build and isolated installed-wheel smoke
+(including legacy migration) passed. Browser behavior and GitHub write operations are
+unchanged. See [D13](decisions.md#d13-bounded-parallel-ingestion-with-shared-request-pacing)
+for rationale and [Usage](usage.md#correctness-and-limits) for operating limits.

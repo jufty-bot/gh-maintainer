@@ -52,6 +52,7 @@ class FakeSource:
         self.windows: list[datetime | None] = []
         self.head_sha = "abc"
         self.signal_head = "abc"
+        self.pull_requests: list[tuple[str, int]] = []
         self.accounts: dict[str, AccountSnapshot] = {}
         self.aliases: dict[str, str] = {}
         self.conversation: list[CommentSnapshot] = []
@@ -117,6 +118,7 @@ class FakeSource:
 
     async def pull(self, _repo: RepositorySnapshot, number: int) -> JsonObject:
         self.calls += 1
+        self.pull_requests.append((_repo.id, number))
         return {
             "node_id": f"PR_{number}",
             "state": "closed" if number == 3 else "open",
