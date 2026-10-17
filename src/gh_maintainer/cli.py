@@ -184,7 +184,7 @@ def register_commands() -> None:
         "sync": "Fetch issues, PRs, and conversations from GitHub into SQLite.",
         "watch": "Sync immediately, then repeat at a fixed interval.",
         "report": "Export the full portfolio as Markdown or JSON.",
-        "serve": "Serve the local dashboard and read-only API.",
+        "serve": "Serve the local dashboard and triage API.",
         "triage": "Save a local disposition and note without changing GitHub.",
         "demo": "Populate the index with sample data, without credentials.",
         "migrate": "Create or upgrade the SQLite database schema.",

@@ -223,7 +223,7 @@ provider/host and broad remote-action evaluations above remain explicit extensio
 - [x] Add explicit policy provenance and optional guarded label/rank/disposition/permission checks.
 - [x] Add live commit-bound guidance, patches/files, checks/job logs and review-thread context with explicit limits.
 - [x] Validate installed-wheel query/analysis/processing and legacy upgrade outside the checkout.
-- [x] Run Python matrix plus quality/docs/build/install gates on PRs and direct main pushes.
+- [x] Configure Python matrix, desktop/mobile browser and quality/docs/build/install gates on PRs and direct main pushes.
 - [x] Independently evaluate bounded triage, policy ranking, no-write runs, preservation, hostile content and actual retry exhaustion.
 - [x] Independently exercise bounded technical review, CI evidence and reproduced local repair with red/green regression.
 - [x] Complete real public-source sync, guarded local summary/ack and unchanged-resume pilot in a disposable index.
@@ -231,9 +231,12 @@ provider/host and broad remote-action evaluations above remain explicit extensio
 - [ ] Confirm hosted main CI, including Docker bundle smoke.
 - [ ] Publish matching versioned wheel/source/skills/checksums and verify downloaded assets.
 
-Local validation: all 133 tests passed; Ruff lint/format, application mypy, source/wheel
-build, skill ZIP/checksums and isolated installed-wheel smoke passed. Final docs/link/skill
-checks and hosted CI/publication results are recorded when complete. No new runtime
+Local validation: all 135 Python tests and 12 desktop/mobile browser tests passed;
+Ruff lint/format, application mypy, strict documentation build, local links, six skill
+validators, source/wheel build, skill ZIP/checksums and isolated installed-wheel smoke
+passed. Chromium used local extracted libraries and font configuration because the
+development machine lacks system packages; CI installs standard browser dependencies.
+Hosted CI/publication results are recorded when complete. No new runtime
 dependency or database schema was introduced. The initial migration's legacy-adoption
 validation now rejects incompatible keys, types and required nullability before adoption.
 

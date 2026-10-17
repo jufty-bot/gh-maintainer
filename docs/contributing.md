@@ -139,8 +139,9 @@ checks on the code before it is committed. You can install the pre-commit
 hooks manually, or they will be set up when you run `task install`.
 
 This project uses [semantic-versioning] standards, managed by [semantic-release].
-Releases for this project are handled entirely by CI/CD via pull requests being
-merged into the `main` branch. Contributions follow the [gitmoji] standards
+Release checks run on main and pull requests; publication uses the manually dispatched
+release workflow after validation. See [release instructions](releases.md).
+Contributions follow the [gitmoji] standards
 with [conventional commits].
 
 While you can denote other changes on your commit messages with [gitmoji], the following

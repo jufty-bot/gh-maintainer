@@ -89,13 +89,18 @@ prove handling of later observed pushes/edits; no dummy GitHub activity was crea
 The independent review/CI cases exercised real guidance/files/checks/threads against
 the same historical PR with independent local database copies.
 
+[Live pilot archive](live-pilot.tar.gz) retains the command log, initial sync result,
+public conversation/observations, policy and final tree-verified guidance packet.
+Temporary paths are normalized to `<PILOT>`; the disposable database is excluded.
+
 ## Automated and release gates
 
 The suite covers policy/transport/context/installation/migration contracts alongside
 existing ingestion, pagination, reconciliation, partial failure, lease and revision
 tests. Ruff, application mypy, strict MkDocs, skill validation, local links, wheel/source
 builds, versioned skill archive/checksums and an isolated installed-wheel smoke are
-required. CI runs the Python matrix and quality gates on main and PRs. Publication
+required. The integrated dashboard's 12 desktop/mobile browser tests also pass. CI runs
+the Python matrix, browser tests and quality gates on main and PRs. Publication
 uses matching CLI version/tag and tested assets after main CI success.
 
 Final check counts and publication evidence are recorded in the [implementation checklist](../checklist.md).

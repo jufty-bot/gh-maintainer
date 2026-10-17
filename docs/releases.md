@@ -33,6 +33,9 @@ uv run --locked pytest -q
 uv run --locked ruff check .
 uv run --locked ruff format --check .
 uv run --locked mypy src
+npm ci
+npx playwright install --with-deps chromium
+npm run test:ui
 uv run --locked --group docs mkdocs build --strict
 uv build
 uv run --locked python scripts/build_release.py
@@ -46,7 +49,7 @@ upgrade retaining its note. Tests additionally cover source races, missing cover
 pagination and malformed inputs. A build passing inside an editable checkout alone is
 not evidence that package resources are correct.
 
-CI runs the Python matrix and quality/docs/build/install checks for PRs **and** direct
+CI runs the Python matrix, desktop/mobile browser tests and quality/docs/build/install checks for PRs **and** direct
 pushes to main. Release publication is a separate step after those checks succeed.
 The existing manually dispatched semantic-release workflow creates subsequent versions
 using the project's Gitmoji conventions and attaches wheel/source/skills/checksums.

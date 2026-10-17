@@ -33,6 +33,16 @@ jobs:
                   uv build
                   uv run --locked python scripts/build_release.py
                   uv run --locked python scripts/check_install.py
+            - name: setup-node
+              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+              with:
+                  node-version: '22'
+                  cache: npm
+            - name: Validate dashboard
+              run: |
+                  npm ci
+                  npx playwright install --with-deps chromium
+                  npm run test:ui
             - name: Semantic Release
               uses: juftin/actions/semantic-release@v1
               with:
