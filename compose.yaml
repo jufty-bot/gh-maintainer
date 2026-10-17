@@ -1,0 +1,24 @@
+x-maintainer: &maintainer
+  build: .
+  image: gh-maintainer:local
+  restart: unless-stopped
+  volumes:
+    - maintainer-data:/data
+  environment:
+    GH_MAINTAINER_DB: /data/maintainer.sqlite
+
+services:
+  web:
+    <<: *maintainer
+    command: [serve, --host, 0.0.0.0]
+    ports:
+      - 127.0.0.1:8765:8765
+  worker:
+    <<: *maintainer
+    command: [watch, --interval, '900']
+    environment:
+      GH_MAINTAINER_DB: /data/maintainer.sqlite
+      GH_TOKEN: ${GH_TOKEN:?Set GH_TOKEN in .env for the worker}
+
+volumes:
+  maintainer-data:

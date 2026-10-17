@@ -1,0 +1,151 @@
+[project]
+name = "gh-maintainer"
+version = "0.1.0"
+description = "Index, triage, and maintain GitHub repositories"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["httpx>=0.28,<1", "fastapi>=0.115,<1", "uvicorn>=0.34,<1"]
+authors = [
+  {name = "Justin Flannery", email = "juftin@juftin.com"}
+]
+license = "MIT"
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: Implementation :: CPython"
+]
+
+[project.urls]
+Documentation = "https://github.com/jufty-bot/gh-maintainer#readme"
+Issues = "https://github.com/jufty-bot/gh-maintainer/issues"
+Source = "https://github.com/jufty-bot/gh-maintainer"
+
+[project.scripts]
+gh-maintainer = "gh_maintainer.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest",
+  "pytest-cov",
+  "mypy>=1,<2",
+  "ruff~=0.12.10"
+]
+docs = [
+  "mkdocs~=1.6.1",
+  "mkdocs-material~=9.6.18",
+  "markdown-callouts~=0.4.0",
+  "markdown-exec~=1.11.0",
+  "mkdocs-section-index~=0.3.10",
+  "mkdocs-autorefs~=1.4.3",
+  "mkdocstrings[python]~=0.30.0",
+  "mkdocs-gen-files~=0.5.0",
+  "mkdocs-literate-nav~=0.6.2",
+  "pymdown-extensions~=10.16.1"
+]
+
+[tool.pytest.ini_options]
+addopts = [
+  "-v",
+  "--cov=src/gh_maintainer",
+  "--cov-report=term-missing",
+  "--cov-report=xml:coverage.xml",
+  "--junitxml=pytest.xml"
+]
+
+[tool.coverage.report]
+exclude_lines = [
+  "no cov",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:"
+]
+
+[tool.coverage.run]
+branch = true
+omit = [
+  "src/gh_maintainer/__about__.py"
+]
+parallel = true
+
+[tool.mypy]
+check_untyped_defs = true
+disallow_any_generics = true
+disallow_untyped_defs = true
+follow_imports = "silent"
+ignore_missing_imports = true
+no_implicit_reexport = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+ignore = [
+  # Ignore checks for possible passwords
+  "S105",
+  "S106",
+  "S107",
+  # Ignore complexity
+  "C901",
+  "PLR0911",
+  "PLR0912",
+  "PLR0913",
+  "PLR0915",
+  # Boolean-typed positional argument in function definition
+  "FBT001",
+  # Boolean default positional argument in function definition
+  "FBT002",
+  # Allow boolean positional values in function calls, like `dict.get(... True)`
+  "FBT003",
+  # Exception must not use a string literal, assign to variable first
+  "EM101"
+]
+select = [
+  "A",  # flake8-builtins
+  "ARG",  # flake8-unused-arguments
+  "B",  # flake8-bugbear
+  "C",  # mccabe
+  "DTZ",  # flake8-datetimez
+  "E",  # pycodestyle (Error)
+  "EM",  # flake8-errmsg
+  "F",  # Pyflakes
+  "FBT",  # flake8-boolean-trap
+  "I",  # isort
+  "ICN",  # flake8-import-conventions
+  "N",  # pep8-naming
+  "PLC",  # Pylint (Convention message)
+  "PLE",  # Pylint (Error message)
+  "PLR",  # Pylint (Refactor message)
+  "PLW",  # Pylint (Warning message)
+  "Q",  # flake8-quotes
+  "RUF",  # Ruff-specific rules
+  "S",  # flake8-bandit
+  "T",  # flake8-debugger (T10) and flake8-print (T20)
+  "TID",  # flake8-tidy-imports
+  "UP",  # pyupgrade
+  "W",  # pycodestyle (Warning)
+  "YTT"  # flake8-2020
+]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.isort]
+known-first-party = ["gh_maintainer"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests can use magic values, assertions, and relative imports
+"tests/**/*" = ["PLR2004", "S101", "TID252"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
