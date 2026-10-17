@@ -31,6 +31,9 @@ of the index. They are useful, but completing agent workflows takes priority ove
 | Agent skills | Public CLI contracts and a documented implementation plan | No maintenance skills are shipped yet |
 
 The remaining context and skill dependencies are detailed in the [agent skills plan](agent-skills.md).
+The next implementation is scoped in the [local triage plan](specs/001-local-triage/plan.md),
+with its specification and ordered task list alongside it. These are planning artifacts;
+the skill is not shipped yet.
 Do not describe proposed `context`, diff, or CI-log commands as available features.
 
 ## Essential concepts

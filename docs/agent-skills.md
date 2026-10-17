@@ -5,6 +5,10 @@ the next product work. Skill names and new commands on this page are proposals. 
 [implementation checklist](checklist.md#agent-skills-and-context) tracks what has actually
 been delivered. Existing commands and output contracts are documented in [CLI workflows](cli.md).
 
+The first implementation slice has a [specification](specs/001-local-triage/spec.md),
+[plan](specs/001-local-triage/plan.md), and [task list](specs/001-local-triage/tasks.md)
+for one local triage skill with packaging and evaluation. Implementation remains pending.
+
 ## What a skill should accomplish
 
 A skill should teach an agent to complete a maintenance task through public CLI commands,

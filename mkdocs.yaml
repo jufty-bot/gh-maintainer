@@ -9,6 +9,10 @@ nav:
     - Design decisions: decisions.md
     - Scope and roadmap: roadmap.md
     - Agent skills roadmap: agent-skills.md
+    - Local triage implementation:
+        - Specification: specs/001-local-triage/spec.md
+        - Plan: specs/001-local-triage/plan.md
+        - Tasks: specs/001-local-triage/tasks.md
     - Implementation checklist: checklist.md
     - Architecture: architecture.md
     - API Documentation 🤖: reference/

@@ -149,7 +149,12 @@ The [checklist](checklist.md) records validation. Agent skills are the next mile
 
 The baseline is implemented. The next focus is usable skills, beginning with the local
 workflows supported by today's CLI. No maintenance skills are shipped yet. The
-[agent skills roadmap](agent-skills.md) owns the detailed scope and acceptance criteria:
+[agent skills roadmap](agent-skills.md) owns the detailed scope and acceptance criteria.
+
+The first delivery is scoped in the [local triage specification](specs/001-local-triage/spec.md),
+[implementation plan](specs/001-local-triage/plan.md), and
+[ordered tasks](specs/001-local-triage/tasks.md). Those artifacts cover one S1 triage workflow
+and initial S5 packaging/evaluation; they do not mark those stages complete.
 
 | Stage | Work | Prerequisite |
 | --- | --- | --- |

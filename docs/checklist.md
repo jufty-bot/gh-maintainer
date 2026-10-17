@@ -128,6 +128,11 @@ commands exist. Keep evidence beside each completed task and split partial work 
 
 ### S1. Local maintenance skills
 
+- [x] Define the first triage skill's specification, implementation approach, and ordered
+  tasks using Spec Kit template structure. See the [plan](specs/001-local-triage/plan.md)
+  and [feature task list](specs/001-local-triage/tasks.md); all implementation tasks remain pending.
+  Planning validation: strict MkDocs, local Markdown link checks, unique/ordered task IDs,
+  and `git diff --check` passed. No runtime code changed.
 - [ ] Choose the first skill's directory/package layout and document the decision.
 - [ ] Deliver coverage-inspection and local issue/PR triage instructions with runnable examples.
 - [ ] Deliver grounded summarization/classification and prioritization workflows using local analysis commands.

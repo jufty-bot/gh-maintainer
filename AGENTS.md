@@ -23,6 +23,7 @@ Start with project context, then read the contracts and plans relevant to the ta
 - [Design decisions](docs/decisions.md): accepted choices, rationale, tradeoffs, and proposed directions.
 - [Roadmap](docs/roadmap.md): scope, delivery order, and completion criteria.
 - [Agent skills plan](docs/agent-skills.md): workflow stages, missing context, evaluations, and open decisions.
+- [First triage skill implementation](docs/specs/001-local-triage/plan.md): scoped specification, approach, and ordered tasks; implementation is pending.
 - [Implementation checklist](docs/checklist.md): verified progress and remaining work.
 - [Architecture](docs/architecture.md): module boundaries and storage contracts.
 - [CLI workflows](docs/cli.md): query, analysis, processing, and activity contracts.
