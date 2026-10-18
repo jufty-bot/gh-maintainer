@@ -4,7 +4,14 @@
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width,initial-scale=1" />
         <meta name="color-scheme" content="dark light" />
-        <title>Maintainer · Your workspace</title>
+        <title>gh-maintainer · Keep good projects moving</title>
+        <meta name="theme-color" content="#f7f4ee" />
+        <meta
+            name="description"
+            content="A local maintenance queue for your GitHub repositories. Keep good projects moving."
+        />
+        <link rel="icon" type="image/svg+xml" href="/static/brand-mark.svg" />
+        <script src="/static/theme.js"></script>
         <link rel="stylesheet" href="/static/style.css" />
         <script src="/static/vendor/marked.umd.js" defer></script>
         <script src="/static/vendor/purify.min.js" defer></script>
@@ -13,12 +20,26 @@
     <body>
         <a class="skip-link" href="#workspace">Skip to workspace</a>
         <aside class="sidebar">
-            <a class="brand" href="/"
-                ><span class="logo">m</span>maintainer<span class="dot"
-                    >.</span
-                ></a
-            >
-            <div class="aside-label">YOUR WORKSPACE</div>
+            <a class="brand" href="/" aria-label="gh-maintainer home">
+                <svg
+                    class="brand-mark"
+                    width="28"
+                    height="28"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                >
+                    <path d="M15 6a9 9 0 0 0-9 9V3" />
+                    <circle cx="18" cy="6" r="3" />
+                    <circle cx="6" cy="18" r="3" />
+                </svg>
+                <span class="brand-name">gh-maintainer</span>
+            </a>
+            <div class="aside-label">Your workspace</div>
             <nav aria-label="Views">
                 <button data-view="queue" class="active" aria-current="page">
                     <span class="nav-icon" aria-hidden="true">◈</span
@@ -96,7 +117,7 @@
             </header>
             <section class="heading">
                 <div>
-                    <div class="eyebrow">A LITTLE ORDER, ACROSS EVERY REPO</div>
+                    <div class="eyebrow">A little order, across every repo</div>
                     <h1 id="title">Maintenance queue</h1>
                     <p id="subtitle">
                         See what needs your attention. Keep your projects
@@ -245,7 +266,7 @@
                 </div>
             </section>
             <footer>
-                <span>Built for the work between commits.</span
+                <span>gh-maintainer · Built for the work between commits.</span
                 ><span id="generated"></span>
             </footer>
         </main>

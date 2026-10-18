@@ -1,4 +1,8 @@
+<img src="assets/brand-mark.svg" width="48" height="48" alt="" />
+
 # gh-maintainer
+
+**Keep good projects moving.**
 
 A CLI for maintaining GitHub repositories, with a local index that humans and agents can query.
 

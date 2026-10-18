@@ -1,6 +1,9 @@
 # $schema: https://squidfunk.github.io/mkdocs-material/schema.json
 
 site_name: gh-maintainer
+site_description: Keep good projects moving. A local maintenance queue for your GitHub repositories.
+extra_css:
+    - stylesheets/extra.css
 nav:
     - Home 🏠: index.md
     - Usage and deployment: usage.md
@@ -29,8 +32,8 @@ nav:
     - API Documentation 🤖: reference/
     - Contributing 🤝: contributing.md
 theme:
-    favicon: https://juftin.com/favicon.ico
-    logo: https://raw.githubusercontent.com/juftin/juftin/main/static/juftin.png
+    favicon: assets/brand-mark.svg
+    logo: assets/brand-mark.svg
     name: material
     features:
         - navigation.tracking
@@ -40,13 +43,15 @@ theme:
     palette:
         - media: "(prefers-color-scheme: light)"
           scheme: default
-          accent: purple
+          primary: custom
+          accent: custom
           toggle:
               icon: material/weather-sunny
               name: Switch to dark mode
         - media: "(prefers-color-scheme: dark)"
           scheme: slate
-          primary: black
+          primary: custom
+          accent: custom
           toggle:
               icon: material/weather-night
               name: Switch to light mode

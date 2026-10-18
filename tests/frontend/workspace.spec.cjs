@@ -164,9 +164,18 @@ test("supports filtering, sorting, keyboard search, and theme preference", async
             () => document.documentElement.scrollWidth <= window.innerWidth,
         ),
     ).toBeTruthy();
-    await page.getByRole("button", { name: "Switch to light theme" }).click();
+    const targetTheme =
+        (await page.locator("html").getAttribute("data-theme")) === "dark"
+            ? "light"
+            : "dark";
+    await page
+        .getByRole("button", { name: `Switch to ${targetTheme} theme` })
+        .click();
     await page.reload();
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    await expect(page.locator("html")).toHaveAttribute(
+        "data-theme",
+        targetTheme,
+    );
 });
 
 test("retains edits after a failed save and can retry", async ({ page }) => {
@@ -294,11 +303,9 @@ test("retries comments independently and displays repository stars and forks", a
         .getByRole("button", { name: "Repositories", exact: true })
         .first()
         .click();
-    const orbit = page
-        .locator(".repo-card")
-        .filter({
-            has: page.getByRole("link", { name: "example/orbit", exact: true }),
-        });
+    const orbit = page.locator(".repo-card").filter({
+        has: page.getByRole("link", { name: "example/orbit", exact: true }),
+    });
     await expect(
         orbit.getByRole("link", { name: "1,284 stars", exact: true }),
     ).toHaveAttribute("href", "https://github.com/example/orbit/stargazers");

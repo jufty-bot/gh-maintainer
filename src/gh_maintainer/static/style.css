@@ -1,38 +1,42 @@
 :root {
-    color-scheme: dark;
-    --bg: #101514;
-    --sidebar: #121917;
-    --panel: #171e1b;
-    --surface: #1b2420;
-    --hover: #202c25;
-    --line: #2a352e;
-    --text: #edf1ed;
-    --muted: #a1afa5;
-    --faint: #7c9082;
-    --green: #b2d9b8;
-    --green-bg: #253b2b;
-    --amber: #eac48a;
-    --amber-bg: #382e20;
-    --purple: #c0b8df;
-    --shadow: 0 24px 100px #0007;
-}
-:root[data-theme="light"] {
     color-scheme: light;
-    --bg: #f7f8f4;
-    --sidebar: #eef1eb;
-    --panel: #ffffff;
-    --surface: #f0f3ed;
-    --hover: #e9eee5;
-    --line: #d8dfd3;
-    --text: #25342a;
-    --muted: #596b5e;
-    --faint: #647a6a;
-    --green: #356442;
-    --green-bg: #dfebdc;
-    --amber: #8b5d17;
-    --amber-bg: #fbefda;
-    --purple: #69558e;
-    --shadow: 0 24px 100px #24372522;
+    --bg: #f7f4ee;
+    --sidebar: #f0ebe2;
+    --panel: #fffdf9;
+    --surface: #f0ebe2;
+    --hover: #e9e2d8;
+    --line: #e2dbd0;
+    --text: #302d29;
+    --muted: #6f655b;
+    --faint: #6f655b;
+    --accent: #a34f36;
+    --accent-bg: #f3e8de;
+    --positive: #526b51;
+    --positive-bg: #eaf0e6;
+    --amber: #8b5b19;
+    --amber-bg: #f6ead3;
+    --purple: #76668a;
+    --shadow: 0 24px 100px #302d2926;
+}
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #282420;
+    --sidebar: #24201d;
+    --panel: #302b26;
+    --surface: #37302a;
+    --hover: #3d352e;
+    --line: #494038;
+    --text: #eee7dc;
+    --muted: #bdb1a3;
+    --faint: #bdb1a3;
+    --accent: #e2a18a;
+    --accent-bg: #49342b;
+    --positive: #b1c5a5;
+    --positive-bg: #343d2f;
+    --amber: #e6c18a;
+    --amber-bg: #483b27;
+    --purple: #c3b1ce;
+    --shadow: 0 24px 100px #0007;
 }
 * {
     box-sizing: border-box;
@@ -78,14 +82,14 @@ a {
     text-decoration: none;
 }
 a:hover {
-    color: var(--green);
+    color: var(--accent);
 }
 button:disabled {
     opacity: 0.4;
     cursor: default;
 }
 :focus-visible {
-    outline: 2px solid var(--green);
+    outline: 2px solid var(--accent);
     outline-offset: 3px;
 }
 .muted,
@@ -101,7 +105,7 @@ button:disabled {
     left: 20px;
     z-index: 5;
     padding: 10px 20px;
-    background: var(--green);
+    background: var(--accent);
     color: var(--bg);
 }
 .skip-link:focus {
@@ -119,34 +123,25 @@ button:disabled {
     flex-direction: column;
 }
 .brand {
-    font-size: 25px;
-    font-weight: 650;
-    letter-spacing: -1px;
     display: flex;
     align-items: center;
-    margin: 0 10px 54px;
+    gap: 10px;
+    margin: 3px 8px 53px;
 }
-.logo {
-    font-family: Georgia, serif;
-    font-style: italic;
-    display: grid;
-    place-items: center;
-    background: var(--green);
-    color: var(--bg);
-    border-radius: 9px;
-    width: 32px;
-    height: 32px;
-    margin-right: 10px;
+.brand-mark {
     flex-shrink: 0;
+    color: var(--accent);
 }
-.dot {
-    color: var(--green);
+.brand-name {
+    font-size: 19px;
+    font-weight: 650;
+    letter-spacing: -0.7px;
+    white-space: nowrap;
 }
 .aside-label,
 .eyebrow {
-    font-size: 10px;
-    letter-spacing: 1.65px;
-    font-weight: 650;
+    font-size: 12px;
+    font-weight: 500;
     color: var(--muted);
 }
 .aside-label {
@@ -169,9 +164,9 @@ nav button {
     font-size: 12px;
 }
 nav button.active {
-    background: var(--green-bg);
-    color: var(--green);
-    border-color: color-mix(in srgb, var(--green) 15%, transparent);
+    background: var(--accent-bg);
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 15%, transparent);
 }
 nav button:hover {
     background: var(--hover);
@@ -185,7 +180,7 @@ nav button:hover {
 .nav-count {
     margin-left: auto;
     font-size: 10px;
-    color: var(--green);
+    color: var(--accent);
 }
 .nav-divider {
     height: 1px;
@@ -212,7 +207,7 @@ nav button:hover {
     display: inline-block;
     width: 6px;
     height: 6px;
-    background: var(--green);
+    background: var(--positive);
     border-radius: 50%;
     margin-right: 7px;
 }
@@ -249,9 +244,9 @@ header {
     white-space: nowrap;
 }
 .button.primary {
-    background: var(--green);
+    background: var(--accent);
     color: var(--bg);
-    border-color: var(--green);
+    border-color: var(--accent);
 }
 .button.primary:hover:not(:disabled) {
     filter: brightness(1.08);
@@ -269,7 +264,7 @@ header {
 .text-button {
     background: transparent;
     border: 0;
-    color: var(--green);
+    color: var(--accent);
     padding: 0;
     font-size: 11px;
 }
@@ -300,12 +295,14 @@ header {
     gap: 20px;
 }
 .eyebrow {
-    color: var(--green);
+    color: var(--accent);
 }
 h1 {
-    font-size: 34px;
-    letter-spacing: -1.1px;
-    font-weight: 550;
+    font:
+        400 38px/1.2 Georgia,
+        "Times New Roman",
+        serif;
+    letter-spacing: -1px;
     line-height: 1.2;
     margin: 12px 0;
 }
@@ -420,7 +417,7 @@ h1 {
     line-height: 1;
 }
 .search:focus-within {
-    border-color: var(--green);
+    border-color: var(--accent);
 }
 .search input {
     min-width: 0;
@@ -507,8 +504,8 @@ select {
     white-space: nowrap;
 }
 .triage-tabs button.active {
-    border-color: var(--green);
-    color: var(--green);
+    border-color: var(--accent);
+    color: var(--accent);
 }
 .item-row {
     padding: 18px 22px;
@@ -525,7 +522,7 @@ select {
     margin-top: -1px;
     font-size: 24px;
     line-height: 1.2;
-    color: var(--green);
+    color: var(--positive);
 }
 .item-icon.issue {
     color: var(--purple);
@@ -542,7 +539,7 @@ select {
     overflow-wrap: anywhere;
 }
 .item-title:hover {
-    color: var(--green);
+    color: var(--accent);
 }
 .item-meta {
     font-size: 10px;
@@ -557,7 +554,7 @@ select {
     color: var(--muted);
 }
 .item-meta a:hover {
-    color: var(--green);
+    color: var(--accent);
     text-decoration: underline;
 }
 .badge {
@@ -573,8 +570,8 @@ select {
 }
 .badge.open,
 .badge.planned {
-    color: var(--green);
-    background: var(--green-bg);
+    color: var(--positive);
+    background: var(--positive-bg);
     border-color: transparent;
 }
 .badge.merged,
@@ -599,8 +596,8 @@ select {
     font-size: 10px;
     padding: 3px 8px;
     border-radius: 5px;
-    color: var(--green);
-    background: var(--green-bg);
+    color: var(--positive);
+    background: var(--positive-bg);
 }
 .reason.warning {
     color: var(--amber);
@@ -645,8 +642,8 @@ select {
     width: 42px;
     height: 42px;
     border-radius: 50%;
-    background: var(--green-bg);
-    color: var(--green);
+    background: var(--accent-bg);
+    color: var(--accent);
     font-size: 20px;
 }
 .empty h3 {
@@ -684,7 +681,7 @@ select {
 .repo-card h3 {
     font-size: 13px;
     margin: 0 0 8px;
-    color: var(--green);
+    color: var(--accent);
     overflow-wrap: anywhere;
     font-weight: 550;
 }
@@ -770,7 +767,7 @@ dialog {
     overscroll-behavior: contain;
 }
 dialog::backdrop {
-    background: #030b08b8;
+    background: #302d2973;
     backdrop-filter: blur(4px);
 }
 .dialog-toolbar {
@@ -829,7 +826,7 @@ dialog h2 {
     color: var(--muted);
 }
 .detail-meta > a {
-    color: var(--green);
+    color: var(--accent);
 }
 .detail-layout {
     display: grid;
@@ -930,7 +927,7 @@ dialog h2 {
 }
 .description-tabs button.active {
     color: var(--text);
-    border-color: var(--green);
+    border-color: var(--accent);
 }
 .markdown {
     font-size: 13px;
@@ -965,7 +962,7 @@ dialog h2 {
     margin: 12px 0;
 }
 .markdown a {
-    color: var(--green);
+    color: var(--accent);
     text-decoration: underline;
     text-underline-offset: 3px;
 }
@@ -975,7 +972,7 @@ dialog h2 {
     border-radius: 5px;
 }
 .markdown blockquote {
-    border-left: 3px solid var(--green);
+    border-left: 3px solid var(--accent);
     padding: 1px 16px;
     margin: 18px 0;
     color: var(--muted);
@@ -1047,7 +1044,7 @@ dialog h2 {
     background: var(--bg);
 }
 .markdown input[type="checkbox"] {
-    accent-color: var(--green);
+    accent-color: var(--accent);
     margin-right: 6px;
 }
 .markdown hr {
@@ -1127,9 +1124,9 @@ dialog h2 {
     bottom: 24px;
     left: 50%;
     transform: translateX(-50%);
-    background: var(--green-bg);
-    color: var(--green);
-    border: 1px solid var(--green);
+    background: var(--accent-bg);
+    color: var(--accent);
+    border: 1px solid var(--accent);
     box-shadow: var(--shadow);
     border-radius: 8px;
     padding: 12px 20px;
@@ -1451,7 +1448,7 @@ dialog h2 {
     color: var(--text);
 }
 .comment-meta a {
-    color: var(--green);
+    color: var(--accent);
 }
 .comment-path {
     display: block;

@@ -43,7 +43,7 @@ def create_app(db_path: str, database: Database | None = None) -> FastAPI:
             if database is None:
                 await db.close()
 
-    app = FastAPI(title="GitHub Maintainer", docs_url="/api/docs", lifespan=lifespan)
+    app = FastAPI(title="gh-maintainer", docs_url="/api/docs", lifespan=lifespan)
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     async def session() -> AsyncIterator[AsyncSession]:

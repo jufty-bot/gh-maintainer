@@ -12,6 +12,10 @@ logger = logging.getLogger(__name__)
 project_dir = Path(__file__).resolve().parent.parent
 source_code = project_dir.joinpath("src/gh_maintainer")
 
+for asset in ("brand-mark.svg", "lucide-LICENSE.txt"):
+    with mkdocs_gen_files.open(f"assets/{asset}", "w") as brand_file:
+        brand_file.write((source_code / "static" / asset).read_text())
+
 for path in sorted(source_code.rglob("*.py")):
     if "migrations" in path.parts:
         continue
@@ -37,6 +41,9 @@ readme_content = "\n".join(readme_content.split("\n<!--skip-->\n")[::2])
 readme_content = readme_content.replace("](docs/", "](").replace(
     "](AGENTS.md)",
     "](https://github.com/jufty-bot/gh-maintainer/blob/main/AGENTS.md)",
+)
+readme_content = readme_content.replace(
+    "src/gh_maintainer/static/brand-mark.svg", "assets/brand-mark.svg"
 )
 with mkdocs_gen_files.open("index.md", "w") as index_file:
     index_file.write(readme_content)

@@ -1108,25 +1108,4 @@ window.addEventListener("beforeunload", (event) => {
         event.returnValue = "";
     }
 });
-function applyTheme(theme) {
-    document.documentElement.dataset.theme = theme;
-    $("#theme-toggle").textContent = theme === "dark" ? "☼" : "☾";
-    $("#theme-toggle").setAttribute(
-        "aria-label",
-        `Switch to ${theme === "dark" ? "light" : "dark"} theme`,
-    );
-}
-let theme = "dark";
-try {
-    theme = localStorage.getItem("maintainer-theme") || theme;
-} catch {}
-applyTheme(theme);
-$("#theme-toggle").addEventListener("click", () => {
-    theme =
-        document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-    applyTheme(theme);
-    try {
-        localStorage.setItem("maintainer-theme", theme);
-    } catch {}
-});
 refresh();

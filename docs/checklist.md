@@ -26,6 +26,22 @@ Split partial work into separate tasks instead of marking an entire milestone co
 
 These references establish the starting inventory; they do not record a fresh test run.
 
+## Dashboard branding and themes
+
+- [x] Use Lucide's Git branch icon and the gh-maintainer name across the dashboard,
+  browser tab, README and documentation; package the icon's ISC license.
+- [x] Apply warm ivory/terracotta and charcoal/cream palettes to the existing dashboard,
+  including triage, Markdown, comments and repository statistics.
+- [x] Apply the system theme before rendering, follow system changes until a manual
+  selection, and retain the existing saved preference. Keep switching usable without
+  browser storage.
+
+Evidence: `tests/frontend/theme.spec.cjs` covers system changes, saved choices and
+unavailable storage on desktop/mobile; the existing workspace suite covers the integrated
+dashboard. Validation: all 266 Python tests and 20 browser tests passed; Ruff lint/format,
+mypy, strict MkDocs and source/wheel builds passed. Packaged logo, theme script and
+Lucide license were verified. Text/status palette pairs meet 4.5:1 contrast.
+
 ## Dashboard Markdown, conversations and repository statistics
 
 - [x] Render titles, repository descriptions and note previews with the existing sanitized
