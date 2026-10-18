@@ -26,6 +26,16 @@ Split partial work into separate tasks instead of marking an entire milestone co
 
 These references establish the starting inventory; they do not record a fresh test run.
 
+## Observation indexing and retention pruning
+
+- [x] Add composite index on `changes(item_id, id)` via Alembic migration `0005`.
+- [x] Add `CatalogRepository.prune_observations` with per-item retention and age cutoff.
+- [x] Add `Database.vacuum` with autocommit execution option.
+- [x] Expose `gh-maintainer prune` with `--keep`, `--days`, and `--vacuum`.
+
+Evidence: `tests/test_cli.py` (`test_prune_help`, `test_invalid_prune_options`, `test_cli_prune_and_vacuum`, `test_database_vacuum_direct`), `tests/test_migrations.py` (`test_changes_index_upgrade_from_0004`).
+Validation on integrated main: all 272 Python tests passed; Ruff lint/format, mypy, strict MkDocs, and `git diff --check` passed.
+
 ## Dashboard branding and themes
 
 - [x] Use Lucide's Git branch icon and the gh-maintainer name across the dashboard,
