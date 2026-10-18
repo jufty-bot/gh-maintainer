@@ -372,6 +372,8 @@ def test_mcp_cli_launch_and_database_selection(monkeypatch: pytest.MonkeyPatch) 
         "--db",
         "before.sqlite",
         "mcp",
+        "--transport",
+        "http",
         "--db",
         "after.sqlite",
         "--host",
@@ -398,8 +400,6 @@ async def test_stdio_process_has_http_tool_parity_and_shared_index(
             "-m",
             "gh_maintainer",
             "mcp",
-            "--transport",
-            "stdio",
             "--db",
             str(database.engine.url.database),
         ],
@@ -437,9 +437,7 @@ def test_stdio_cli_avoids_http_server(monkeypatch: pytest.MonkeyPatch) -> None:
         patch("gh_maintainer.cli.run_stdio", new_callable=AsyncMock) as stdio,
         patch("gh_maintainer.cli.uvicorn.run") as http,
     ):
-        result = CliRunner().invoke(
-            main, ["mcp", "--transport", "stdio", "--db", "stdio.sqlite"]
-        )
+        result = CliRunner().invoke(main, ["mcp", "--db", "stdio.sqlite"])
     assert result.exit_code == 0, result.output
     stdio.assert_awaited_once_with("stdio.sqlite")
     http.assert_not_called()
@@ -589,15 +587,32 @@ async def test_current_cli_option_validation(
     assert (await client.call_tool(name, arguments)).isError
 
 
-def test_mcp_config_defaults(tmp_path: Path) -> None:
+@pytest.mark.parametrize("configured", ["http", "stdio"])
+@pytest.mark.parametrize("override", [None, "stdio"])
+def test_mcp_config_defaults(
+    tmp_path: Path, configured: str, override: str | None
+) -> None:
     config = tmp_path / "config.json"
     config.write_text(
-        json.dumps({"db": "configured.sqlite", "mcp": {"transport": "stdio"}})
+        json.dumps({"db": "configured.sqlite", "mcp": {"transport": configured}})
     )
-    with patch("gh_maintainer.cli.run_stdio", new_callable=AsyncMock) as stdio:
-        result = CliRunner().invoke(main, ["--config", str(config), "mcp"])
+    arguments = ["--config", str(config), "mcp"]
+    if override:
+        arguments.extend(["--transport", override])
+    with (
+        patch("gh_maintainer.cli.run_stdio", new_callable=AsyncMock) as stdio,
+        patch("gh_maintainer.cli.create_mcp_app") as factory,
+        patch("gh_maintainer.cli.uvicorn.run") as http,
+    ):
+        result = CliRunner().invoke(main, arguments)
     assert result.exit_code == 0, result.output
-    stdio.assert_awaited_once_with("configured.sqlite")
+    if (override or configured) == "stdio":
+        stdio.assert_awaited_once_with("configured.sqlite")
+        http.assert_not_called()
+    else:
+        stdio.assert_not_called()
+        factory.assert_called_once_with("configured.sqlite")
+        http.assert_called_once_with(factory.return_value, host="127.0.0.1", port=8766)
 
 
 async def test_stdio_sync_logs_do_not_corrupt_protocol(tmp_path: Path) -> None:

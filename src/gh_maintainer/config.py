@@ -133,7 +133,7 @@ class ServeOptions(Options):
 
 class MCPOptions(ServeOptions):
     port: int = Field(default=8766, ge=1, le=65535)
-    transport: Literal["http", "stdio"] = "http"
+    transport: Literal["http", "stdio"] = "stdio"
 
 
 class OutputOptions(Options):

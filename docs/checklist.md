@@ -16,6 +16,9 @@ Split partial work into separate tasks instead of marking an entire milestone co
 - [x] Preserve revision/policy guards, pagination validation, sync leases, and structured
   partial coverage errors. Keep deletion of an active index outside the server tools.
 - [x] Integrate MCP startup defaults with CLI configuration and generated JSON Schema.
+- [x] Default MCP startup to stdio; retain explicit HTTP selection and configuration
+  overrides. Verified by CLI dispatch, configuration precedence, and subprocess tests
+  in `tests/test_mcp.py`.
 
 Evidence: `src/gh_maintainer/mcp.py`, `src/gh_maintainer/mcp_commands.py`, and
 `tests/test_mcp.py` exercise SDK HTTP clients, real stdio subprocesses, identical schemas,

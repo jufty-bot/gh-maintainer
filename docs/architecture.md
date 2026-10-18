@@ -24,6 +24,7 @@ flowchart LR
 ## Boundaries
 
 The optional MCP server exposes the CLI services over FastAPI Streamable HTTP or stdio.
+Stdio is the default; select HTTP with `mcp --transport http`.
 `mcp.py` owns transport setup, tool registration, database lifecycle, and a single background
 watcher; `mcp_commands.py` exposes query, analysis, policy, skill, and live context contracts.
 Both transports use the official MCP Python SDK and identical tool schemas. HTTP runs the

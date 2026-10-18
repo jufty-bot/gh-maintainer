@@ -7,12 +7,14 @@ watcher cleanup, revision guards, policy validation, and sync leases.
 ## Start and connect
 
 ```bash
+uv run gh-maintainer mcp                   # stdio (default)
 uv run gh-maintainer mcp --transport http
-uv run gh-maintainer --db .data/demo.sqlite mcp --transport stdio
+uv run gh-maintainer --db .data/demo.sqlite mcp
 ```
 
-HTTP is the default: connect to **http://127.0.0.1:8766/mcp**. `--host` and `--port`
-configure the listener. Clients supporting HTTP URL configuration can use:
+Stdio is the default. Select HTTP explicitly with `--transport http`, then connect to
+**http://127.0.0.1:8766/mcp**. `--host` and `--port` configure the listener. Clients
+supporting HTTP URL configuration can use:
 
 ```json
 {
@@ -29,7 +31,7 @@ For stdio, the client launches the installed command as a subprocess:
   "mcpServers": {
     "gh-maintainer": {
       "command": "gh-maintainer",
-      "args": ["--db", "/absolute/path/maintainer.sqlite", "mcp", "--transport", "stdio"]
+      "args": ["--db", "/absolute/path/maintainer.sqlite", "mcp"]
     }
   }
 }

@@ -55,8 +55,8 @@ revision guards, and pagination.
 MCP clients can use the same maintenance services over HTTP or stdio:
 
 ```bash
+uv run gh-maintainer mcp                   # stdio (default)
 uv run gh-maintainer mcp --transport http   # http://127.0.0.1:8766/mcp
-uv run gh-maintainer mcp --transport stdio
 ```
 
 See [MCP setup and tool contracts](mcp.md) for client configuration, background

@@ -396,6 +396,8 @@ Evidence: `tests/test_links_and_threads.py`, `src/gh_maintainer/policies.py`,
 
 **Decision:** Add an optional MCP server using the official Python SDK. FastAPI hosts
 Streamable HTTP at `/mcp`; stdio uses the same registration and resource lifecycle.
+Stdio is the default for subprocess clients; HTTP requires `--transport http` or an
+explicit configuration default.
 Tools call the existing query, sync, triage, analysis, policy, and context services.
 The CLI remains usable without a server, and the index is selected once at startup.
 

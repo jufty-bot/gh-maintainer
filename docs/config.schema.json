@@ -450,7 +450,7 @@
           "type": "integer"
         },
         "transport": {
-          "default": "http",
+          "default": "stdio",
           "enum": [
             "http",
             "stdio"

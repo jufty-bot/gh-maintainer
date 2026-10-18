@@ -358,7 +358,7 @@ def register_commands() -> None:
                 click.Option(
                     ["--transport"],
                     type=click.Choice(["http", "stdio"]),
-                    default="http",
+                    default="stdio",
                     help="MCP transport; host/port apply only to HTTP.",
                 )
             )
