@@ -33,6 +33,9 @@ dates and links. The [repository activity contract](cli.md#repository-activity) 
 selection, known absence, and stale/failed lookups. Activity refreshes in batches of up to
 20 repositories per GraphQL request on each sync, independently of conversation ingestion.
 
+Use `--config PATH` for JSON/YAML defaults, including a shared `repositories` list.
+See [configuration files](configuration.md) for examples and schema generation.
+
 ### Select repositories
 
 `sync` and `watch` accept the same mutually exclusive selection options:

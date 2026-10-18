@@ -33,6 +33,9 @@ list across owners. Data lives in your platform’s user data directory; `gh-mai
 shows the path. Use `--db PATH` for another index. Local queries and decisions work
 offline after sync.
 
+Use `--config maintainer.yaml` to load JSON/YAML command defaults and a shared
+`repositories` list. See [configuration files](docs/configuration.md) for precedence and JSON Schema.
+
 Use `classify`, `summarize`, `rank`, and `triage` to save decisions, then `mark-processed`
 to acknowledge an inspected revision. `changes` shows observed pushes, comments, and
 state changes since that checkpoint. All these commands support JSON output.

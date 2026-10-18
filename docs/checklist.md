@@ -26,6 +26,19 @@ Split partial work into separate tasks instead of marking an entire milestone co
 
 These references establish the starting inventory; they do not record a fresh test run.
 
+## CLI configuration
+
+- [x] Accept explicit JSON/YAML files before or after commands with Pydantic validation.
+- [x] Share top-level `repositories` across sync/watch, with command and CLI overrides.
+- [x] Preserve Click commands, repository policy, environment defaults and database management.
+- [x] Generate the published JSON Schema with `python -m gh_maintainer.config`.
+
+Evidence: `tests/test_config.py` covers formats, precedence, positionals, flags,
+invalid input, schema generation and a real offline demo/report workflow.
+See [configuration](configuration.md) for public contracts and schema regeneration.
+Validation on integrated main: all 265 tests passed with `uv run --locked pytest -q`;
+Ruff lint/format, mypy, strict MkDocs, `uv build`, and `git diff --check` passed.
+
 ## Sync logging
 
 - [x] Use structlog with readable text on stderr for `sync` and `watch`, preserving

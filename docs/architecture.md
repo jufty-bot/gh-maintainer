@@ -34,7 +34,7 @@ flowchart LR
 | `repositories.py`   | Catalog writes, fenced sync lease, run journal, local analysis and processing decisions          |
 | `queries.py`        | SQL filtering, totals, queue ranking, pagination and targeted detail loading                     |
 | `policies.py`       | Pure priority and queue rules over typed snapshots                                               |
-| `config.py`         | Explicit repository policy validation, provenance and optional local-write guards |
+| `config.py`         | Typed JSON/YAML CLI defaults and JSON Schema; repository policy validation and local-write guards |
 | `context.py`        | On-demand read-only gh source adapter; commit-bound evidence, continuation and limits |
 | `skillpack.py`      | Locate packaged resources and copy complete skills without overwriting |
 | `report.py`         | Markdown rendering over a typed portfolio; no SQL or SDK access                                  |

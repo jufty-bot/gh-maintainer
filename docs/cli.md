@@ -23,7 +23,11 @@ gh-maintainer --version
 ```
 
 `--db PATH` works before or after the command. A command-level path takes precedence
-over a root-level path, then `GH_MAINTAINER_DB`, then the platform user data directory (see [database management](#manage-the-database)).
+over a root-level path, then config `db`, then `GH_MAINTAINER_DB`, then the platform user data directory (see [database management](#manage-the-database)).
+
+Pass `--config PATH` before or after a command to load validated JSON/YAML defaults.
+Top-level `repositories` applies to `sync` and `watch`; command `repo` settings and
+explicit `--repo` arguments override it. See [configuration files](configuration.md).
 
 ## Inspect repositories, PRs, and issues
 

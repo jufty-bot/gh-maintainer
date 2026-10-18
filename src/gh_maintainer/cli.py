@@ -11,10 +11,18 @@ from types import SimpleNamespace
 
 import click
 import uvicorn
+from click.core import ParameterSource
 from sqlalchemy.exc import SQLAlchemyError
 
 from gh_maintainer.clock import parse_date
-from gh_maintainer.config import PolicyFile, RepositoryPolicy, check_policy, load_policy
+from gh_maintainer.config import (
+    Config,
+    PolicyFile,
+    RepositoryPolicy,
+    check_policy,
+    load_config,
+    load_policy,
+)
 from gh_maintainer.context import ContextRequest, context_for
 from gh_maintainer.database import Database, default_path
 from gh_maintainer.demo import seed_demo
@@ -47,12 +55,43 @@ def output(text: str) -> None:
     click.echo(text)
 
 
+def configure(ctx: click.Context, _param: click.Parameter, path: Path | None) -> None:
+    """Load typed defaults before Click processes the remaining parameters."""
+    if path is None:
+        return
+    try:
+        config = load_config(path)
+    except ValueError as error:
+        raise click.BadParameter(str(error), ctx, _param) from error
+    defaults = config.command_defaults()
+    ctx.meta["config"] = config
+    if ctx.parent is None:
+        ctx.default_map = defaults
+    else:
+        ctx.default_map = defaults.get(ctx.info_name or "", {})
+        parent: click.Context | None = ctx.parent
+        while parent is not None:
+            if parent.get_parameter_source("db") == ParameterSource.COMMANDLINE:
+                break
+            parent = parent.parent
+        if config.db is not None and parent is None:
+            ctx.obj = config.db
+
+
 @click.group(
     name="gh-maintainer",
     context_settings={"help_option_names": ["-h", "--help"], "show_default": True},
     epilog="Start with sync to index GitHub, then use prs, issues, or repos offline.",
 )
 @click.version_option(package_name="gh-maintainer")
+@click.option(
+    "--config",
+    type=click.Path(path_type=Path, dir_okay=False),
+    callback=configure,
+    is_eager=True,
+    expose_value=False,
+    help="Read command defaults from a JSON or YAML file.",
+)
 @click.option(
     "--db",
     type=click.Path(dir_okay=False),
@@ -68,7 +107,14 @@ def main(ctx: click.Context, db: str) -> None:
 
     Sync reads GitHub; queries, analysis, and triage use the local index.
     """
-    ctx.obj = db
+    config = ctx.meta.get("config")
+    ctx.obj = (
+        config.db
+        if isinstance(config, Config)
+        and config.db is not None
+        and ctx.get_parameter_source("db") != ParameterSource.COMMANDLINE
+        else db
+    )
 
 
 @main.group("db", invoke_without_command=True)
@@ -238,7 +284,9 @@ def register_commands() -> None:
                     help="Global HTTP request rate before budget throttling.",
                 ),
                 click.Option(
-                    ["--full"], is_flag=True, help="Reconcile all historical items."
+                    ["--full/--no-full"],
+                    is_flag=True,
+                    help="Reconcile all historical items.",
                 ),
                 click.Option(
                     ["--repo"],
@@ -472,6 +520,18 @@ def register_commands() -> None:
             ]
         main.add_command(
             click.Command(name, help=description, params=params, callback=execute)
+        )
+    for command in (*main.commands.values(), *db_command.commands.values()):
+        command.params.insert(
+            0,
+            click.Option(
+                ["--config"],
+                type=click.Path(path_type=Path, dir_okay=False),
+                callback=configure,
+                is_eager=True,
+                expose_value=False,
+                help="Read command defaults from a JSON or YAML file.",
+            ),
         )
 
 

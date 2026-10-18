@@ -330,3 +330,17 @@ times are explicit; no automatic age expiry or repository-skip heuristic is intr
 Evidence and validation: [repository activity checklist](checklist.md#repository-activity),
 `tests/test_repository_activity.py`, `tests/test_migrations.py` and the portfolio scale tests.
 The [CLI activity contract](cli.md#repository-activity) owns public field semantics.
+
+## D16. Explicit typed command defaults
+
+**Decision:** Load JSON/YAML only through `--config PATH`, validate with Pydantic,
+and supply command defaults through Click's existing default map. Shared `repositories`
+feeds sync/watch unless a command or explicit CLI argument overrides it. Resolve the
+database separately so `--db` and the `db` group retain their existing behavior.
+Generate the public JSON Schema by running `python -m gh_maintainer.config`.
+
+**Tradeoff:** Command option models must stay aligned with Click's public contracts.
+Files provide defaults rather than selecting commands or running a sequence of commands.
+CLI configuration remains separate from repository policy and its local-write guards.
+
+Evidence: [configuration contracts](configuration.md) and `tests/test_config.py`.
