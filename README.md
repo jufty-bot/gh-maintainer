@@ -57,6 +57,7 @@ MCP clients can use the same maintenance services over HTTP or stdio:
 
 ```bash
 uv run gh-maintainer mcp                   # stdio (default)
+uv run gh-maintainer serve                 # Dashboard, REST, MCP at :8765/mcp
 uv run gh-maintainer mcp --transport http   # http://127.0.0.1:8766/mcp
 ```
 

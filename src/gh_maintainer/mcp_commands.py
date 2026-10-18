@@ -3,8 +3,8 @@
 from pathlib import Path
 from typing import Annotated, Literal
 
-from mcp.server.fastmcp import FastMCP
-from mcp.types import CallToolResult, TextContent, ToolAnnotations
+from fastmcp import FastMCP
+from mcp_types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import AwareDatetime, ConfigDict, Field
 
 from gh_maintainer.clock import parse_date
@@ -38,9 +38,9 @@ from gh_maintainer.schemas import (
 )
 from gh_maintainer.skillpack import install_skills, skill_directory
 
-READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 LOCAL_WRITE = ToolAnnotations(
-    readOnlyHint=False, destructiveHint=False, openWorldHint=False
+    read_only_hint=False, destructive_hint=False, open_world_hint=False
 )
 
 
@@ -247,7 +247,7 @@ def register_commands(server: FastMCP, db: Database) -> None:
         await guard_policy(db, item_id, policy, "mark-processed")
         return await AnalysisService(db).mark_processed(item_id, revision, actor)
 
-    @server.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True))
+    @server.tool(annotations=ToolAnnotations(read_only_hint=True, open_world_hint=True))
     async def context(
         item_id: str, request: ContextRequest | None = None
     ) -> CallToolResult:
@@ -260,8 +260,8 @@ def register_commands(server: FastMCP, db: Database) -> None:
         packet = await context_for(item, request or ContextRequest())
         return CallToolResult(
             content=[TextContent(type="text", text=packet.model_dump_json(indent=2))],
-            structuredContent=packet.model_dump(mode="json"),
-            isError=not packet.complete,
+            structured_content=packet.model_dump(mode="json"),
+            is_error=not packet.complete,
         )
 
     @server.tool(annotations=LOCAL_WRITE)

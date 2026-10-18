@@ -1,6 +1,8 @@
 # MCP server
 
-MCP clients can call the CLI's maintenance services over Streamable HTTP or stdio.
+MCP clients can call the CLI's maintenance services through standalone FastMCP over
+Streamable HTTP or stdio. The FastAPI application serves the dashboard, REST API, and
+MCP HTTP endpoint together.
 Both transports register identical tools and share database initialization, migrations,
 watcher cleanup, revision guards, policy validation, and sync leases.
 
@@ -8,13 +10,17 @@ watcher cleanup, revision guards, policy validation, and sync leases.
 
 ```bash
 uv run gh-maintainer mcp                   # stdio (default)
+uv run gh-maintainer serve                 # Dashboard, REST API, and MCP on port 8765
 uv run gh-maintainer mcp --transport http
 uv run gh-maintainer --db .data/demo.sqlite mcp
 ```
 
 Stdio is the default. Select HTTP explicitly with `--transport http`, then connect to
-**http://127.0.0.1:8766/mcp**. `--host` and `--port` configure the listener. Clients
-supporting HTTP URL configuration can use:
+**http://127.0.0.1:8766/mcp**, or use **http://127.0.0.1:8765/mcp** with the existing
+`serve` command. Both HTTP commands run the same FastAPI app: the dashboard is at `/`,
+REST routes at `/api/*`, API docs at `/api/docs`, and MCP at `/mcp`. They share a database,
+startup migrations, and background watcher cleanup. `--host` and `--port` configure
+the listener. Clients supporting HTTP URL configuration can use:
 
 ```json
 {
@@ -68,7 +74,7 @@ Live context uses the existing authenticated `gh` integration.
 | `demo`, `migrate` | Same names | Seed an empty index; apply packaged migrations (also run at startup). |
 | `prune` | `prune` | `keep=50`, optional `days`, `vacuum=false`; returns deleted observation count. |
 | `db path` | `db_path` | Return the selected absolute index path. Stop MCP before using CLI `db delete --yes`; active-index deletion is not exposed as a tool. |
-| `serve` | `overview`, `list_items`, `item_detail` | Dashboard query helpers. The dashboard remains a separate CLI server. |
+| `serve` | `overview`, `list_items`, `item_detail` | Dashboard query helpers. `serve` hosts the dashboard, REST API, and all MCP tools on the same port. |
 
 Item references accept issue node IDs or `OWNER/REPO#NUMBER`, including PRs.
 `list_items` additionally provides flat dashboard filters (`q`, `kind`, `state`, `repo`,
@@ -93,6 +99,14 @@ One watcher runs per server process. Duplicate starts fail. Partial syncs contin
 polling; fatal errors stop the watcher. The watcher survives HTTP client disconnects
 and stops at server shutdown. Use a single HTTP worker for watcher management.
 Sync and pruning share the CLI's database lease: overlapping writers fail explicitly.
+
+Tool definitions use standalone FastMCP and call the existing maintenance services.
+They are mounted into FastAPI rather than generated from its HTTP routes, preserving
+CLI workflows such as processing, policy, and analysis that have no REST endpoint.
+FastMCP is pinned to a tested release, and both current and legacy HTTP protocol
+connections are exercised against the combined app. Changing the framework does not
+change the documented CLI/MCP differences: tool calls use their own defaults rather
+than inheriting CLI operation defaults, and triage requires an explicit disposition.
 
 No tool changes GitHub state. The HTTP server has no user authentication and can
 modify local decisions/history and write files. Keep it local or behind an authenticated

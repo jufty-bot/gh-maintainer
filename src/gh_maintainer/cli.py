@@ -34,7 +34,6 @@ from gh_maintainer.github import (
     resolve_token,
 )
 from gh_maintainer.logging import configure_logging
-from gh_maintainer.mcp import create_app as create_mcp_app
 from gh_maintainer.mcp import run_stdio
 from gh_maintainer.queries import CatalogQueries
 from gh_maintainer.report import markdown
@@ -232,8 +231,7 @@ def execute(ctx: click.Context, **options: object) -> None:
             asyncio.run(run_stdio(args.db))
             code = 0
         elif args.command in {"serve", "mcp"}:
-            factory = create_mcp_app if args.command == "mcp" else create_app
-            uvicorn.run(factory(args.db), host=args.host, port=args.port)
+            uvicorn.run(create_app(args.db), host=args.host, port=args.port)
             code = 0
         else:
             code = asyncio.run(run(args))
@@ -257,7 +255,7 @@ def register_commands() -> None:
         "sync": "Fetch issues, PRs, and conversations from GitHub into SQLite.",
         "watch": "Sync immediately, then repeat at a fixed interval.",
         "report": "Export the full portfolio as Markdown or JSON.",
-        "serve": "Serve the local dashboard and triage API.",
+        "serve": "Serve the local dashboard, REST API, and MCP over HTTP.",
         "mcp": "Serve maintenance tools over Streamable HTTP or stdio.",
         "triage": "Save a local disposition and note without changing GitHub.",
         "demo": "Populate the index with sample data, without credentials.",

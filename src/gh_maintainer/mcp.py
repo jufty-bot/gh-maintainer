@@ -9,9 +9,8 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import FastAPI
-from mcp.server.fastmcp import FastMCP
-from mcp.types import CallToolResult, TextContent, ToolAnnotations
+from fastmcp import FastMCP
+from mcp_types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import Field
 
 from gh_maintainer.clock import now, parse_date
@@ -46,9 +45,9 @@ from gh_maintainer.schemas import (
 )
 from gh_maintainer.sync import SyncService
 
-READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 LOCAL_WRITE = ToolAnnotations(
-    readOnlyHint=False, destructiveHint=False, openWorldHint=False
+    read_only_hint=False, destructive_hint=False, open_world_hint=False
 )
 
 
@@ -170,7 +169,7 @@ def register_tools(server: FastMCP, tools: MaintenanceTools) -> None:
 
     @server.tool(
         annotations=ToolAnnotations(
-            readOnlyHint=False, destructiveHint=False, openWorldHint=True
+            read_only_hint=False, destructive_hint=False, open_world_hint=True
         )
     )
     async def sync(
@@ -191,13 +190,13 @@ def register_tools(server: FastMCP, tools: MaintenanceTools) -> None:
         result = await tools.sync(full, repo, owner, concurrency, requests_per_second)
         return CallToolResult(
             content=[TextContent(type="text", text=result.model_dump_json(indent=2))],
-            structuredContent=result.model_dump(mode="json"),
-            isError=result.status != "complete",
+            structured_content=result.model_dump(mode="json"),
+            is_error=result.status != "complete",
         )
 
     @server.tool(
         annotations=ToolAnnotations(
-            readOnlyHint=False, destructiveHint=True, openWorldHint=False
+            read_only_hint=False, destructive_hint=True, open_world_hint=False
         )
     )
     async def report(
@@ -257,7 +256,7 @@ def register_tools(server: FastMCP, tools: MaintenanceTools) -> None:
 
     @server.tool(
         annotations=ToolAnnotations(
-            readOnlyHint=False, destructiveHint=True, openWorldHint=False
+            read_only_hint=False, destructive_hint=True, open_world_hint=False
         )
     )
     async def prune(
@@ -282,7 +281,7 @@ def register_tools(server: FastMCP, tools: MaintenanceTools) -> None:
 
     @server.tool(
         annotations=ToolAnnotations(
-            readOnlyHint=False, destructiveHint=False, openWorldHint=True
+            read_only_hint=False, destructive_hint=False, open_world_hint=True
         )
     )
     async def watch(
@@ -362,9 +361,7 @@ class MCPRuntime:
         self.database = database or Database(db_path)
         self.owns_database = database is None
         self.tools = MaintenanceTools(self.database)
-        self.server = FastMCP(
-            "GitHub Maintainer", stateless_http=True, json_response=True
-        )
+        self.server = FastMCP("GitHub Maintainer")
         register_tools(self.server, self.tools)
 
     @asynccontextmanager
@@ -385,21 +382,4 @@ async def run_stdio(db_path: str) -> None:
     """Serve MCP on stdin/stdout, reserving stdout for protocol messages."""
     runtime = MCPRuntime(db_path)
     async with runtime.lifespan():
-        await runtime.server.run_stdio_async()
-
-
-def create_app(db_path: str, database: Database | None = None) -> FastAPI:
-    """Create an HTTP MCP server. Callers supplying a database own its disposal."""
-    runtime = MCPRuntime(db_path, database)
-    transport = runtime.server.streamable_http_app()
-
-    @asynccontextmanager
-    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        # Mounted ASGI applications do not run their own lifespan automatically.
-        async with runtime.lifespan(), runtime.server.session_manager.run():
-            yield
-
-    app = FastAPI(title="GitHub Maintainer MCP", lifespan=lifespan)
-    # The transport owns /mcp; mounting at / avoids a redirect or doubled /mcp path.
-    app.mount("/", transport)
-    return app
+        await runtime.server.run_stdio_async(show_banner=False)

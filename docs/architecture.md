@@ -23,14 +23,21 @@ flowchart LR
 
 ## Boundaries
 
-The optional MCP server exposes the CLI services over FastAPI Streamable HTTP or stdio.
-Stdio is the default; select HTTP with `mcp --transport http`.
+Standalone FastMCP exposes the CLI services over Streamable HTTP or stdio. Stdio is
+the default for `mcp`; `serve` hosts the dashboard, REST API, and MCP at `/mcp` together.
+`mcp --transport http` starts the same combined app on the configured MCP port.
 `mcp.py` owns transport setup, tool registration, database lifecycle, and a single background
 watcher; `mcp_commands.py` exposes query, analysis, policy, skill, and live context contracts.
-Both transports use the official MCP Python SDK and identical tool schemas. HTTP runs the
-mounted session manager in the FastAPI lifespan; stdio reserves stdout for protocol traffic
+Both transports use standalone FastMCP and identical tool schemas. `web.py` routes
+`/mcp` to the MCP HTTP ASGI app after dashboard/REST routes, entering its lifespan alongside the
+shared runtime's database lifecycle. Stdio reserves stdout for protocol traffic
 and sends logs to stderr. Shutdown cancels the watcher, waits for source/lease cleanup,
 then disposes its owned database. No GitHub credential is resolved until a sync runs.
+
+Explicit tool definitions retain CLI operations without requiring matching REST routes.
+The FastMCP dependency is pinned to its tested standalone release; the project no longer
+pins the legacy SDK v1 FastMCP API. Transport tests use FastMCP clients, including
+legacy and current HTTP connections against the same combined application.
 
 Tools call the existing query/write services, preserving revision and policy guards.
 Partial sync or context coverage returns MCP `isError=true` with the full structured result.
