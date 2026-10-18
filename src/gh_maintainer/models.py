@@ -123,6 +123,22 @@ class Comment(Base):
     available: Mapped[bool] = mapped_column(Boolean)
     raw: Mapped[JsonObject] = mapped_column(JSON)
 
+    @property
+    def in_reply_to_id(self) -> int | None:
+        if not isinstance(self.raw, dict):
+            return None
+        val = self.raw.get("in_reply_to_id")
+        if isinstance(val, int | str):
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                return None
+        return None
+
+    @in_reply_to_id.setter
+    def in_reply_to_id(self, value: int | None) -> None:
+        pass
+
 
 class Observation(Base):
     __tablename__ = "changes"

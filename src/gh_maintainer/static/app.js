@@ -443,6 +443,112 @@ async function loadItems() {
             results.setAttribute("aria-busy", "false");
     }
 }
+function autolinkReferences(container, sourceUrl) {
+    if (!sourceUrl) return;
+    const repoMatch = sourceUrl.match(/https?:\/\/github\.com\/([^/]+)\/([^/#?]+)/);
+    const currentRepo = repoMatch ? `${repoMatch[1]}/${repoMatch[2]}` : null;
+    const refRegex = /(?:([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)?#(\d+)|@([a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?))/g;
+
+    const walker = document.createTreeWalker(
+        container,
+        NodeFilter.SHOW_TEXT,
+        {
+            acceptNode(node) {
+                let parent = node.parentElement;
+                while (parent && parent !== container) {
+                    const tag = parent.tagName.toLowerCase();
+                    if (["a", "code", "pre", "script", "style"].includes(tag)) {
+                        return NodeFilter.FILTER_REJECT;
+                    }
+                    parent = parent.parentElement;
+                }
+                return NodeFilter.FILTER_ACCEPT;
+            },
+        },
+    );
+
+    const textNodes = [];
+    while (walker.nextNode()) {
+        textNodes.push(walker.currentNode);
+    }
+
+    for (const textNode of textNodes) {
+        const text = textNode.nodeValue;
+        if (!text || (!text.includes("#") && !text.includes("@"))) continue;
+
+        refRegex.lastIndex = 0;
+        let lastIndex = 0;
+        let match;
+        const nodesToInsert = [];
+
+        while ((match = refRegex.exec(text)) !== null) {
+            const matchIndex = match.index;
+            if (matchIndex > lastIndex) {
+                nodesToInsert.push(
+                    document.createTextNode(text.slice(lastIndex, matchIndex)),
+                );
+            }
+
+            const fullMatch = match[0];
+            const explicitRepo = match[1];
+            const issueNum = match[2];
+            const username = match[3];
+
+            if (issueNum) {
+                const targetRepo = explicitRepo || currentRepo;
+                if (targetRepo) {
+                    const link = el("a", fullMatch, "github-reference-link");
+                    link.href = `https://github.com/${targetRepo}/issues/${issueNum}`;
+                    link.target = "_blank";
+                    link.rel = "noopener noreferrer";
+                    link.dataset.itemRepo = targetRepo;
+                    link.dataset.itemNumber = issueNum;
+                    link.addEventListener("click", (event) => {
+                        if (
+                            event.ctrlKey ||
+                            event.metaKey ||
+                            event.shiftKey ||
+                            event.altKey
+                        )
+                            return;
+                        const found = pageItems.find(
+                            (i) =>
+                                i.repo.toLowerCase() ===
+                                    targetRepo.toLowerCase() &&
+                                i.number === Number(issueNum),
+                        );
+                        if (found) {
+                            event.preventDefault();
+                            renderDetail({ item: found, changes: [] });
+                        }
+                    });
+                    nodesToInsert.push(link);
+                } else {
+                    nodesToInsert.push(document.createTextNode(fullMatch));
+                }
+            } else if (username) {
+                const link = el("a", fullMatch, "github-user-mention");
+                link.href = `https://github.com/${username}`;
+                link.target = "_blank";
+                link.rel = "noopener noreferrer";
+                nodesToInsert.push(link);
+            }
+
+            lastIndex = refRegex.lastIndex;
+        }
+
+        if (nodesToInsert.length > 0) {
+            if (lastIndex < text.length) {
+                nodesToInsert.push(document.createTextNode(text.slice(lastIndex)));
+            }
+            const parent = textNode.parentNode;
+            for (const node of nodesToInsert) {
+                parent.insertBefore(node, textNode);
+            }
+            parent.removeChild(textNode);
+        }
+    }
+}
 function markdown(body, sourceUrl, { inline = false, links = true } = {}) {
     const container = el(
         inline ? "span" : "div",
@@ -475,6 +581,9 @@ function markdown(body, sourceUrl, { inline = false, links = true } = {}) {
             FORBID_ATTR: ["style", "id", "name"],
         },
     );
+    if (links) {
+        autolinkReferences(fragment, sourceUrl);
+    }
     for (const link of fragment.querySelectorAll("a")) {
         if (!links) {
             link.replaceWith(...link.childNodes);
@@ -541,6 +650,7 @@ function renderDiscussion(item) {
     const controls = el("div");
     section.append(status, entries, controls);
     let offset = 0;
+    const threadMap = new Map();
     async function load() {
         controls.replaceChildren();
         status.textContent = "Loading comments…";
@@ -557,6 +667,16 @@ function renderDiscussion(item) {
             status.classList.toggle("signal-warning", !!data.coverage_error);
             for (const comment of data.comments) {
                 const card = el("article", undefined, "comment");
+                const commentId = String(comment.raw.id || comment.id);
+                card.dataset.commentId = commentId;
+
+                const inReplyTo =
+                    comment.in_reply_to_id ||
+                    (comment.raw && comment.raw.in_reply_to_id);
+                if (inReplyTo) {
+                    card.classList.add("comment-reply");
+                }
+
                 const meta = el("div", undefined, "comment-meta");
                 meta.append(
                     el(
@@ -569,7 +689,7 @@ function renderDiscussion(item) {
                             issue: "Comment",
                             inline: "Inline comment",
                             review: "Review",
-                        }[comment.kind],
+                        }[comment.kind] || "Comment",
                     ),
                 );
                 if (comment.raw.state)
@@ -584,6 +704,17 @@ function renderDiscussion(item) {
                 if (comment.created_at)
                     meta.append(el("time", formatDate(comment.created_at)));
                 meta.append(safeLink(comment.url, "View on GitHub ↗"));
+
+                if (inReplyTo) {
+                    meta.append(
+                        el(
+                            "span",
+                            `↳ Reply to #${inReplyTo}`,
+                            "comment-reply-indicator",
+                        ),
+                    );
+                }
+
                 card.append(meta);
                 if (comment.raw.path) {
                     const line = comment.raw.line ?? comment.raw.original_line;
@@ -605,7 +736,42 @@ function renderDiscussion(item) {
                 card.append(
                     markdown(comment.body || "No comment body.", comment.url),
                 );
-                entries.append(card);
+
+                if (inReplyTo) {
+                    const parentThread =
+                        threadMap.get(String(inReplyTo)) ||
+                        entries.querySelector(`[data-thread-id="${inReplyTo}"]`) ||
+                        entries
+                            .querySelector(`[data-comment-id="${inReplyTo}"]`)
+                            ?.closest(".comment-thread");
+
+                    if (parentThread) {
+                        let replies =
+                            parentThread.querySelector(".comment-replies");
+                        if (!replies) {
+                            replies = el("div", undefined, "comment-replies");
+                            parentThread.append(replies);
+                        }
+                        replies.append(card);
+                        threadMap.set(commentId, parentThread);
+                        continue;
+                    }
+                }
+
+                const thread = el("div", undefined, "comment-thread");
+                thread.dataset.threadId = commentId;
+                if (inReplyTo) {
+                    const replies = el("div", undefined, "comment-replies");
+                    replies.append(card);
+                    thread.append(replies);
+                } else {
+                    thread.append(card);
+                }
+                entries.append(thread);
+                threadMap.set(commentId, thread);
+                if (comment.id && comment.id !== commentId) {
+                    threadMap.set(comment.id, thread);
+                }
             }
             offset += data.comments.length;
             if (!data.total && data.comments_synced_at)
@@ -682,6 +848,107 @@ function renderDetail({ item, changes }) {
         for (const reason of item.reasons)
             reasons.append(badge(reason, item.score >= 60 ? "warning" : ""));
         main.append(reasons);
+    }
+    const linkedIssues = [...(item.linked_issues || [])];
+    const linkedPrs = [...(item.linked_prs || [])];
+
+    if (item.kind === "pr" && !linkedIssues.length && item.raw && item.raw.body) {
+        const pattern =
+            /\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+(?:https?:\/\/github\.com\/[^\/\s]+\/[^\/\s]+\/issues\/|(?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#)(\d+)\b/gi;
+        let match;
+        while ((match = pattern.exec(item.raw.body)) !== null) {
+            const num = Number(match[1]);
+            if (!linkedIssues.includes(num)) linkedIssues.push(num);
+        }
+    }
+
+    if (
+        item.kind === "issue" &&
+        !linkedPrs.length &&
+        typeof pageItems !== "undefined" &&
+        Array.isArray(pageItems)
+    ) {
+        for (const candidate of pageItems) {
+            if (candidate.repo === item.repo && candidate.kind === "pr") {
+                const candIssues = candidate.linked_issues || [];
+                if (candIssues.includes(item.number)) {
+                    if (!linkedPrs.includes(candidate.number))
+                        linkedPrs.push(candidate.number);
+                } else if (candidate.raw && candidate.raw.body) {
+                    const pattern =
+                        /\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+(?:https?:\/\/github\.com\/[^\/\s]+\/[^\/\s]+\/issues\/|(?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#)(\d+)\b/gi;
+                    let match;
+                    while ((match = pattern.exec(candidate.raw.body)) !== null) {
+                        if (
+                            Number(match[1]) === item.number &&
+                            !linkedPrs.includes(candidate.number)
+                        ) {
+                            linkedPrs.push(candidate.number);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (linkedIssues.length) {
+        const box = el("div", undefined, "linked-items");
+        box.append(el("strong", "Linked issues:"));
+        for (const num of linkedIssues) {
+            const found = pageItems.find(
+                (i) => i.repo === item.repo && i.number === num,
+            );
+            const pill = el(
+                "button",
+                found ? `#${num} ${found.title}` : `#${num}`,
+                "linked-item-pill",
+            );
+            pill.type = "button";
+            pill.title = found ? found.title : `Issue #${num}`;
+            pill.addEventListener("click", () => {
+                if (found) {
+                    renderDetail({ item: found, changes: [] });
+                } else {
+                    const base = item.url.replace(/\/(pull|issues)\/\d+.*$/, "");
+                    window.open(
+                        `${base}/issues/${num}`,
+                        "_blank",
+                        "noopener,noreferrer",
+                    );
+                }
+            });
+            box.append(pill);
+        }
+        main.append(box);
+    } else if (linkedPrs.length) {
+        const box = el("div", undefined, "linked-items");
+        box.append(el("strong", "Linked pull requests:"));
+        for (const num of linkedPrs) {
+            const found = pageItems.find(
+                (i) => i.repo === item.repo && i.number === num,
+            );
+            const pill = el(
+                "button",
+                found ? `#${num} ${found.title}` : `#${num}`,
+                "linked-item-pill",
+            );
+            pill.type = "button";
+            pill.title = found ? found.title : `Pull request #${num}`;
+            pill.addEventListener("click", () => {
+                if (found) {
+                    renderDetail({ item: found, changes: [] });
+                } else {
+                    const base = item.url.replace(/\/(pull|issues)\/\d+.*$/, "");
+                    window.open(
+                        `${base}/pull/${num}`,
+                        "_blank",
+                        "noopener,noreferrer",
+                    );
+                }
+            });
+            box.append(pill);
+        }
+        main.append(box);
     }
     const description = el("section", undefined, "description");
     const tabs = el("div", undefined, "description-tabs");

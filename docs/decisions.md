@@ -366,3 +366,28 @@ them. Priority weights (+100 for urgent, +50 for high, +25 for medium) directly 
 alongside disposition adjustments.
 
 Evidence: `tests/test_cli.py`, `tests/test_migrations.py`, `tests/test_reports_web.py`, and migration `0006`.
+
+## D18. Link PRs and issues, and thread conversation replies
+
+**Decision:** Detect relationships between pull requests and issues using closing keyword patterns
+(`Closes #...`, `Fixes ...`, `Resolves ...`) and GraphQL `closingIssuesReferences` on PRs, and
+associate issues with closing PRs in the same repository during catalog queries. Expose `linked_issues`
+on pull requests and `linked_prs` on issues across CLI `show`, the HTTP item detail endpoint, and
+interactive navigation pills in the web dashboard. In conversations, preserve parent-child reply
+relationships (`in_reply_to_id`) on comments, displaying nested reply threads in the web UI and
+indentation indicators (`↳ [reply to #...]`) in the CLI. Autolink `#123`, `owner/repo#123`, and
+`@user` references within markdown and item descriptions.
+
+**Why:** Maintainers frequently navigate between related pull requests and issues to review context,
+reproductions, and closing intent. Pull requests close issues via standardized GitHub keywords and
+GraphQL references, but this relationship was previously only visible in raw unstructured text.
+Similarly, review conversations and discussion replies form threaded parent-child hierarchies
+(via `in_reply_to_id`), and rendering comments linearly obscured reply context.
+
+**Tradeoff:** Linking is discovered in-memory during item detail presentation and queries based on
+indexed PR signals and bodies within the same repository, avoiding schema migrations or write-time
+coupling between independent repository sync checkpoints. Conversation replies utilize the existing
+`Comment.raw` JSON payload with typed model properties for backward compatibility.
+
+Evidence: `tests/test_links_and_threads.py`, `src/gh_maintainer/policies.py`,
+`src/gh_maintainer/queries.py`, `src/gh_maintainer/cli.py`, and `src/gh_maintainer/static/app.js`.

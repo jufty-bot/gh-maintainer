@@ -22,7 +22,7 @@ from gh_maintainer.models import (
     SyncRun,
     TriageDecision,
 )
-from gh_maintainer.policies import STALE_DAYS, present_item
+from gh_maintainer.policies import STALE_DAYS, extract_linked_issues, present_item
 from gh_maintainer.repositories import (
     item_snapshot,
     repo_snapshot,
@@ -42,6 +42,7 @@ from gh_maintainer.schemas import (
     ItemPage,
     ItemSort,
     ItemView,
+    Kind,
     ObservationView,
     Overview,
     Portfolio,
@@ -617,7 +618,26 @@ class CatalogQueries:
             )
             for record in observations
         ]
-        return ItemDetail(item=self._view(*row), changes=changes)
+        item_view = self._view(*row)
+        if item_view.kind == Kind.ISSUE:
+            prs = await self.session.scalars(
+                select(Item).where(
+                    Item.repo_id == item_view.repo_id,
+                    Item.kind == "pr",
+                )
+            )
+            linked_prs: list[int] = []
+            for pr in prs:
+                body = pr.raw.get("body") if isinstance(pr.raw, dict) else None
+                body_str = body if isinstance(body, str) else None
+                closing = extract_linked_issues(body_str, pr.signals)
+                if item_view.number in closing and pr.number not in linked_prs:
+                    linked_prs.append(pr.number)
+            if linked_prs:
+                item_view = item_view.model_copy(
+                    update={"linked_prs": sorted(linked_prs)}
+                )
+        return ItemDetail(item=item_view, changes=changes)
 
     async def portfolio(self) -> Portfolio:
         overview = await self.overview()

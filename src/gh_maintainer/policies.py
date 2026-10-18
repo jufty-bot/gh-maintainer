@@ -1,5 +1,6 @@
 """Pure triage rules and presentation derived from validated snapshots."""
 
+import re
 from datetime import datetime
 
 from gh_maintainer.schemas import (
@@ -9,6 +10,7 @@ from gh_maintainer.schemas import (
     IssuePayload,
     ItemSnapshot,
     ItemView,
+    JsonObject,
     Kind,
     Priority,
     RepositoryStatus,
@@ -211,6 +213,39 @@ def assess(
     )
 
 
+CLOSING_PATTERN = re.compile(
+    r"\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+(?:https?://github\.com/[^/\s]+/[^/\s]+/issues/|(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#)(\d+)\b",
+    re.IGNORECASE,
+)
+
+
+def extract_linked_issues(
+    body: str | None, signals: JsonObject | None = None
+) -> list[int]:
+    results: list[int] = []
+    if signals and isinstance(signals, dict):
+        closing = signals.get("closingIssuesReferences")
+        if isinstance(closing, dict):
+            nodes = closing.get("nodes")
+            if isinstance(nodes, list):
+                for node in nodes:
+                    if isinstance(node, dict):
+                        raw_num = node.get("number")
+                        if isinstance(raw_num, int | str):
+                            try:
+                                num = int(raw_num)
+                                if num not in results:
+                                    results.append(num)
+                            except (ValueError, TypeError):
+                                pass
+    if body:
+        for match in CLOSING_PATTERN.finditer(body):
+            num = int(match.group(1))
+            if num not in results:
+                results.append(num)
+    return results
+
+
 def present_item(
     item: ItemSnapshot, repo: RepositoryStatus, triage: TriageSnapshot, at: datetime
 ) -> ItemView:
@@ -228,6 +263,9 @@ def present_item(
             or bool(triage.note)
         )
     )
+    linked_issues: list[int] = []
+    if item.kind == Kind.PR:
+        linked_issues = extract_linked_issues(issue.body, item.signals)
     return ItemView(
         **item.model_dump(),
         **assessment.model_dump(),
@@ -246,4 +284,5 @@ def present_item(
         priority=triage.priority,
         category=category,
         triaged=triaged,
+        linked_issues=linked_issues,
     )

@@ -26,6 +26,8 @@ from gh_maintainer.schemas import (
 )
 
 MERGED_PR = 36
+LINKED_PR = 42
+LINKED_ISSUE = 39
 
 
 async def seed_demo(database: Database) -> None:
@@ -134,7 +136,12 @@ async def seed_demo(database: Database) -> None:
                 "labels": [{"name": "bug" if kind == "issue" else "maintenance"}],
                 "user": {"login": "contributor"},
                 "assignees": [],
-                "body": "Demo item. All data in this database is synthetic.",
+                "body": (
+                    "Upgrade HTTP client to retry transient failures.\n\n"
+                    f"Closes #{LINKED_ISSUE}."
+                    if number == LINKED_PR
+                    else "Demo item. All data in this database is synthetic."
+                ),
             }
             if kind == "pr":
                 issue["pull_request"] = {}
@@ -153,12 +160,27 @@ async def seed_demo(database: Database) -> None:
                         "inline",
                         "Could we add a test here?",
                         {
+                            "id": 1001,
                             "path": "src/retry.py",
                             "line": 5,
                             "diff_hunk": "@@ -1 +1 @@\n+retry()",
                         },
                     ),
                 ]
+                if number != LINKED_PR:
+                    comment_samples.append(
+                        (
+                            "inline",
+                            "Added test coverage in latest commit.",
+                            {
+                                "id": 1002,
+                                "in_reply_to_id": 1001,
+                                "path": "src/retry.py",
+                                "line": 5,
+                                "diff_hunk": "@@ -1 +1 @@\n+retry()",
+                            },
+                        )
+                    )
                 for comment_kind, body, extra in comment_samples:
                     identifier = f"DEMO_COMMENT_{repo_id}_{number}_{comment_kind}"
                     comments.append(

@@ -697,6 +697,12 @@ async def read_command(database: Database, args: SimpleNamespace) -> None:
                         f"{name} ({'stale' if analysis.stale else 'current'}):",
                         analysis.model_dump_json(indent=2),
                     ]
+            if item.linked_issues:
+                issue_refs = ", ".join(f"#{n}" for n in item.linked_issues)
+                lines += [f"Linked issues: {issue_refs}"]
+            if item.linked_prs:
+                pr_refs = ", ".join(f"#{n}" for n in item.linked_prs)
+                lines += [f"Linked pull requests: {pr_refs}"]
             if item.note:
                 lines += ["", f"Triage note: {item.note}"]
             display(detail, "\n".join(lines), args)
@@ -709,10 +715,20 @@ async def read_command(database: Database, args: SimpleNamespace) -> None:
                 f"coverage error: {comment_page.coverage_error or 'none'}"
             ]
             for comment in comment_page.comments:
+                prefix = ""
+                in_reply_to = comment.in_reply_to_id or (
+                    comment.raw.get("in_reply_to_id")
+                    if isinstance(comment.raw, dict)
+                    else None
+                )
+                if in_reply_to is not None:
+                    prefix = f"  ↳ [reply to #{in_reply_to}] "
+                author = comment.author or "deleted user"
+                created = comment.created_at or ""
                 lines += [
                     "",
-                    f"{comment.id} [{comment.kind}] {comment.author or 'deleted user'} "
-                    f"{comment.created_at or ''} (available={comment.available})",
+                    f"{prefix}{comment.id} [{comment.kind}] {author} {created} "
+                    f"(available={comment.available})",
                     comment.url,
                     comment.body,
                 ]

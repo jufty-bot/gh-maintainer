@@ -1485,3 +1485,74 @@ dialog h2 {
 .priority-tag.medium{background:#383a1f;color:#e6e885}
 .priority-tag.low{background:#23312a;color:#a9d8b7}
 .triaged-tag{background:#1f3325;color:#a9d8b7;padding:2px 6px;border-radius:4px;font-size:10px}
+.comment-thread {
+    margin-top: 12px;
+}
+.comment-thread > .comment {
+    margin-top: 0;
+}
+.comment-replies {
+    margin-left: 18px;
+    padding-left: 14px;
+    border-left: 2px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 10px;
+}
+.comment-reply {
+    margin-top: 0;
+    background: var(--surface);
+}
+.comment-reply-indicator {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 500;
+}
+.linked-items {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    margin-bottom: 12px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 12px;
+}
+.linked-items strong {
+    color: var(--text);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.linked-item-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+.linked-item-pill:hover {
+    border-color: var(--accent);
+    background: var(--surface);
+}
+.github-reference-link,
+.github-user-mention {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 500;
+}
+.github-reference-link:hover,
+.github-user-mention:hover {
+    text-decoration: underline;
+}

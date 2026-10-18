@@ -50,6 +50,18 @@ Validation: all 278 Python tests passed; Ruff check, format, mypy, strict MkDocs
 Evidence: `tests/test_cli.py` (`test_prune_help`, `test_invalid_prune_options`, `test_cli_prune_and_vacuum`, `test_database_vacuum_direct`), `tests/test_migrations.py` (`test_changes_index_upgrade_from_0004`).
 Validation on integrated main: all 272 Python tests passed; Ruff lint/format, mypy, strict MkDocs, and `git diff --check` passed.
 
+## Linked pull requests, issues, and conversation threads
+
+- [x] Detect linked issues on pull requests using closing keywords ("Closes #...", "Fixes owner/repo#...") and GraphQL `closingIssuesReferences`.
+- [x] Query and expose linked pull requests on issues within the same repository.
+- [x] Expose `linked_issues` and `linked_prs` on item snapshots, views, CLI `show`, and web API item details.
+- [x] Support parent-child comment relationships (`in_reply_to_id`) on comments and snapshots.
+- [x] Render grouped, threaded discussion replies and reply badges in the web dashboard.
+- [x] Render reply indicators (`↳ [reply to #...]`) in CLI `comments`.
+- [x] Autolink `#123`, `owner/repo#123`, and `@user` mentions in item descriptions and markdown modal views.
+
+Evidence: `tests/test_links_and_threads.py` covers closing pattern parsing, signals extraction, comment snapshot reply fields, ORM model properties, CLI show/comments output, and web API responses. Validation: all 276 Python tests passed; Ruff lint/format, mypy, strict MkDocs, and `git diff --check` passed.
+
 ## Dashboard branding and themes
 
 - [x] Use Lucide's Git branch icon and the gh-maintainer name across the dashboard,

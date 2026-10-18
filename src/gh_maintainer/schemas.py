@@ -424,6 +424,7 @@ class CommentSnapshot(Contract):
     updated_at: AwareDatetime | None
     available: bool = True
     raw: JsonObject
+    in_reply_to_id: int | None = None
 
     @classmethod
     def from_github(
@@ -434,6 +435,13 @@ class CommentSnapshot(Contract):
         kind: Literal["issue", "inline", "review"],
     ) -> CommentSnapshot:
         data = CommentPayload.model_validate(raw)
+        reply_to = raw.get("in_reply_to_id")
+        in_reply_to_id: int | None = None
+        if isinstance(reply_to, int | str):
+            try:
+                in_reply_to_id = int(reply_to)
+            except (ValueError, TypeError):
+                in_reply_to_id = None
         return cls(
             id=data.node_id,
             repo_id=repo_id,
@@ -445,6 +453,7 @@ class CommentSnapshot(Contract):
             created_at=data.created_at or data.submitted_at,
             updated_at=data.updated_at or data.submitted_at,
             raw=raw,
+            in_reply_to_id=in_reply_to_id,
         )
 
 
@@ -498,6 +507,8 @@ class ItemView(ItemSnapshot, Assessment):
     summary: AnalysisView | None = None
     classification: AnalysisView | None = None
     ranking: AnalysisView | None = None
+    linked_issues: list[int] = Field(default_factory=list)
+    linked_prs: list[int] = Field(default_factory=list)
 
 
 class RepositoryView(RepositoryStatus):

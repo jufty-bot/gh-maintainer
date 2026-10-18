@@ -42,9 +42,10 @@ gh-maintainer comments OWNER/REPO#42 --format json
 
 `prs` and `issues` default to open items. `status` lists PRs in all states, with checks,
 review decision, mergeability, rank, processing status, revision, and coverage. Missing
-or stale PR signals are unknown. `show` includes the body, PR payload, source timestamps,
-latest observations, saved analysis, and triage. Full PR payloads are available in JSON;
-text output includes the current head.
+or stale PR signals are unknown. `show` includes the body, linked issues or PRs,
+PR payload, source timestamps, latest observations, saved analysis, and triage.
+Full PR payloads are available in JSON; text output includes the current head and any
+linked closing references.
 
 Item references accept `OWNER/REPO#42` or the stored **issue node ID**, including for PRs.
 Repository names are case-insensitive. Unknown references fail instead of returning an
@@ -53,6 +54,7 @@ empty detail. List commands accept `--repo`, `--state`, `--search`, `--dispositi
 `--priority`, `--category`, `--triaged/--untriaged`, and `--sort priority|updated|rank`.
 
 `comments` combines conversation comments, inline review comments, and PR review bodies.
+Replies include indentation indicators (`↳ [reply to #...]`) referencing their parent comment.
 JSON retains raw payloads, including reply IDs, paths, line context, and review state.
 It reports when comments were last synced and any repository coverage error. Records no
 longer visible after reconciliation are retained; use `--include-unavailable` to see them.
