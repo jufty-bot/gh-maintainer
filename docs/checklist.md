@@ -7,6 +7,42 @@ implemented; further provider/host coverage and scale extensions remain. Checked
 and validation evidence when closing a task.
 Split partial work into separate tasks instead of marking an entire milestone complete.
 
+## MCP transports and maintenance tools
+
+- [x] Add `mcp --transport http|stdio` with shared tool registration, startup migrations,
+  database ownership, and watcher cancellation; keep stdio stdout protocol-only.
+- [x] Expose sync selection/rate controls, reports, triage, indexed queries/conversations,
+  analysis, processing, policy, skills, and live context using existing CLI services.
+- [x] Preserve revision/policy guards, pagination validation, sync leases, and structured
+  partial coverage errors. Keep deletion of an active index outside the server tools.
+- [x] Integrate MCP startup defaults with CLI configuration and generated JSON Schema.
+- [x] Default MCP startup to stdio; retain explicit HTTP selection and configuration
+  overrides. Verified by CLI dispatch, configuration precedence, and subprocess tests
+  in `tests/test_mcp.py`.
+- [x] Use the official `mcp` SDK's `MCPServer` directly and mount MCP into the
+  existing FastAPI app. `serve` and HTTP MCP share dashboard/API routes, database
+  ownership, and watcher shutdown. `test_combined_dashboard_rest_and_mcp` verifies
+  legacy/current clients and decisions written through both interfaces.
+
+- [x] Inherit CLI operation defaults in tools and discovery, including partial nested
+  inputs; default triage to `planned`. `tests/test_mcp_contracts.py` covers JSON/YAML
+  stdio startup, effective Click/MCP defaults, explicit overrides, and output files.
+- [x] Compare CLI option names/defaults/choices/ranges with MCP discovery and compare
+  query/write results against separate copies of the same starting index. Keep
+  configuration fields aligned with all configurable CLI operation options.
+- [x] Report request-scoped sync progress and support peer cancellation with worker,
+  journal, lease, and source cleanup. `tests/test_mcp_progress.py` exercises real HTTP
+  and stdio clients, current/legacy modes, complete/partial progress, and immediate retry.
+
+Evidence: `src/gh_maintainer/mcp.py`, `src/gh_maintainer/mcp_commands.py`, and
+`tests/test_mcp.py` exercise official SDK HTTP clients, real stdio subprocesses, identical
+schemas, shared SQLite state, guarded writes, and shutdown cleanup. See [MCP contracts](mcp.md)
+and [D19](decisions.md#d19-share-maintenance-services-across-mcp-transports).
+
+Validation: all 359 Python tests, including 77 MCP cases, passed on both Python 3.10
+and 3.14. Ruff lint/format, mypy, strict MkDocs, wheel/source and release builds,
+the installed-wheel smoke check, and `git diff --check` passed.
+
 ## Existing foundation
 
 - [x] Discover owner inventories or resolve explicit repositories with repeatable `--repo`.

@@ -391,3 +391,39 @@ coupling between independent repository sync checkpoints. Conversation replies u
 
 Evidence: `tests/test_links_and_threads.py`, `src/gh_maintainer/policies.py`,
 `src/gh_maintainer/queries.py`, `src/gh_maintainer/cli.py`, and `src/gh_maintainer/static/app.js`.
+
+## D19. Share maintenance services across MCP transports
+
+**Decision:** Use the official `mcp` Python SDK and its `MCPServer` API directly.
+The existing FastAPI app hosts the dashboard, REST API, and Streamable HTTP at `/mcp` together; stdio uses the same
+registration and resource lifecycle. `serve` and `mcp --transport http` start that
+combined app, with their existing port defaults.
+Stdio is the default for subprocess clients; HTTP requires `--transport http` or an
+explicit configuration default.
+Tools call the existing query, sync, triage, analysis, policy, and context services.
+The CLI remains usable without a server, and the index is selected once at startup.
+Use the selected CLI operation defaults in tool signatures and nested request models;
+explicit tool values take precedence and triage defaults to `planned`. Contract tests
+compare CLI parameters, defaults, constraints, and results against MCP.
+Use streamed HTTP responses and legacy SDK sessions to support request-scoped progress
+and cancellation. Progress is an awaited sync observer; shield cleanup so cancelled
+clients cannot leave workers, source clients, or database leases behind.
+
+**Why:** MCP clients need the same indexed evidence and guarded decisions as CLI users.
+Sharing domain services preserves pagination, revision checks, processing semantics,
+policy validation, and partial coverage without duplicating ingestion or persistence.
+The SDK supplies protocol validation, discovery, structured output, and transports
+without an additional framework dependency. The parent FastAPI lifespan runs the SDK
+session manager alongside the shared database/watch lifecycle. Explicit tools
+keep CLI operations available without requiring duplicate REST endpoints or automatically
+converting dashboard routes. Require `mcp>=2.3,<3` and lock the tested SDK release.
+
+**Tradeoff:** The server adds an optional local control surface, with no authentication
+for HTTP. Watcher state is process-local, so use a single HTTP worker. A background
+watcher returns immediately and has explicit status/stop tools; it is cancelled at
+shutdown. Stop the server before deleting its database through the CLI. Server-side
+policy, report, and skill paths remain filesystem operations. See [MCP contracts](mcp.md).
+
+Evidence: `src/gh_maintainer/mcp.py`, `src/gh_maintainer/mcp_commands.py`,
+`tests/test_mcp.py`, `tests/test_mcp_contracts.py`, `tests/test_mcp_progress.py`,
+and the generated configuration schema.

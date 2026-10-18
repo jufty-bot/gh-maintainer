@@ -8,6 +8,7 @@ nav:
     - Home 🏠: index.md
     - Usage and deployment: usage.md
     - CLI workflows: cli.md
+    - MCP server: mcp.md
     - Configuration files: configuration.md
     - Installation and releases: releases.md
     - Repository policy: policy.md

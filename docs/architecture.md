@@ -23,6 +23,36 @@ flowchart LR
 
 ## Boundaries
 
+The official `mcp` Python SDK exposes the CLI services over Streamable HTTP or stdio.
+Stdio is the default for `mcp`; `serve` hosts the dashboard, REST API, and MCP at `/mcp` together.
+`mcp --transport http` starts the same combined app on the configured MCP port.
+`mcp.py` owns transport setup, tool registration, database lifecycle, and a single background
+watcher; `mcp_commands.py` exposes query, analysis, policy, skill, and live context contracts.
+Both transports use the SDK's `MCPServer` and identical tool schemas. `web.py` routes
+`/mcp` to the MCP HTTP ASGI app after dashboard/REST routes, running the SDK session
+manager alongside the shared runtime's database lifecycle. Stdio reserves stdout for protocol traffic
+and sends logs to stderr. Shutdown cancels the watcher, waits for source/lease cleanup,
+then disposes its owned database. No GitHub credential is resolved until a sync runs.
+
+`mcp_contracts.py` applies the selected CLI command defaults to SDK signatures and
+nested request models, keeping tool validation and discovery in agreement. Explicit
+tool arguments take precedence. Triage defaults to `planned`, matching the CLI.
+Explicit tool definitions retain CLI operations without requiring matching REST routes.
+The project depends directly on `mcp>=2.3,<3` using the tested release in `uv.lock`.
+Transport tests use the SDK's clients and HTTP/stdio transports, including
+legacy and current HTTP connections against the same combined application. HTTP
+streams SSE responses and retains legacy SDK sessions for progress and cancellation.
+Sync progress uses an awaited observer and the request's SDK context; notifications
+count completed stages without claiming a percentage. Cancellation shields worker
+drain, failed-run journaling, lease release, and source closure from interruption.
+
+Tools call the existing query/write services, preserving revision and policy guards.
+Partial sync or context coverage returns MCP `isError=true` with the full structured result.
+Watcher state belongs to the server process, survives HTTP disconnects, and stops at server
+shutdown or stdin closure. Use one HTTP worker for watcher control. Database deletion
+requires stopping MCP and using the CLI. See [tool contracts](mcp.md) and
+[D19](decisions.md#d19-share-maintenance-services-across-mcp-transports).
+
 | Module              | Responsibility                                                                                   |
 | ------------------- | ------------------------------------------------------------------------------------------------ |
 | `schemas.py`        | Validated source snapshots, state/disposition enums, explicit API/export contracts               |

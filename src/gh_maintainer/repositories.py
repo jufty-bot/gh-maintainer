@@ -9,6 +9,7 @@ import uuid
 from datetime import datetime
 from types import TracebackType
 
+import anyio
 from sqlalchemy import CursorResult, delete, func, or_, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -145,24 +146,25 @@ class SyncLease:
         _error: BaseException | None,
         _traceback: TracebackType | None,
     ) -> None:
-        try:
-            if self.task:
-                self.task.cancel()
-                try:
-                    await self.task
-                except asyncio.CancelledError:
-                    pass
-                except Exception:
-                    if _error is None:
-                        raise
-        finally:
-            async with self.database.sessions.begin() as session:
-                await session.execute(
-                    delete(Setting).where(
-                        Setting.key == "sync_lock",
-                        func.json_extract(Setting.value, "$.token") == self.token,
+        with anyio.CancelScope(shield=True):
+            try:
+                if self.task:
+                    self.task.cancel()
+                    try:
+                        await self.task
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception:
+                        if _error is None:
+                            raise
+            finally:
+                async with self.database.sessions.begin() as session:
+                    await session.execute(
+                        delete(Setting).where(
+                            Setting.key == "sync_lock",
+                            func.json_extract(Setting.value, "$.token") == self.token,
+                        )
                     )
-                )
 
 
 class CatalogRepository:

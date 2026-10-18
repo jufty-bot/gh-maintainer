@@ -9,9 +9,12 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.routing import Route
 
 from gh_maintainer.clock import parse_date
+from gh_maintainer.config import Config
 from gh_maintainer.database import Database
+from gh_maintainer.mcp import MCPRuntime
 from gh_maintainer.queries import CatalogQueries
 from gh_maintainer.report import markdown
 from gh_maintainer.repositories import TriageService
@@ -34,17 +37,20 @@ from gh_maintainer.schemas import (
 STATIC = Path(__file__).parent / "static"
 
 
-def create_app(db_path: str, database: Database | None = None) -> FastAPI:
-    db = database or Database(db_path)
+def create_app(
+    db_path: str, database: Database | None = None, config: Config | None = None
+) -> FastAPI:
+    runtime = MCPRuntime(db_path, database, config)
+    db = runtime.database
+    mcp_app = runtime.server.streamable_http_app(
+        streamable_http_path="/mcp", stateless_http=False, json_response=False
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        await db.initialize()
-        try:
+        # The parent app owns the SDK session manager and shared database lifecycle.
+        async with runtime.lifespan(), runtime.server.session_manager.run():
             yield
-        finally:
-            if database is None:
-                await db.close()
 
     app = FastAPI(title="gh-maintainer", docs_url="/api/docs", lifespan=lifespan)
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -172,4 +178,7 @@ def create_app(db_path: str, database: Database | None = None) -> FastAPI:
     async def report(connection: Annotated[AsyncSession, Depends(session)]) -> str:
         return markdown(await CatalogQueries(connection).portfolio())
 
+    # Dispatch only /mcp to the ASGI app. A catch-all mount would turn REST 405s
+    # into MCP 404s, while a /mcp mount would redirect the endpoint to /mcp/.
+    app.router.routes.append(Route("/mcp", endpoint=mcp_app))
     return app

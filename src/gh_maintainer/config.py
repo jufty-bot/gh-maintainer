@@ -9,10 +9,16 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
 from gh_maintainer.clock import parse_date
-from gh_maintainer.schemas import Contract, Disposition, repository_name
+from gh_maintainer.schemas import (
+    Category,
+    Contract,
+    Disposition,
+    Priority,
+    repository_name,
+)
 
 Action = Literal["summarize", "classify", "rank", "triage", "mark-processed"]
 
@@ -131,8 +137,19 @@ class ServeOptions(Options):
     port: int = Field(default=8765, ge=1, le=65535)
 
 
+class MCPOptions(ServeOptions):
+    port: int = Field(default=8766, ge=1, le=65535)
+    transport: Literal["http", "stdio"] = "stdio"
+
+
 class OutputOptions(Options):
     format: Literal["text", "json"] = "text"
+
+
+class PruneOptions(OutputOptions):
+    keep: int = Field(default=50, ge=0)
+    days: int | None = Field(default=None, ge=0)
+    vacuum: bool = False
 
 
 class ItemOptions(OutputOptions):
@@ -179,6 +196,12 @@ class ListOptions(PageOptions):
     unprocessed: bool = False
     classification: str | None = None
     sort: Literal["priority", "updated", "rank"] = "priority"
+    author: str = ""
+    since: AwareDatetime | None = Field(default=None, strict=False)
+    until: AwareDatetime | None = Field(default=None, strict=False)
+    priority: Priority | None = Field(default=None, strict=False)
+    category: Category | None = Field(default=None, strict=False)
+    triaged: bool | None = None
 
 
 class StatusOptions(ListOptions):
@@ -221,7 +244,11 @@ class SkillsOptions(OutputOptions):
 
 class TriageOptions(WriteOptions):
     item_id: str | None = Field(default=None, description="GitHub issue node ID.")
-    disposition: Literal["inbox", "planned", "waiting", "snoozed", "done"] | None = None
+    disposition: Literal["inbox", "planned", "waiting", "snoozed", "done"] | None = (
+        "planned"
+    )
+    priority: Priority | None = Field(default=None, strict=False)
+    category: Category | None = Field(default=None, strict=False)
     note: str = ""
     until: str | None = Field(
         default=None,
@@ -258,7 +285,9 @@ class Config(Options):
     sync: SyncOptions = Field(default_factory=SyncOptions)
     watch: WatchOptions = Field(default_factory=WatchOptions)
     report: ReportOptions = Field(default_factory=ReportOptions)
+    prune: PruneOptions = Field(default_factory=PruneOptions)
     serve: ServeOptions = Field(default_factory=ServeOptions)
+    mcp: MCPOptions = Field(default_factory=MCPOptions)
     triage: TriageOptions = Field(default_factory=TriageOptions)
     prs: ListOptions = Field(default_factory=ListOptions)
     issues: ListOptions = Field(default_factory=ListOptions)

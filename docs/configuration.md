@@ -46,7 +46,8 @@ combined. Set a command's `repo` to `null` or `[]` to sync all repositories for 
 command. Other command settings are independent: `sync` settings do not apply to
 `watch`. `--no-full` overrides `full: true`.
 
-The optional `triage` section accepts `item_id`, `disposition`, `note`, and `until`;
+The optional `triage` section accepts `item_id`, `disposition` (default `planned`),
+`note`, `until`, `priority`, `category`, `policy`, and `revision`;
 its positional arguments can be supplied in the file or on the CLI. Quote ISO
 timestamps such as `until: "2026-12-01T09:00:00Z"`. `demo` and `migrate` use the shared
 `db` setting. Omitted values keep their usual defaults. Unknown keys, invalid types,
@@ -67,3 +68,12 @@ Click validates and converts selected command defaults using the same types as C
 CLI configuration and [repository policy](policy.md) are separate documents. CLI defaults
 select inputs; a policy file defines the optional guards on local writes. Loading a CLI
 config does not change or replace repository policy.
+
+
+MCP tools inherit these command defaults when starting `mcp` or `serve` with `--config`.
+Tool arguments override configured values, including fields inside partial query
+`options` and context `request` objects. MCP discovery shows the effective defaults.
+Configuration is loaded at startup; restart the server after changing the file.
+Output-format defaults apply to `report`; other MCP results remain structured JSON.
+Query sections include author/date/priority/category/triaged filters, and `prune`
+accepts `keep`, `days`, and `vacuum`. See [MCP contracts](mcp.md).
