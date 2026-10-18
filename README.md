@@ -43,6 +43,7 @@ Use `--config maintainer.yaml` to load JSON/YAML command defaults and a shared
 Use `classify`, `summarize`, `rank`, and `triage` to save decisions, then `mark-processed`
 to acknowledge an inspected revision. `changes` shows observed pushes, comments, and
 state changes since that checkpoint. All these commands support JSON output.
+`prune` manages observation retention and database disk space (`--keep`, `--days`, `--vacuum`).
 
 Use `skills --install PATH` to install the bundled agent instructions and `policy` to
 validate repository rules. `context ITEM` fetches live technical evidence through `gh`.

@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from types import TracebackType
 
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import CursorResult, delete, func, or_, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -654,6 +654,47 @@ class CatalogRepository:
                     error=error, activity_error=f"Repository selection failed: {error}"
                 )
             )
+
+    async def prune_observations(
+        self,
+        keep_per_item: int | None = 50,
+        older_than: datetime | None = None,
+        lease: SyncLease | None = None,
+    ) -> int:
+        async with self.database.sessions.begin() as session:
+            if lease:
+                await lease.guard(session)
+            deleted = 0
+            if older_than is not None:
+                stmt_time = delete(Observation).where(
+                    Observation.observed_at < older_than
+                )
+                res_time = await session.execute(stmt_time)
+                if isinstance(res_time, CursorResult):
+                    deleted += res_time.rowcount
+
+            if keep_per_item is not None and keep_per_item >= 0:
+                subq = (
+                    select(
+                        Observation.id,
+                        func.row_number()
+                        .over(
+                            partition_by=Observation.item_id,
+                            order_by=Observation.id.desc(),
+                        )
+                        .label("rn"),
+                    )
+                ).subquery()
+                stmt_keep = delete(Observation).where(
+                    Observation.id.in_(
+                        select(subq.c.id).where(subq.c.rn > keep_per_item)
+                    )
+                )
+                res_keep = await session.execute(stmt_keep)
+                if isinstance(res_keep, CursorResult):
+                    deleted += res_keep.rowcount
+
+            return deleted
 
 
 class SyncJournal:

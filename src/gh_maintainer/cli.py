@@ -6,6 +6,7 @@ import asyncio
 import json
 import math
 import sys
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,7 +15,7 @@ import uvicorn
 from click.core import ParameterSource
 from sqlalchemy.exc import SQLAlchemyError
 
-from gh_maintainer.clock import parse_date
+from gh_maintainer.clock import now, parse_date
 from gh_maintainer.config import (
     Config,
     PolicyFile,
@@ -35,7 +36,12 @@ from gh_maintainer.github import (
 from gh_maintainer.logging import configure_logging
 from gh_maintainer.queries import CatalogQueries
 from gh_maintainer.report import markdown
-from gh_maintainer.repositories import AnalysisService, TriageService
+from gh_maintainer.repositories import (
+    AnalysisService,
+    CatalogRepository,
+    SyncLease,
+    TriageService,
+)
 from gh_maintainer.schemas import (
     AnalysisInput,
     Contract,
@@ -259,6 +265,9 @@ def register_commands() -> None:
         "rank": "Save a supplied rank SCORE; higher values sort first.",
         "mark-processed": "Acknowledge an item's current source revision.",
         "context": "Fetch live guidance, code, CI, or review context through gh.",
+        "prune": (
+            "Prune retained change observations and optionally reclaim disk space."
+        ),
     }
     for name, summary in descriptions.items():
         description = summary
@@ -516,6 +525,26 @@ def register_commands() -> None:
                 click.Option(["--job-id"], type=click.IntRange(min=1)),
                 click.Option(
                     ["--max-chars"], type=click.IntRange(1, 1000000), default=30000
+                ),
+            ]
+        if name == "prune":
+            params += [
+                click.Option(
+                    ["--keep"],
+                    type=click.IntRange(min=0),
+                    default=50,
+                    help="Observations to keep per item (default: 50).",
+                ),
+                click.Option(
+                    ["--days"],
+                    type=click.IntRange(min=0),
+                    default=None,
+                    help="Prune observations older than N days.",
+                ),
+                click.Option(
+                    ["--vacuum"],
+                    is_flag=True,
+                    help="Reclaim free database space after pruning.",
                 ),
             ]
         main.add_command(
@@ -869,6 +898,19 @@ async def run(args: SimpleNamespace) -> int:
             output(f"Demo data created. Run: gh-maintainer --db {args.db} serve")
         elif args.command == "migrate":
             output("Database schema is up to date.")
+        elif args.command == "prune":
+            older_than = (
+                now() - timedelta(days=args.days) if args.days is not None else None
+            )
+            async with SyncLease(database) as lease:
+                deleted = await CatalogRepository(database).prune_observations(
+                    keep_per_item=args.keep,
+                    older_than=older_than,
+                    lease=lease,
+                )
+            if args.vacuum:
+                await database.vacuum()
+            output(f"Pruned {deleted} observation(s).")
     finally:
         await database.close()
     return 0

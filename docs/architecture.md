@@ -31,7 +31,7 @@ flowchart LR
 | `migrations/`       | Packaged, versioned schema changes and legacy adoption                                           |
 | `github.py`         | Source protocol and HTTPX adapter; bounded async requests, retries, authentication and pagination |
 | `sync.py`           | Discovery, backfill windows, reconciliation, PR refresh and error policy                         |
-| `repositories.py`   | Catalog writes, fenced sync lease, run journal, local analysis and processing decisions          |
+| `repositories.py`   | Catalog writes, fenced sync lease, run journal, observation pruning, local analysis and processing decisions |
 | `queries.py`        | SQL filtering, totals, queue ranking, pagination and targeted detail loading                     |
 | `policies.py`       | Pure priority and queue rules over typed snapshots                                               |
 | `config.py`         | Typed JSON/YAML CLI defaults and JSON Schema; repository policy validation and local-write guards |
@@ -345,6 +345,8 @@ checkpoints. Added columns preserve original values and legacy observations; old
 has no inferred revision. Original notes, source documents, and checkpoints are retained.
 Migration `0004` adds the independent repository activity snapshot and coverage fields;
 existing indexes start with unknown activity until the next successful observation.
+Migration `0005` adds an index on `changes(item_id, id)` for accelerated observation history
+queries and retention pruning.
 
 SQLite permits legacy TEXT JSON, integer booleans, and primary-key declarations that do
 not explicitly repeat NOT NULL. Alembic comparison hooks recognize those existing storage
@@ -366,8 +368,8 @@ Other users' named inventories use GitHub's public listing; explicit repository 
 can index accessible private repositories across owners. Webhooks, full release history and security
 findings are later extensions. Initial staging is
 still per repository; resumable disk-backed staging should precede very large backfills.
-Stored observations currently have no automatic retention policy. GitHub bodies remain
-untrusted and are rendered as plain text.
+Stored observations can be pruned and compacted on schedule via `gh-maintainer prune`
+(`--keep` and `--days`). GitHub bodies remain untrusted and are rendered as plain text.
 
 ## References
 

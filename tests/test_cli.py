@@ -1,14 +1,21 @@
 """Click help, argument validation, and application entry point contracts."""
 
+import asyncio
 import json
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from click.testing import CliRunner
+from sqlalchemy import func, select
 
 from gh_maintainer import cli
 from gh_maintainer.__about__ import __version__
+from gh_maintainer.clock import now
+from gh_maintainer.database import Database
+from gh_maintainer.demo import seed_demo
+from gh_maintainer.models import Observation
 
 
 def test_help_and_version_do_not_open_database(tmp_path: Path) -> None:
@@ -203,3 +210,85 @@ def test_invalid_request_rate_is_rejected_before_authentication(
     )
     assert result.exit_code == 2
     assert not path.exists()
+
+
+def test_prune_help(tmp_path: Path) -> None:
+    path = tmp_path / "unused.sqlite"
+    result = CliRunner().invoke(cli.main, ["--db", str(path), "prune", "--help"])
+    assert result.exit_code == 0
+    assert "--keep" in result.stdout
+    assert "--days" in result.stdout
+    assert "--vacuum" in result.stdout
+    assert not path.exists()
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        ["prune", "--keep", "-1"],
+        ["prune", "--days", "-1"],
+    ],
+)
+def test_invalid_prune_options(tmp_path: Path, options: list[str]) -> None:
+    path = tmp_path / "unused.sqlite"
+    result = CliRunner().invoke(cli.main, ["--db", str(path), *options])
+    assert result.exit_code == 2
+    assert not path.exists()
+
+
+def test_cli_prune_and_vacuum(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "prune_test.sqlite")
+
+    async def setup_db() -> int:
+        db = Database(db_path)
+        await db.initialize()
+        await seed_demo(db)
+
+        # Insert extra observations for item DEMO_1_39
+        at = now()
+        async with db.sessions.begin() as session:
+            for i in range(10):
+                session.add(
+                    Observation(
+                        item_id="DEMO_1_39",
+                        observed_at=at - timedelta(days=i),
+                        before_json=None,
+                        after_json={},
+                    )
+                )
+
+        async with db.sessions() as session:
+            count = await session.scalar(select(func.count()).select_from(Observation))
+        await db.close()
+        assert count is not None
+        return count
+
+    count_before = asyncio.run(setup_db())
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main, ["--db", db_path, "prune", "--keep", "2", "--days", "5", "--vacuum"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "Pruned" in result.output
+
+    async def check_count() -> int:
+        db = Database(db_path)
+        async with db.sessions() as session:
+            count = await session.scalar(select(func.count()).select_from(Observation))
+        await db.close()
+        assert count is not None
+        return count
+
+    count_after = asyncio.run(check_count())
+    assert count_after < count_before
+
+
+@pytest.mark.anyio
+async def test_database_vacuum_direct(tmp_path: Path) -> None:
+    db = Database(tmp_path / "vacuum_test.sqlite")
+    await db.initialize()
+    try:
+        await db.vacuum()
+    finally:
+        await db.close()

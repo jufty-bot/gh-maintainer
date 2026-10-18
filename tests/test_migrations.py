@@ -134,7 +134,12 @@ async def test_adopt_legacy_preserves_every_value_and_is_idempotent(
             }
             assert connection.execute(
                 "SELECT version_num FROM alembic_version"
-            ).fetchone() == ("0004",)
+            ).fetchone() == ("0005",)
+            indexes = connection.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='index' AND tbl_name='changes'"
+            ).fetchall()
+            assert ("changes_item_id",) in indexes
             assert connection.execute("SELECT * FROM owners").fetchall() == [
                 ("77", "owner", "User")
             ]
@@ -202,5 +207,36 @@ async def test_activity_upgrade_from_0003_retains_processing_and_analysis(
             assert repo.activity is None and repo.activity_synced_at is None
             assert repo.activity_error is None and repo.activity_stale
             assert repo.raw["full_name"] == "owner/project"
+    finally:
+        await database.close()
+
+
+async def test_changes_index_upgrade_from_0004(tmp_path: Path) -> None:
+    path = tmp_path / "index_upgrade.sqlite"
+    legacy_database(path)
+    database = Database(path)
+
+    def schema_0004(connection: Connection) -> None:
+        config = Config()
+        config.set_main_option("script_location", "src/gh_maintainer/migrations")
+        config.attributes["connection"] = connection
+        command.upgrade(config, "0004")
+
+    try:
+        async with database.engine.begin() as connection:
+            await connection.run_sync(schema_0004)
+        with closing(sqlite3.connect(path)) as connection, connection:
+            indexes = connection.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='index' AND tbl_name='changes'"
+            ).fetchall()
+            assert ("changes_item_id",) not in indexes
+        await database.initialize()
+        with closing(sqlite3.connect(path)) as connection, connection:
+            indexes = connection.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='index' AND tbl_name='changes'"
+            ).fetchall()
+            assert ("changes_item_id",) in indexes
     finally:
         await database.close()

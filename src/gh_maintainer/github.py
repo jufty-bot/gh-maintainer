@@ -104,6 +104,7 @@ class GitHubSource(Protocol):
     async def repository_activity(
         self, repos: list[RepositorySnapshot]
     ) -> dict[str, RepositoryActivity]: ...
+    async def close(self) -> None: ...
 
 
 class AsyncGitHubSource:
