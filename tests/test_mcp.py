@@ -4,6 +4,7 @@ import asyncio
 import json
 import sys
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,11 +17,10 @@ import pytest
 from anyio import fail_after
 from click.testing import CliRunner
 from fastapi import FastAPI
-from fastmcp import Client
-from fastmcp.client.client import CallToolResult
-from fastmcp.client.transports import StdioTransport, StreamableHttpTransport
-from fastmcp.utilities.asgi_transport import StreamingASGITransport
-from mcp_types import TextContent
+from mcp import Client as MCPClient
+from mcp import StdioServerParameters
+from mcp.client.streamable_http import streamable_http_client
+from mcp.types import CallToolResult, TextContent
 from sqlalchemy import func, select
 
 from gh_maintainer.cli import main, run
@@ -37,22 +37,15 @@ from tests.fakes import FakeSource
 pytestmark = pytest.mark.anyio
 
 
-class MCPClient(Client):
-    """Keep tool errors available for contract assertions instead of raising them."""
-
-    async def call_tool(
-        self, name: str, arguments: dict[str, Any] | None = None
-    ) -> CallToolResult:
-        return await super().call_tool(name, arguments, raise_on_error=False)
-
-
-def http_transport(app: FastAPI) -> StreamableHttpTransport:
-    def client_factory(**kwargs: Any) -> httpx2.AsyncClient:
-        return httpx2.AsyncClient(transport=StreamingASGITransport(app), **kwargs)
-
-    return StreamableHttpTransport(
-        "http://127.0.0.1:8766/mcp", httpx_client_factory=client_factory
-    )
+@asynccontextmanager
+async def http_transport(app: FastAPI) -> AsyncIterator[tuple[Any, Any]]:
+    async with (
+        httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app)) as http,
+        streamable_http_client(
+            "http://127.0.0.1:8766/mcp", http_client=http
+        ) as streams,
+    ):
+        yield streams
 
 
 @pytest.fixture
@@ -126,7 +119,7 @@ def text(result: CallToolResult) -> str:
 
 
 async def test_tool_discovery_and_cli_coverage(client: MCPClient) -> None:
-    discovered = {tool.name: tool for tool in (await client.list_tools())}
+    discovered = {tool.name: tool for tool in (await client.list_tools()).tools}
     assert {
         "sync",
         "watch",
@@ -440,8 +433,7 @@ def test_mcp_cli_launch_and_database_selection(monkeypatch: pytest.MonkeyPatch) 
 async def test_stdio_process_has_http_tool_parity_and_shared_index(
     client: MCPClient, database: Database
 ) -> None:
-    parameters = StdioTransport(
-        keep_alive=False,
+    parameters = StdioServerParameters(
         command=sys.executable,
         args=[
             "-m",
@@ -454,7 +446,7 @@ async def test_stdio_process_has_http_tool_parity_and_shared_index(
     with fail_after(15):
         async with MCPClient(parameters) as stdio:
             assert stdio.server_info.name == "GitHub Maintainer"
-            assert (await stdio.list_tools()) == (await client.list_tools())
+            assert (await stdio.list_tools()).tools == (await client.list_tools()).tools
             assert not (await stdio.call_tool("demo")).is_error
             assert not (
                 await stdio.call_tool(
@@ -668,8 +660,7 @@ protocol.resolve_token = AsyncMock(return_value="test-token")
 protocol.AsyncGitHubSource = lambda *args, **kwargs: FakeSource()
 main()
 """
-    parameters = StdioTransport(
-        keep_alive=False,
+    parameters = StdioServerParameters(
         command=sys.executable,
         args=[
             "-c",

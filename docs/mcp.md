@@ -1,7 +1,7 @@
 # MCP server
 
-MCP clients can call the CLI's maintenance services through standalone FastMCP over
-Streamable HTTP or stdio. The FastAPI application serves the dashboard, REST API, and
+MCP clients can call the CLI's maintenance services through the official `mcp` Python SDK
+over Streamable HTTP or stdio. The FastAPI application serves the dashboard, REST API, and
 MCP HTTP endpoint together.
 Both transports register identical tools and share database initialization, migrations,
 watcher cleanup, revision guards, policy validation, and sync leases.
@@ -100,13 +100,14 @@ polling; fatal errors stop the watcher. The watcher survives HTTP client disconn
 and stops at server shutdown. Use a single HTTP worker for watcher management.
 Sync and pruning share the CLI's database lease: overlapping writers fail explicitly.
 
-Tool definitions use standalone FastMCP and call the existing maintenance services.
+Tool definitions use the official SDK's `MCPServer` and call the existing maintenance
+services.
 They are mounted into FastAPI rather than generated from its HTTP routes, preserving
 CLI workflows such as processing, policy, and analysis that have no REST endpoint.
-FastMCP is pinned to a tested release, and both current and legacy HTTP protocol
-connections are exercised against the combined app. Changing the framework does not
-change the documented CLI/MCP differences: tool calls use their own defaults rather
-than inheriting CLI operation defaults, and triage requires an explicit disposition.
+The project depends directly on `mcp>=2.3,<3`; both current and legacy HTTP protocol
+connections are exercised with SDK clients against the combined app. The documented
+CLI/MCP differences remain: tool calls use their own defaults rather than inheriting
+CLI operation defaults, and triage requires an explicit disposition.
 
 No tool changes GitHub state. The HTTP server has no user authentication and can
 modify local decisions/history and write files. Keep it local or behind an authenticated

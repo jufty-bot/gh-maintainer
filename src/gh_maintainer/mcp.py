@@ -9,8 +9,8 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastmcp import FastMCP
-from mcp_types import CallToolResult, TextContent, ToolAnnotations
+from mcp.server import MCPServer
+from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import Field
 
 from gh_maintainer.clock import now, parse_date
@@ -24,7 +24,7 @@ from gh_maintainer.github import (
     resolve_token,
 )
 from gh_maintainer.logging import configure_logging
-from gh_maintainer.mcp_commands import guard_policy, register_commands
+from gh_maintainer.mcp_commands import guard_policy, register_commands, tool_errors
 from gh_maintainer.queries import CatalogQueries
 from gh_maintainer.report import markdown
 from gh_maintainer.repositories import CatalogRepository, SyncLease, TriageService
@@ -164,7 +164,7 @@ class MaintenanceTools:
             return self.watch_status()
 
 
-def register_tools(server: FastMCP, tools: MaintenanceTools) -> None:
+def register_tools(server: MCPServer[None], tools: MaintenanceTools) -> None:
     db = tools.database
 
     @server.tool(
@@ -172,6 +172,7 @@ def register_tools(server: FastMCP, tools: MaintenanceTools) -> None:
             read_only_hint=False, destructive_hint=False, open_world_hint=True
         )
     )
+    @tool_errors
     async def sync(
         full: bool = False,
         repo: list[str] | None = None,
@@ -199,6 +200,7 @@ def register_tools(server: FastMCP, tools: MaintenanceTools) -> None:
             read_only_hint=False, destructive_hint=True, open_world_hint=False
         )
     )
+    @tool_errors
     async def report(
         format: Literal["markdown", "json"] = "markdown",  # noqa: A002
         output: str | None = None,
@@ -216,6 +218,7 @@ def register_tools(server: FastMCP, tools: MaintenanceTools) -> None:
         return text
 
     @server.tool(annotations=LOCAL_WRITE)
+    @tool_errors
     async def triage(
         item_id: str,
         disposition: Disposition,
@@ -243,12 +246,14 @@ def register_tools(server: FastMCP, tools: MaintenanceTools) -> None:
         return "Local triage decision saved."
 
     @server.tool(annotations=LOCAL_WRITE)
+    @tool_errors
     async def demo() -> str:
         """Seed example data. Requires an empty index and no GitHub credential."""
         await seed_demo(db)
         return "Demo data created."
 
     @server.tool(annotations=LOCAL_WRITE)
+    @tool_errors
     async def migrate() -> str:
         """Apply packaged database migrations (also run at server startup)."""
         await db.initialize()
@@ -259,6 +264,7 @@ def register_tools(server: FastMCP, tools: MaintenanceTools) -> None:
             read_only_hint=False, destructive_hint=True, open_world_hint=False
         )
     )
+    @tool_errors
     async def prune(
         keep: Annotated[int, Field(ge=0)] = 50,
         days: Annotated[int, Field(ge=0)] | None = None,
@@ -284,6 +290,7 @@ def register_tools(server: FastMCP, tools: MaintenanceTools) -> None:
             read_only_hint=False, destructive_hint=False, open_world_hint=True
         )
     )
+    @tool_errors
     async def watch(
         interval: Annotated[int, Field(ge=60)] = 900,
         full: bool = False,
@@ -307,22 +314,26 @@ def register_tools(server: FastMCP, tools: MaintenanceTools) -> None:
         )
 
     @server.tool(annotations=READ_ONLY)
+    @tool_errors
     async def watch_status() -> WatchStatus:
         """Read watcher activity, its last sync result and any fatal error."""
         return tools.watch_status()
 
     @server.tool(annotations=LOCAL_WRITE)
+    @tool_errors
     async def stop_watch() -> WatchStatus:
         """Stop the watcher and await sync cleanup. Safe to repeat."""
         return await tools.stop_watch()
 
     @server.tool(annotations=READ_ONLY)
+    @tool_errors
     async def overview() -> Overview:
         """Read repository inventory, counts and the latest sync run from the index."""
         async with db.sessions() as session:
             return await CatalogQueries(session).overview()
 
     @server.tool(annotations=READ_ONLY)
+    @tool_errors
     async def list_items(
         q: str = "",
         kind: Kind | None = None,
@@ -346,6 +357,7 @@ def register_tools(server: FastMCP, tools: MaintenanceTools) -> None:
             return await CatalogQueries(session).page(filters)
 
     @server.tool(annotations=READ_ONLY)
+    @tool_errors
     async def item_detail(item_id: str) -> ItemDetail:
         """Read an indexed item by issue node ID or OWNER/REPO#NUMBER reference."""
         async with db.sessions() as session:
@@ -361,7 +373,7 @@ class MCPRuntime:
         self.database = database or Database(db_path)
         self.owns_database = database is None
         self.tools = MaintenanceTools(self.database)
-        self.server = FastMCP("GitHub Maintainer")
+        self.server = MCPServer[None]("GitHub Maintainer")
         register_tools(self.server, self.tools)
 
     @asynccontextmanager
@@ -382,4 +394,4 @@ async def run_stdio(db_path: str) -> None:
     """Serve MCP on stdin/stdout, reserving stdout for protocol messages."""
     runtime = MCPRuntime(db_path)
     async with runtime.lifespan():
-        await runtime.server.run_stdio_async(show_banner=False)
+        await runtime.server.run_stdio_async()

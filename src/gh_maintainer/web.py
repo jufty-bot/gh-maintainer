@@ -39,14 +39,14 @@ STATIC = Path(__file__).parent / "static"
 def create_app(db_path: str, database: Database | None = None) -> FastAPI:
     runtime = MCPRuntime(db_path, database)
     db = runtime.database
-    mcp_app = runtime.server.http_app(
-        path="/mcp", stateless_http=True, json_response=True
+    mcp_app = runtime.server.streamable_http_app(
+        streamable_http_path="/mcp", stateless_http=True, json_response=True
     )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        # Mounted applications need their lifespan entered by the parent app.
-        async with runtime.lifespan(), mcp_app.lifespan(_app):
+        # The parent app owns the SDK session manager and shared database lifecycle.
+        async with runtime.lifespan(), runtime.server.session_manager.run():
             yield
 
     app = FastAPI(title="gh-maintainer", docs_url="/api/docs", lifespan=lifespan)

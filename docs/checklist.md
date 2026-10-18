@@ -19,14 +19,14 @@ Split partial work into separate tasks instead of marking an entire milestone co
 - [x] Default MCP startup to stdio; retain explicit HTTP selection and configuration
   overrides. Verified by CLI dispatch, configuration precedence, and subprocess tests
   in `tests/test_mcp.py`.
-- [x] Replace the SDK v1 implementation with standalone FastMCP and mount MCP into the
+- [x] Use the official `mcp` SDK's `MCPServer` directly and mount MCP into the
   existing FastAPI app. `serve` and HTTP MCP share dashboard/API routes, database
   ownership, and watcher shutdown. `test_combined_dashboard_rest_and_mcp` verifies
   legacy/current clients and decisions written through both interfaces.
 
 Evidence: `src/gh_maintainer/mcp.py`, `src/gh_maintainer/mcp_commands.py`, and
-`tests/test_mcp.py` exercise FastMCP HTTP clients, real stdio subprocesses, identical schemas,
-shared SQLite state, guarded writes, and shutdown cleanup. See [MCP contracts](mcp.md)
+`tests/test_mcp.py` exercise official SDK HTTP clients, real stdio subprocesses, identical
+schemas, shared SQLite state, guarded writes, and shutdown cleanup. See [MCP contracts](mcp.md)
 and [D19](decisions.md#d19-share-maintenance-services-across-mcp-transports).
 
 Validation: all 322 Python tests, including 40 MCP cases, passed on both Python 3.10

@@ -394,11 +394,10 @@ Evidence: `tests/test_links_and_threads.py`, `src/gh_maintainer/policies.py`,
 
 ## D19. Share maintenance services across MCP transports
 
-**Decision:** Use standalone FastMCP for the MCP server. The existing FastAPI app hosts
-the dashboard, REST API, and Streamable HTTP at `/mcp` together; stdio uses the same
+**Decision:** Use the official `mcp` Python SDK and its `MCPServer` API directly.
+The existing FastAPI app hosts the dashboard, REST API, and Streamable HTTP at `/mcp` together; stdio uses the same
 registration and resource lifecycle. `serve` and `mcp --transport http` start that
-combined app, with their existing port defaults. This replaces the initial SDK v1
-implementation and separate HTTP app.
+combined app, with their existing port defaults.
 Stdio is the default for subprocess clients; HTTP requires `--transport http` or an
 explicit configuration default.
 Tools call the existing query, sync, triage, analysis, policy, and context services.
@@ -407,10 +406,11 @@ The CLI remains usable without a server, and the index is selected once at start
 **Why:** MCP clients need the same indexed evidence and guarded decisions as CLI users.
 Sharing domain services preserves pagination, revision checks, processing semantics,
 policy validation, and partial coverage without duplicating ingestion or persistence.
-FastMCP supplies protocol validation, discovery, structured output, and transports.
-Its HTTP app lifespan composes with the shared database/watch lifecycle. Explicit tools
+The SDK supplies protocol validation, discovery, structured output, and transports
+without an additional framework dependency. The parent FastAPI lifespan runs the SDK
+session manager alongside the shared database/watch lifecycle. Explicit tools
 keep CLI operations available without requiring duplicate REST endpoints or automatically
-converting dashboard routes. Pin the tested standalone release to control API changes.
+converting dashboard routes. Require `mcp>=2.3,<3` and lock the tested SDK release.
 
 **Tradeoff:** The server adds an optional local control surface, with no authentication
 for HTTP. Watcher state is process-local, so use a single HTTP worker. A background
