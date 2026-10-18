@@ -67,6 +67,10 @@ uv run gh-maintainer triage I_EXAMPLE planned --note 'Reproduce with current rel
 uv run gh-maintainer triage I_EXAMPLE waiting --note 'Waiting for author response'
 uv run gh-maintainer triage I_EXAMPLE snoozed --until 2026-12-01T09:00:00Z
 uv run gh-maintainer triage I_EXAMPLE done
+
+# Prune observation history and reclaim database disk space
+uv run gh-maintainer prune --keep 50 --vacuum
+uv run gh-maintainer prune --days 90
 ```
 
 `done` is a local triage decision, separate from GitHub's open/closed status. An item

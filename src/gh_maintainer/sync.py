@@ -72,6 +72,16 @@ class SyncService:
         for item_id, item in list(rows.items()):
             if item.kind != Kind.PR:
                 continue
+            old = existing.get(item_id)
+            if (
+                old
+                and old.pr
+                and item.state == State.CLOSED
+                and old.state in {State.CLOSED, State.MERGED}
+            ):
+                if old.state == State.MERGED or old.pr.get("merged_at"):
+                    rows[item_id] = item.model_copy(update={"state": State.MERGED})
+                continue
             raw = await self.source.pull(repo, item.number)
             pull = PullPayload.model_validate(raw)
             rows[item_id] = item.with_pull(raw)

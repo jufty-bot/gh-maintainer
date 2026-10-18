@@ -104,3 +104,6 @@ class FakeSource:
             }
             for node_id in ids
         }
+
+    async def close(self) -> None:
+        pass

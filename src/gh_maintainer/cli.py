@@ -6,18 +6,19 @@ import argparse
 import asyncio
 import os
 import sys
+from datetime import timedelta
 from pathlib import Path
 
 import uvicorn
 from sqlalchemy.exc import SQLAlchemyError
 
-from gh_maintainer.clock import parse_date
+from gh_maintainer.clock import now, parse_date
 from gh_maintainer.database import Database
 from gh_maintainer.demo import seed_demo
 from gh_maintainer.github import PyGithubSource, resolve_token
 from gh_maintainer.queries import CatalogQueries
 from gh_maintainer.report import markdown
-from gh_maintainer.repositories import TriageService
+from gh_maintainer.repositories import CatalogRepository, SyncLease, TriageService
 from gh_maintainer.schemas import Disposition
 from gh_maintainer.sync import SyncService
 from gh_maintainer.web import create_app
@@ -39,7 +40,16 @@ def parser() -> argparse.ArgumentParser:
         "--db", default=os.getenv("GH_MAINTAINER_DB", ".data/maintainer.sqlite")
     )
     commands = root.add_subparsers(dest="command", required=True)
-    for name in ("sync", "watch", "report", "serve", "triage", "demo", "migrate"):
+    for name in (
+        "sync",
+        "watch",
+        "report",
+        "serve",
+        "triage",
+        "demo",
+        "migrate",
+        "prune",
+    ):
         command = commands.add_parser(name)
         command.add_argument("--db", default=argparse.SUPPRESS)
         if name in {"sync", "watch"}:
@@ -79,6 +89,24 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument(
                 "--until", help="ISO timestamp with timezone, required when snoozing."
             )
+        if name == "prune":
+            command.add_argument(
+                "--keep",
+                type=int,
+                default=50,
+                help="Observations to keep per item (default: 50).",
+            )
+            command.add_argument(
+                "--days",
+                type=int,
+                default=None,
+                help="Prune observations older than N days.",
+            )
+            command.add_argument(
+                "--vacuum",
+                action="store_true",
+                help="Reclaim free database space after pruning.",
+            )
     return root
 
 
@@ -102,7 +130,7 @@ async def run(args: argparse.Namespace) -> int:
                     await asyncio.sleep(args.interval)
             finally:
                 await source.close()
-        if args.command == "triage":
+        elif args.command == "triage":
             until = parse_date(args.until) if args.until else None
             await TriageService(database).decide(
                 args.item_id, Disposition(args.disposition), args.note, until
@@ -125,6 +153,19 @@ async def run(args: argparse.Namespace) -> int:
             output(f"Demo data created. Run: gh-maintainer --db {args.db} serve")
         elif args.command == "migrate":
             output("Database schema is up to date.")
+        elif args.command == "prune":
+            older_than = (
+                now() - timedelta(days=args.days) if args.days is not None else None
+            )
+            async with SyncLease(database) as lease:
+                deleted = await CatalogRepository(database).prune_observations(
+                    keep_per_item=args.keep,
+                    older_than=older_than,
+                    lease=lease,
+                )
+            if args.vacuum:
+                await database.vacuum()
+            output(f"Pruned {deleted} observation(s).")
     finally:
         await database.close()
     return 0

@@ -22,7 +22,7 @@ flowchart LR
 | `migrations/`       | Packaged, versioned schema changes and legacy adoption                                           |
 | `github.py`         | Source protocol and PyGithub adapter; SDK owns transport, retries, authentication and pagination |
 | `sync.py`           | Discovery, backfill windows, reconciliation, PR refresh and error policy                         |
-| `repositories.py`   | Catalog writes, fenced sync lease, run journal and local triage decisions                        |
+| `repositories.py`   | Catalog writes, fenced sync lease, run journal, observation pruning and local triage decisions |
 | `queries.py`        | SQL filtering, totals, queue ranking, pagination and targeted detail loading                     |
 | `policies.py`       | Pure priority and queue rules over typed snapshots                                               |
 | `report.py`         | Markdown rendering over a typed portfolio; no SQL or SDK access                                  |
@@ -67,7 +67,7 @@ a single-writer database; aiosqlite provides event-loop integration, not paralle
 
 The item endpoint executes a count and a SELECT with SQL filtering, ordering, LIMIT and
 OFFSET. Overview counts are SQL aggregates; item details only load the requested item and
-its latest observations. Full JSON/Markdown exports intentionally read the whole portfolio.
+its latest observations using an index on `changes(item_id, id)`. Full JSON/Markdown exports intentionally read the whole portfolio.
 
 The pure policy adds explicit reasons and scores: failing checks 80, conflicts 70, changes
 requested 60, required review 50, 30-day inactivity 30, and unassigned issues 20. Missing
@@ -103,8 +103,9 @@ Coverage is limited to repositories visible to the credential. This is a polling
 observations do not reconstruct transitions between polls or events before the first sync.
 Issue comments/review threads, organizations, webhooks, releases and security findings are
 future ingestion domains. Initial staging is still per repository; resumable disk-backed
-staging should precede very large backfills. Stored observations currently have no automatic
-retention policy. GitHub bodies remain untrusted and are rendered as plain text.
+staging should precede very large backfills. Stored observations can be pruned and compacted
+on schedule via `gh-maintainer prune` (`--keep` and `--days`). GitHub bodies remain untrusted
+and are rendered as plain text.
 
 ## References
 

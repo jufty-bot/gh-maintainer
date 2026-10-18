@@ -59,6 +59,8 @@ class Database:
         @event.listens_for(engine.sync_engine, "begin")
         def begin(connection: Connection) -> None:
             # Explicit BEGIN also makes SQLite DDL rollback with failed migrations.
+            if connection.get_execution_options().get("autocommit"):
+                return
             mode = (
                 "BEGIN IMMEDIATE"
                 if connection.get_execution_options().get("migration")
@@ -84,6 +86,11 @@ class Database:
         )
         config.attributes["connection"] = connection
         command.upgrade(config, "head")
+
+    async def vacuum(self) -> None:
+        async with self.engine.connect() as connection:
+            await connection.execution_options(autocommit=True)
+            await connection.exec_driver_sql("VACUUM")
 
     async def close(self) -> None:
         await self.engine.dispose()

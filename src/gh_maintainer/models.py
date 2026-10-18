@@ -85,6 +85,7 @@ class Item(Base):
 
 class Observation(Base):
     __tablename__ = "changes"
+    __table_args__ = (Index("changes_item_id", "item_id", "id"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     item_id: Mapped[str]
     observed_at: Mapped[datetime] = mapped_column(UTCDateTime)

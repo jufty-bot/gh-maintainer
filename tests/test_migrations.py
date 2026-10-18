@@ -84,7 +84,12 @@ async def test_adopt_legacy_preserves_every_value_and_is_idempotent(
             }
             assert connection.execute(
                 "SELECT version_num FROM alembic_version"
-            ).fetchone() == ("0001",)
+            ).fetchone() == ("0002",)
+            indexes = connection.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='index' AND tbl_name='changes'"
+            ).fetchall()
+            assert ("changes_item_id",) in indexes
 
 
 async def test_unknown_schema_is_rejected_without_partial_changes(
