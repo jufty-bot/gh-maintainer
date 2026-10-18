@@ -29,7 +29,9 @@ test("renders Markdown safely and offers the source", async ({ page }) => {
     await expect(
         dialog.getByRole("heading", { name: "Reproduction" }),
     ).toBeVisible();
-    await expect(dialog.locator(".markdown strong")).toHaveText("important");
+    await expect(dialog.locator(".description .markdown strong")).toHaveText(
+        "important",
+    );
     await expect(dialog.locator(".markdown table")).toBeVisible();
     await expect(dialog.locator(".markdown input[type=checkbox]")).toHaveCount(
         2,
@@ -224,4 +226,104 @@ test("protects unsaved notes when moving between items", async ({
     const item = (await (await request.get(`/api/items/${targetId}`)).json())
         .item;
     expect(item.note).toBe("");
+});
+
+test("shows paginated PR comments, review state, and inline context safely", async ({
+    page,
+}) => {
+    const path = `**/api/items/${targetId}/comments?*`;
+    await page.route(path, async (route) => {
+        const data = await (await route.fetch()).json();
+        if (new URL(route.request().url()).searchParams.get("offset") === "0") {
+            data.comments = data.comments.slice(0, 2);
+            data.comments[0].body +=
+                '<script>window.commentExecuted = true</script><img src="x" onerror="window.commentExecuted = true">';
+        }
+        await route.fulfill({ json: data });
+    });
+    await page.getByRole("button", { name: targetTitle, exact: true }).click();
+    await expect(page.locator(".comment")).toHaveCount(2);
+    await expect(page.locator(".comment-path")).toHaveText("src/retry.py:5");
+    await page.getByText("Code context", { exact: true }).click();
+    await expect(page.locator(".comment details pre code")).toContainText(
+        "+retry()",
+    );
+    await page
+        .getByRole("button", { name: "Load more comments", exact: true })
+        .click();
+    await expect(page.locator(".comment")).toHaveCount(3);
+    await expect(
+        page.locator(".comment-meta").filter({ hasText: "commented" }),
+    ).toHaveCount(1);
+    await expect(page.locator(".comment .markdown strong")).toHaveText(
+        "review",
+    );
+    await expect(
+        page.locator(".comment script, .comment [onerror]"),
+    ).toHaveCount(0);
+    expect(await page.evaluate(() => window.commentExecuted)).toBeUndefined();
+    await page
+        .getByLabel("Next action / note")
+        .fill("Check **retries** and `timeouts`.");
+    await expect(page.locator(".note-preview strong")).toHaveText("retries");
+    await expect(page.locator(".note-preview code")).toHaveText("timeouts");
+});
+
+test("retries comments independently and displays repository stars and forks", async ({
+    page,
+}) => {
+    const path = `**/api/items/${targetId}/comments?*`;
+    await page.route(path, (route) =>
+        route.fulfill({
+            status: 503,
+            json: { detail: "Comments unavailable" },
+        }),
+    );
+    await page.getByRole("button", { name: targetTitle, exact: true }).click();
+    await expect(
+        page.getByRole("button", { name: "Retry comments" }),
+    ).toBeVisible();
+    await expect(
+        page.getByRole("heading", { name: "Reproduction" }),
+    ).toBeVisible();
+    await page.unroute(path);
+    await page.getByRole("button", { name: "Retry comments" }).click();
+    await expect(page.locator(".comment")).toHaveCount(3);
+    await page.getByRole("button", { name: "Close details" }).click();
+    await page
+        .getByRole("button", { name: "Repositories", exact: true })
+        .first()
+        .click();
+    const orbit = page
+        .locator(".repo-card")
+        .filter({
+            has: page.getByRole("link", { name: "example/orbit", exact: true }),
+        });
+    await expect(
+        orbit.getByRole("link", { name: "1,284 stars", exact: true }),
+    ).toHaveAttribute("href", "https://github.com/example/orbit/stargazers");
+    await expect(
+        orbit.getByRole("link", { name: "96 forks", exact: true }),
+    ).toHaveAttribute("href", "https://github.com/example/orbit/forks");
+    await expect(
+        page.getByRole("link", { name: "0 stars", exact: true }),
+    ).toBeVisible();
+    await page.route("**/api/overview", async (route) => {
+        const data = await (await route.fetch()).json();
+        delete data.repos[0].raw.stargazers_count;
+        delete data.repos[0].raw.forks_count;
+        await route.fulfill({ json: data });
+    });
+    await page.locator("#refresh").click();
+    await expect(
+        page.getByRole("link", { name: "— stars", exact: true }),
+    ).toBeVisible();
+    await expect(
+        page.getByRole("link", { name: "— forks", exact: true }),
+    ).toBeVisible();
+    expect(
+        await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+    ).toBeTruthy();
 });

@@ -23,6 +23,11 @@ incremental; repository discovery runs every time. The default database is
 `XDG_DATA_HOME`). `--db PATH` or `GH_MAINTAINER_DB` selects another index.
 Run `gh-maintainer db path` to see the absolute path without creating a file.
 See [database management](cli.md#manage-the-database) for deletion and existing indexes.
+The dashboard formats titles, descriptions, repository descriptions and note previews as
+sanitized Markdown. Item details include paginated comments, reviews and inline code
+context, with sync coverage and retry controls. Repository cards include stars and forks
+linked to GitHub. Refresh rereads SQLite; run `sync` to update source data, or `sync --full`
+to backfill conversation coverage in an older index.
 Run `uv run gh-maintainer --help` to discover commands and
 `uv run gh-maintainer COMMAND --help` to see options and defaults. The Click CLI also
 supports `-h` and `--version`; see [CLI help and discovery](cli.md#help-and-command-discovery).

@@ -79,6 +79,36 @@ async def test_database_transaction_rolls_back_all_changes(database: Database) -
     assert all(item.title != "Should roll back" for item in await catalog.items("1"))
 
 
+async def test_api_comments_include_paginated_review_context(
+    database: Database,
+) -> None:
+    await seed_demo(database)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app("unused", database=database)),
+        base_url="http://test",
+    ) as client:
+        path = "/api/items/DEMO_1_42/comments"
+        first = (await client.get(f"{path}?limit=2")).json()
+        second = (await client.get(f"{path}?limit=2&offset=2")).json()
+        assert first["total"] == second["total"] == 3
+        assert first["comments_synced_at"] and first["coverage_error"] is None
+        comments = first["comments"] + second["comments"]
+        assert len({comment["id"] for comment in comments}) == 3
+        assert {comment["kind"] for comment in comments} == {
+            "issue",
+            "inline",
+            "review",
+        }
+        assert all(comment["number"] == 42 for comment in comments)
+        inline = next(comment for comment in comments if comment["kind"] == "inline")
+        assert inline["raw"]["path"] == "src/retry.py"
+        assert inline["raw"]["line"] == 5
+        assert (await client.get(f"{path}?offset=3")).json()["comments"] == []
+        assert (await client.get(f"{path}?offset=-1")).status_code == 422
+        assert (await client.get(f"{path}?limit=501")).status_code == 422
+        assert (await client.get("/api/items/missing/comments")).status_code == 404
+
+
 async def test_api_filters_pagination_and_read_routes(database: Database) -> None:
     await seed_demo(database)
     app = create_app("unused", database=database)

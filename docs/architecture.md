@@ -320,6 +320,13 @@ Disposition filters use the effective SQL disposition, including expired snoozes
 items reopened after a done decision. Priority, update order, and attention filters apply
 before SQL pagination. The vanilla JavaScript frontend renders Markdown with vendored
 Marked and DOMPurify, with no CDN or runtime Node.js dependency.
+Titles, repository descriptions and editable-note previews use the same sanitized renderer.
+`GET /api/items/{item_id}/comments` reuses the existing paginated conversation query;
+comments and reviews load independently of item details, retain coverage metadata, and
+can be retried without losing a draft decision. Inline comments expose stored path/line
+and diff context. Repository cards show stored star/fork counts from inventory payloads;
+unknown counts appear as a dash rather than zero. No additional ingestion or storage is
+needed for these views.
 
 ## Migration contract
 

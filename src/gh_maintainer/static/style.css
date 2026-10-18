@@ -1416,3 +1416,68 @@ dialog h2 {
     width: 20px;
     height: 24px;
 }
+.markdown-inline {
+    font-size: inherit;
+    line-height: inherit;
+    color: inherit;
+}
+.repo-card > .markdown {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 17px;
+}
+.discussion {
+    margin-top: 28px;
+}
+.discussion > h3 {
+    font-size: 14px;
+}
+.comment {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 15px;
+    margin-top: 12px;
+    min-width: 0;
+}
+.comment-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    color: var(--muted);
+    font-size: 11px;
+    margin-bottom: 12px;
+}
+.comment-meta strong {
+    color: var(--text);
+}
+.comment-meta a {
+    color: var(--green);
+}
+.comment-path {
+    display: block;
+    color: var(--amber);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+    margin-bottom: 10px;
+}
+.comment > details {
+    margin-bottom: 12px;
+}
+.comment > details summary {
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 11px;
+}
+.comment > details pre {
+    overflow-x: auto;
+    background: var(--bg);
+    padding: 12px;
+    border-radius: 6px;
+    font-size: 12px;
+}
+.note-preview {
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    margin-bottom: 12px;
+}

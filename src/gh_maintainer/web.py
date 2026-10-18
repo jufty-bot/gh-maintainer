@@ -15,6 +15,7 @@ from gh_maintainer.queries import CatalogQueries
 from gh_maintainer.report import markdown
 from gh_maintainer.repositories import TriageService
 from gh_maintainer.schemas import (
+    CommentPage,
     Disposition,
     ItemDetail,
     ItemFilters,
@@ -99,6 +100,18 @@ def create_app(db_path: str, database: Database | None = None) -> FastAPI:
         if detail is None:
             raise HTTPException(404, "Unknown item")
         return detail
+
+    @app.get("/api/items/{item_id}/comments")
+    async def comments(
+        item_id: str,
+        connection: Annotated[AsyncSession, Depends(session)],
+        limit: int = Query(50, ge=1, le=500),
+        offset: int = Query(0, ge=0),
+    ) -> CommentPage:
+        try:
+            return await CatalogQueries(connection).comments(item_id, limit, offset)
+        except ValueError:
+            raise HTTPException(404, "Unknown item") from None
 
     @app.put("/api/items/{item_id}/triage")
     async def triage(

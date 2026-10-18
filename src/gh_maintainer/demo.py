@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Literal
 
 from sqlalchemy import func, select
 
@@ -12,6 +13,7 @@ from gh_maintainer.models import Repository
 from gh_maintainer.repositories import CatalogRepository, SyncJournal, SyncLease
 from gh_maintainer.schemas import (
     AccountSnapshot,
+    CommentSnapshot,
     ItemSnapshot,
     JsonObject,
     Kind,
@@ -43,12 +45,26 @@ async def seed_demo(database: Database) -> None:
             "private": name == "infrastructure",
             "owner": {"login": "example", "id": "demo"},
             "language": language,
+            "stargazers_count": stars,
+            "forks_count": forks,
         }
-        for index, (name, description, language) in enumerate(
+        for index, (name, description, language, stars, forks) in enumerate(
             [
-                ("orbit", "An API for small, connected services", "Python"),
-                ("field-notes", "A shared notebook for the internet", "TypeScript"),
-                ("infrastructure", "Configuration for the things that run", "HCL"),
+                ("orbit", "An API for small, connected services", "Python", 1284, 96),
+                (
+                    "field-notes",
+                    "A shared notebook for the internet",
+                    "TypeScript",
+                    342,
+                    28,
+                ),
+                (
+                    "infrastructure",
+                    "Configuration for the things that run",
+                    "HCL",
+                    0,
+                    0,
+                ),
             ],
             1,
         )
@@ -99,6 +115,7 @@ async def seed_demo(database: Database) -> None:
     ]
     for repo in repos:
         rows = []
+        comments = []
         for repo_id, number, kind, title, days, checks, review in samples:
             if repo_id != repo["id"]:
                 continue
@@ -123,6 +140,43 @@ async def seed_demo(database: Database) -> None:
                 issue["pull_request"] = {}
             row = ItemSnapshot.from_github(issue, str(repo_id))
             if kind == "pr":
+                comment_samples: list[
+                    tuple[Literal["issue", "inline", "review"], str, JsonObject]
+                ] = [
+                    ("issue", "Ready for **review**.", {}),
+                    (
+                        "review",
+                        "Please check the `retry` behavior.",
+                        {"state": "COMMENTED"},
+                    ),
+                    (
+                        "inline",
+                        "Could we add a test here?",
+                        {
+                            "path": "src/retry.py",
+                            "line": 5,
+                            "diff_hunk": "@@ -1 +1 @@\n+retry()",
+                        },
+                    ),
+                ]
+                for comment_kind, body, extra in comment_samples:
+                    identifier = f"DEMO_COMMENT_{repo_id}_{number}_{comment_kind}"
+                    comments.append(
+                        CommentSnapshot.from_github(
+                            {
+                                "node_id": identifier,
+                                "body": body,
+                                "user": {"login": "reviewer"},
+                                "html_url": f"{issue['html_url']}#{identifier}",
+                                "created_at": updated,
+                                "updated_at": updated,
+                                **extra,
+                            },
+                            str(repo_id),
+                            number,
+                            comment_kind,
+                        )
+                    )
                 pr = {"node_id": f"PR_{repo_id}_{number}", "draft": False}
                 signals = {
                     "id": f"PR_{repo_id}_{number}",
@@ -138,7 +192,9 @@ async def seed_demo(database: Database) -> None:
                 if number == MERGED_PR:
                     row = row.model_copy(update={"state": State.MERGED})
             rows.append(row)
-        await catalog.commit_repo(str(repo["id"]), rows, at, True, None, comments=[])
+        await catalog.commit_repo(
+            str(repo["id"]), rows, at, True, None, comments=comments
+        )
         latest_items = {}
         for kind in (Kind.PR, Kind.ISSUE):
             candidates = [item for item in rows if item.kind == kind]

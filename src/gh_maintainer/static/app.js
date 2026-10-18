@@ -200,7 +200,10 @@ function renderItem(item) {
     icon.title = item.kind === "pr" ? "Pull request" : "Issue";
     if (item.kind === "pr") icon.append(pullIcon());
     const center = el("div", undefined, "item-center");
-    const title = button(item.title, "item-title", () => showDetail(item.id));
+    const title = button(undefined, "item-title", () => showDetail(item.id));
+    title.append(
+        markdown(item.title, item.url, { inline: true, links: false }),
+    );
     center.append(title);
     const meta = el("div", undefined, "item-meta");
     meta.append(safeLink(item.url, `${item.repo} #${item.number}`));
@@ -261,10 +264,21 @@ function renderRepos() {
             );
             card.append(
                 top,
-                el("p", repo.raw.description || "No description provided."),
+                markdown(
+                    repo.raw.description || "No description provided.",
+                    repo.url,
+                ),
             );
             const meta = el("div", undefined, "repo-stats");
             meta.append(
+                safeLink(
+                    `${repo.url}/stargazers`,
+                    `${repo.raw.stargazers_count?.toLocaleString() ?? "—"} stars`,
+                ),
+                safeLink(
+                    `${repo.url}/forks`,
+                    `${repo.raw.forks_count?.toLocaleString() ?? "—"} forks`,
+                ),
                 el("span", `${repo.open_prs} open PRs`),
                 el("span", `${repo.open_issues} open issues`),
                 el("span", repo.raw.language || "No language"),
@@ -417,8 +431,12 @@ async function loadItems() {
             results.setAttribute("aria-busy", "false");
     }
 }
-function markdown(body, sourceUrl) {
-    const container = el("div", undefined, "markdown");
+function markdown(body, sourceUrl, { inline = false, links = true } = {}) {
+    const container = el(
+        inline ? "span" : "div",
+        undefined,
+        inline ? "markdown markdown-inline" : "markdown",
+    );
     if (!body) {
         container.append(el("p", "No description provided.", "muted"));
         return container;
@@ -428,7 +446,9 @@ function markdown(body, sourceUrl) {
         return container;
     }
     const fragment = DOMPurify.sanitize(
-        marked.parse(body, { gfm: true, breaks: false }),
+        inline
+            ? marked.parseInline(body, { gfm: true })
+            : marked.parse(body, { gfm: true, breaks: true }),
         {
             USE_PROFILES: { html: true },
             RETURN_DOM_FRAGMENT: true,
@@ -444,6 +464,10 @@ function markdown(body, sourceUrl) {
         },
     );
     for (const link of fragment.querySelectorAll("a")) {
+        if (!links) {
+            link.replaceWith(...link.childNodes);
+            continue;
+        }
         if (!link.hasAttribute("href")) continue;
         try {
             const url = new URL(link.getAttribute("href"), sourceUrl);
@@ -494,6 +518,102 @@ function markdown(body, sourceUrl) {
     }
     return container;
 }
+function renderDiscussion(item) {
+    const section = el("section", undefined, "discussion");
+    section.append(
+        el("h3", item.kind === "pr" ? "Comments and reviews" : "Comments"),
+    );
+    const status = el("p", "Loading comments…", "help-text");
+    status.setAttribute("role", "status");
+    const entries = el("div", undefined, "comment-list");
+    const controls = el("div");
+    section.append(status, entries, controls);
+    let offset = 0;
+    async function load() {
+        controls.replaceChildren();
+        status.textContent = "Loading comments…";
+        try {
+            const data = await api(
+                `/api/items/${encodeURIComponent(item.id)}/comments?limit=50&offset=${offset}`,
+            );
+            if (!section.isConnected) return;
+            status.textContent = data.coverage_error
+                ? `Incomplete conversation coverage: ${data.coverage_error}`
+                : !data.comments_synced_at
+                  ? "Comments have not been synced yet. Run gh-maintainer sync --full to index this discussion."
+                  : `${data.total.toLocaleString()} comments and reviews · Synced ${formatDate(data.comments_synced_at)}`;
+            status.classList.toggle("signal-warning", !!data.coverage_error);
+            for (const comment of data.comments) {
+                const card = el("article", undefined, "comment");
+                const meta = el("div", undefined, "comment-meta");
+                meta.append(
+                    el(
+                        "strong",
+                        comment.author ? `@${comment.author}` : "Deleted user",
+                    ),
+                    el(
+                        "span",
+                        {
+                            issue: "Comment",
+                            inline: "Inline comment",
+                            review: "Review",
+                        }[comment.kind],
+                    ),
+                );
+                if (comment.raw.state)
+                    meta.append(
+                        el(
+                            "span",
+                            comment.raw.state
+                                .toLowerCase()
+                                .replaceAll("_", " "),
+                        ),
+                    );
+                if (comment.created_at)
+                    meta.append(el("time", formatDate(comment.created_at)));
+                meta.append(safeLink(comment.url, "View on GitHub ↗"));
+                card.append(meta);
+                if (comment.raw.path) {
+                    const line = comment.raw.line ?? comment.raw.original_line;
+                    card.append(
+                        el(
+                            "code",
+                            `${comment.raw.path}${line ? `:${line}` : ""}`,
+                            "comment-path",
+                        ),
+                    );
+                }
+                if (comment.raw.diff_hunk) {
+                    const context = el("details");
+                    const pre = el("pre");
+                    pre.append(el("code", comment.raw.diff_hunk));
+                    context.append(el("summary", "Code context"), pre);
+                    card.append(context);
+                }
+                card.append(
+                    markdown(comment.body || "No comment body.", comment.url),
+                );
+                entries.append(card);
+            }
+            offset += data.comments.length;
+            if (!data.total && data.comments_synced_at)
+                entries.append(
+                    el("p", "No comments or reviews yet.", "help-text"),
+                );
+            if (offset < data.total)
+                controls.append(
+                    button("Load more comments", "button secondary", load),
+                );
+        } catch (error) {
+            if (!section.isConnected) return;
+            status.textContent = `Could not load comments: ${error.message}`;
+            controls.append(button("Retry comments", "button secondary", load));
+        }
+    }
+    // Start after renderDetail has attached this section to the current dialog.
+    queueMicrotask(load);
+    return section;
+}
 function canLeaveDetail() {
     return (
         !saving &&
@@ -511,7 +631,8 @@ function renderDetail({ item, changes }) {
     dirty = false;
     const heading = el("div", undefined, "detail-heading");
     heading.append(el("div", `${item.repo} / #${item.number}`, "eyebrow"));
-    const title = el("h2", item.title);
+    const title = el("h2");
+    title.append(markdown(item.title, item.url, { inline: true }));
     title.id = "detail-title";
     heading.append(title);
     const meta = el("div", undefined, "detail-meta");
@@ -578,7 +699,7 @@ function renderDetail({ item, changes }) {
     tabs.append(preview, source);
     body.append(markdown(item.raw.body, item.url));
     description.append(tabs, body);
-    main.append(description);
+    main.append(description, renderDiscussion(item));
     const observations = el("details", undefined, "observations");
     observations.append(
         el("summary", `Local observations (${changes.length})`),
@@ -655,6 +776,13 @@ function renderDetail({ item, changes }) {
     note.rows = 5;
     note.maxLength = 10000;
     note.placeholder = "What should happen next?";
+    const notePreview = el("div", undefined, "note-preview");
+    function previewNote() {
+        notePreview.hidden = !note.value;
+        notePreview.replaceChildren(markdown(note.value, item.url));
+    }
+    note.addEventListener("input", previewNote);
+    previewNote();
     const error = el("p", "", "form-error");
     error.setAttribute("role", "alert");
     error.hidden = true;
@@ -671,6 +799,7 @@ function renderDetail({ item, changes }) {
         snooze,
         noteLabel,
         note,
+        notePreview,
         error,
         save,
         saveNext,

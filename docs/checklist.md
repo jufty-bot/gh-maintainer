@@ -26,6 +26,24 @@ Split partial work into separate tasks instead of marking an entire milestone co
 
 These references establish the starting inventory; they do not record a fresh test run.
 
+## Dashboard Markdown, conversations and repository statistics
+
+- [x] Render titles, repository descriptions and note previews with the existing sanitized
+  Markdown renderer; preserve the editable note and local triage controls.
+- [x] Expose paginated indexed comments through the HTTP API and display conversation
+  comments, review state, author/date/source links and inline path/line/diff context.
+- [x] Show conversation coverage and independent retry/load-more controls without losing
+  item details or draft decisions.
+- [x] Show repository stars/forks with GitHub links, formatted counts, explicit zeros and
+  unknown-value placeholders; seed representative synthetic statistics and discussions.
+
+Evidence: `tests/test_reports_web.py` validates the comments API, pagination, source
+context and invalid requests. `tests/frontend/workspace.spec.cjs` covers Markdown
+sanitization, comments, inline context, retries, note previews and statistics on desktop
+and mobile. Validation on integrated main: all 266 Python tests and 16 browser tests
+passed; Ruff lint/format, mypy, strict MkDocs, source/wheel builds and `git diff --check`
+passed. The existing conversation tables and ingestion contracts are unchanged.
+
 ## CLI configuration
 
 - [x] Accept explicit JSON/YAML files before or after commands with Pydantic validation.
