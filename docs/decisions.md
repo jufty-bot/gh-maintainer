@@ -391,3 +391,24 @@ coupling between independent repository sync checkpoints. Conversation replies u
 
 Evidence: `tests/test_links_and_threads.py`, `src/gh_maintainer/policies.py`,
 `src/gh_maintainer/queries.py`, `src/gh_maintainer/cli.py`, and `src/gh_maintainer/static/app.js`.
+
+## D19. Share maintenance services across MCP transports
+
+**Decision:** Add an optional MCP server using the official Python SDK. FastAPI hosts
+Streamable HTTP at `/mcp`; stdio uses the same registration and resource lifecycle.
+Tools call the existing query, sync, triage, analysis, policy, and context services.
+The CLI remains usable without a server, and the index is selected once at startup.
+
+**Why:** MCP clients need the same indexed evidence and guarded decisions as CLI users.
+Sharing domain services preserves pagination, revision checks, processing semantics,
+policy validation, and partial coverage without duplicating ingestion or persistence.
+The SDK supplies protocol validation, discovery, structured output, and transports.
+
+**Tradeoff:** The server adds an optional local control surface, with no authentication
+for HTTP. Watcher state is process-local, so use a single HTTP worker. A background
+watcher returns immediately and has explicit status/stop tools; it is cancelled at
+shutdown. Stop the server before deleting its database through the CLI. Server-side
+policy, report, and skill paths remain filesystem operations. See [MCP contracts](mcp.md).
+
+Evidence: `src/gh_maintainer/mcp.py`, `src/gh_maintainer/mcp_commands.py`,
+`tests/test_mcp.py`, and generated configuration schema.

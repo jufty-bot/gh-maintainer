@@ -53,6 +53,16 @@ agent; it does not invoke a model or post changes to GitHub. It reuses `gh` auth
 for async HTTPX sync and `gh api` context requests. See [CLI workflows](docs/cli.md) for the full loop,
 revision guards, and pagination.
 
+MCP clients can use the same maintenance services over HTTP or stdio:
+
+```bash
+uv run gh-maintainer mcp --transport http   # http://127.0.0.1:8766/mcp
+uv run gh-maintainer mcp --transport stdio
+```
+
+See [MCP setup and tool contracts](docs/mcp.md) for client configuration, background
+watching, revision guards, and the CLI-to-tool mapping.
+
 ## Documentation
 
 - [Installation and releases](docs/releases.md), [agent skills](docs/skills.md),

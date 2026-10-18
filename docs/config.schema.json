@@ -434,6 +434,34 @@
       "title": "ListOptions",
       "type": "object"
     },
+    "MCPOptions": {
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "default": "127.0.0.1",
+          "title": "Host",
+          "type": "string"
+        },
+        "port": {
+          "default": 8766,
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Port",
+          "type": "integer"
+        },
+        "transport": {
+          "default": "http",
+          "enum": [
+            "http",
+            "stdio"
+          ],
+          "title": "Transport",
+          "type": "string"
+        }
+      },
+      "title": "MCPOptions",
+      "type": "object"
+    },
     "OutputOptions": {
       "additionalProperties": false,
       "properties": {
@@ -1161,6 +1189,9 @@
     },
     "serve": {
       "$ref": "#/$defs/ServeOptions"
+    },
+    "mcp": {
+      "$ref": "#/$defs/MCPOptions"
     },
     "triage": {
       "$ref": "#/$defs/TriageOptions"

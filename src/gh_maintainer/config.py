@@ -131,6 +131,11 @@ class ServeOptions(Options):
     port: int = Field(default=8765, ge=1, le=65535)
 
 
+class MCPOptions(ServeOptions):
+    port: int = Field(default=8766, ge=1, le=65535)
+    transport: Literal["http", "stdio"] = "http"
+
+
 class OutputOptions(Options):
     format: Literal["text", "json"] = "text"
 
@@ -259,6 +264,7 @@ class Config(Options):
     watch: WatchOptions = Field(default_factory=WatchOptions)
     report: ReportOptions = Field(default_factory=ReportOptions)
     serve: ServeOptions = Field(default_factory=ServeOptions)
+    mcp: MCPOptions = Field(default_factory=MCPOptions)
     triage: TriageOptions = Field(default_factory=TriageOptions)
     prs: ListOptions = Field(default_factory=ListOptions)
     issues: ListOptions = Field(default_factory=ListOptions)

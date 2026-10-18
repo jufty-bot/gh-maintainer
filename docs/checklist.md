@@ -7,6 +7,25 @@ implemented; further provider/host coverage and scale extensions remain. Checked
 and validation evidence when closing a task.
 Split partial work into separate tasks instead of marking an entire milestone complete.
 
+## MCP transports and maintenance tools
+
+- [x] Add `mcp --transport http|stdio` with shared tool registration, startup migrations,
+  database ownership, and watcher cancellation; keep stdio stdout protocol-only.
+- [x] Expose sync selection/rate controls, reports, triage, indexed queries/conversations,
+  analysis, processing, policy, skills, and live context using existing CLI services.
+- [x] Preserve revision/policy guards, pagination validation, sync leases, and structured
+  partial coverage errors. Keep deletion of an active index outside the server tools.
+- [x] Integrate MCP startup defaults with CLI configuration and generated JSON Schema.
+
+Evidence: `src/gh_maintainer/mcp.py`, `src/gh_maintainer/mcp_commands.py`, and
+`tests/test_mcp.py` exercise SDK HTTP clients, real stdio subprocesses, identical schemas,
+shared SQLite state, guarded writes, and shutdown cleanup. See [MCP contracts](mcp.md)
+and [D19](decisions.md#d19-share-maintenance-services-across-mcp-transports).
+
+Validation: all 317 Python tests passed on Python 3.14; all 35 MCP tests passed on
+Python 3.10. Ruff lint/format, mypy, strict MkDocs, wheel/source and release builds,
+the installed-wheel smoke check, and `git diff --check` passed.
+
 ## Existing foundation
 
 - [x] Discover owner inventories or resolve explicit repositories with repeatable `--repo`.

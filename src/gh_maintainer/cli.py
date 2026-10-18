@@ -34,6 +34,8 @@ from gh_maintainer.github import (
     resolve_token,
 )
 from gh_maintainer.logging import configure_logging
+from gh_maintainer.mcp import create_app as create_mcp_app
+from gh_maintainer.mcp import run_stdio
 from gh_maintainer.queries import CatalogQueries
 from gh_maintainer.report import markdown
 from gh_maintainer.repositories import (
@@ -226,8 +228,12 @@ def execute(ctx: click.Context, **options: object) -> None:
     options["db"] = options.get("db") or ctx.obj
     args = SimpleNamespace(command=options.pop("command", ctx.info_name), **options)
     try:
-        if args.command == "serve":
-            uvicorn.run(create_app(args.db), host=args.host, port=args.port)
+        if args.command == "mcp" and args.transport == "stdio":
+            asyncio.run(run_stdio(args.db))
+            code = 0
+        elif args.command in {"serve", "mcp"}:
+            factory = create_mcp_app if args.command == "mcp" else create_app
+            uvicorn.run(factory(args.db), host=args.host, port=args.port)
             code = 0
         else:
             code = asyncio.run(run(args))
@@ -252,6 +258,7 @@ def register_commands() -> None:
         "watch": "Sync immediately, then repeat at a fixed interval.",
         "report": "Export the full portfolio as Markdown or JSON.",
         "serve": "Serve the local dashboard and triage API.",
+        "mcp": "Serve maintenance tools over Streamable HTTP or stdio.",
         "triage": "Save a local disposition and note without changing GitHub.",
         "demo": "Populate the index with sample data, without credentials.",
         "migrate": "Create or upgrade the SQLite database schema.",
@@ -336,17 +343,26 @@ def register_commands() -> None:
                     help="Write to this file instead of stdout.",
                 ),
             ]
-        if name == "serve":
+        if name in {"serve", "mcp"}:
             params += [
                 click.Option(["--host"], default="127.0.0.1", help="Address to bind."),
                 click.Option(
                     ["--port"],
                     type=click.IntRange(1, 65535),
-                    default=8765,
+                    default=8766 if name == "mcp" else 8765,
                     help="Port to listen on.",
                 ),
             ]
-        if name not in {"sync", "watch", "report", "serve", "demo", "migrate"}:
+        if name == "mcp":
+            params.append(
+                click.Option(
+                    ["--transport"],
+                    type=click.Choice(["http", "stdio"]),
+                    default="http",
+                    help="MCP transport; host/port apply only to HTTP.",
+                )
+            )
+        if name not in {"sync", "watch", "report", "serve", "mcp", "demo", "migrate"}:
             params.append(
                 click.Option(
                     ["--format"],

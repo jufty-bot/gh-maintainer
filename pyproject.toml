@@ -17,6 +17,7 @@ dependencies = [
   "click>=8.1,<9",
   "structlog>=25,<27",
   "pyyaml>=6,<7",
+  "mcp>=1.28,<2",
 ]
 authors = [
   { name = "Justin Flannery", email = "juftin@juftin.com" }

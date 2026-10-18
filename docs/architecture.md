@@ -23,6 +23,21 @@ flowchart LR
 
 ## Boundaries
 
+The optional MCP server exposes the CLI services over FastAPI Streamable HTTP or stdio.
+`mcp.py` owns transport setup, tool registration, database lifecycle, and a single background
+watcher; `mcp_commands.py` exposes query, analysis, policy, skill, and live context contracts.
+Both transports use the official MCP Python SDK and identical tool schemas. HTTP runs the
+mounted session manager in the FastAPI lifespan; stdio reserves stdout for protocol traffic
+and sends logs to stderr. Shutdown cancels the watcher, waits for source/lease cleanup,
+then disposes its owned database. No GitHub credential is resolved until a sync runs.
+
+Tools call the existing query/write services, preserving revision and policy guards.
+Partial sync or context coverage returns MCP `isError=true` with the full structured result.
+Watcher state belongs to the server process, survives HTTP disconnects, and stops at server
+shutdown or stdin closure. Use one HTTP worker for watcher control. Database deletion
+requires stopping MCP and using the CLI. See [tool contracts](mcp.md) and
+[D19](decisions.md#d19-share-maintenance-services-across-mcp-transports).
+
 | Module              | Responsibility                                                                                   |
 | ------------------- | ------------------------------------------------------------------------------------------------ |
 | `schemas.py`        | Validated source snapshots, state/disposition enums, explicit API/export contracts               |
