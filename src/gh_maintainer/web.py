@@ -10,11 +10,13 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from gh_maintainer.clock import parse_date
 from gh_maintainer.database import Database
 from gh_maintainer.queries import CatalogQueries
 from gh_maintainer.report import markdown
 from gh_maintainer.repositories import TriageService
 from gh_maintainer.schemas import (
+    Category,
     CommentPage,
     Disposition,
     ItemDetail,
@@ -24,6 +26,7 @@ from gh_maintainer.schemas import (
     ItemSort,
     Kind,
     Overview,
+    Priority,
     State,
     TriageUpdate,
 )
@@ -72,6 +75,12 @@ def create_app(db_path: str, database: Database | None = None) -> FastAPI:
         disposition: str = "",
         sort: ItemSort = ItemSort.PRIORITY,
         focus: str = "",
+        author: str = "",
+        since: str = "",
+        until: str = "",
+        priority: str = "",
+        category: str = "",
+        triaged: bool | None = None,
         limit: int = Query(100, ge=1, le=500),
         offset: int = Query(0, ge=0),
     ) -> ItemPage:
@@ -85,6 +94,12 @@ def create_app(db_path: str, database: Database | None = None) -> FastAPI:
                 disposition=Disposition(disposition) if disposition else None,
                 sort=sort,
                 focus=ItemFocus(focus) if focus else None,
+                author=author,
+                since=parse_date(since) if since else None,
+                until=parse_date(until) if until else None,
+                priority=Priority(priority) if priority else None,
+                category=Category(category) if category else None,
+                triaged=triaged,
                 limit=limit,
                 offset=offset,
             )
@@ -113,17 +128,20 @@ def create_app(db_path: str, database: Database | None = None) -> FastAPI:
         except ValueError:
             raise HTTPException(404, "Unknown item") from None
 
-    @app.put("/api/items/{item_id}/triage")
+    @app.api_route("/api/items/{item_id}/triage", methods=["PUT", "POST"])
     async def triage(
         item_id: str,
         decision: TriageUpdate,
         request: Request,
         connection: Annotated[AsyncSession, Depends(session)],
-    ) -> ItemDetail:
+    ) -> ItemDetail | dict[str, str]:
         # A custom header forces cross-origin browsers to preflight. No CORS
         # permissions are granted, so other sites cannot modify the local index.
-        if request.headers.get("x-maintainer-request") != "1" or (
-            request.headers.get("sec-fetch-site") == "cross-site"
+        if request.headers.get("sec-fetch-site") == "cross-site":
+            raise HTTPException(403, "Triage requires a same-origin dashboard request")
+        if (
+            request.method == "PUT"
+            and request.headers.get("x-maintainer-request") != "1"
         ):
             raise HTTPException(403, "Triage requires a same-origin dashboard request")
         try:
@@ -131,16 +149,20 @@ def create_app(db_path: str, database: Database | None = None) -> FastAPI:
                 item_id,
                 decision.disposition,
                 decision.note,
-                decision.snoozed_until,
+                priority=decision.priority,
+                category=decision.category,
+                until=decision.snoozed_until,
             )
         except ValueError as error:
             status = (
                 404
                 if str(error).startswith("Unknown item")
                 or str(error) == "Unknown item ID."
-                else 422
+                else (400 if request.method == "POST" else 422)
             )
             raise HTTPException(status, str(error)) from None
+        if request.method == "POST":
+            return {"status": "ok", "item_id": item_id}
         detail = await CatalogQueries(connection).detail(item_id)
         if detail is None:
             raise HTTPException(404, "Unknown item")

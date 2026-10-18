@@ -34,10 +34,12 @@ from gh_maintainer.schemas import (
     AccountSnapshot,
     AnalysisInput,
     AnalysisView,
+    Category,
     CommentSnapshot,
     Disposition,
     ItemSnapshot,
     Kind,
+    Priority,
     ProcessingView,
     RepositoryActivity,
     RepositoryPayload,
@@ -740,6 +742,8 @@ class TriageService:
         until: datetime | None = None,
         at: datetime | None = None,
         revision: int | None = None,
+        priority: Priority | None = None,
+        category: Category | None = None,
     ) -> None:
         at = at or now()
         if disposition == Disposition.SNOOZED:
@@ -756,6 +760,8 @@ class TriageService:
                 source_revision=item.revision,
                 disposition=disposition.value,
                 note=note,
+                priority=priority.value if priority else None,
+                category=category.value if category else None,
                 snoozed_until=until,
                 updated_at=at,
             )
@@ -768,6 +774,8 @@ class TriageService:
                             "source_revision",
                             "disposition",
                             "note",
+                            "priority",
+                            "category",
                             "snoozed_until",
                             "updated_at",
                         )

@@ -211,6 +211,12 @@ function renderItem(item) {
     meta.append(badge(item.draft ? "Draft" : item.state, item.state));
     for (const label of item.labels.slice(0, 2))
         meta.append(badge(label, "label"));
+    if (item.category)
+        meta.append(el("span", item.category.replace(/_/g, " "), "category-tag"));
+    if (item.priority)
+        meta.append(el("span", item.priority, `priority-tag ${item.priority}`));
+    if (item.triaged)
+        meta.append(el("span", "Triaged", "triaged-tag"));
     center.append(meta);
     if (item.note) center.append(el("p", item.note, "item-note"));
     const side = el("div", undefined, "item-side");
@@ -392,6 +398,12 @@ async function loadItems() {
         query.set("disposition", disposition);
     }
     if (view === "pr" || view === "issue") query.set("kind", view);
+    if ($("#category")?.value) query.set("category", $("#category").value);
+    if ($("#priority")?.value) query.set("priority", $("#priority").value);
+    if ($("#triaged")?.value) query.set("triaged", $("#triaged").value);
+    if ($("#author")?.value) query.set("author", $("#author").value);
+    if ($("#since")?.value) query.set("since", $("#since").value + "T00:00:00Z");
+    if ($("#until")?.value) query.set("until", $("#until").value + "T23:59:59Z");
     try {
         const data = await api(`/api/items?${query}`);
         if (currentGeneration !== generation) return;
@@ -743,6 +755,39 @@ function renderDetail({ item, changes }) {
         status.append(new Option(label, value));
     status.value = item.disposition;
     statusLabel.htmlFor = status.id;
+    const priorityLabel = el("label", "Priority"),
+        priority = el("select");
+    priority.id = "triage-priority";
+    priority.append(new Option("None / Default", ""));
+    for (const [val, lab] of [
+        ["urgent", "Urgent"],
+        ["high", "High"],
+        ["medium", "Medium"],
+        ["low", "Low"],
+    ])
+        priority.append(new Option(lab, val));
+    priority.value = item.priority || "";
+    priorityLabel.htmlFor = priority.id;
+    const categoryLabel = el("label", "Category"),
+        category = el("select");
+    category.id = "triage-category";
+    category.append(new Option("Auto-infer", ""));
+    for (const [val, lab] of [
+        ["feature_request", "Feature Request"],
+        ["feature_contribution", "Feature Contribution"],
+        ["bug_report", "Bug Report"],
+        ["bug_fix", "Bug Fix"],
+        ["dependency_upgrade", "Dependency Upgrade"],
+        ["documentation", "Documentation"],
+        ["maintenance", "Maintenance"],
+        ["ci", "CI/Automation"],
+        ["question", "Question"],
+        ["security", "Security"],
+        ["other", "Other"],
+    ])
+        category.append(new Option(lab, val));
+    category.value = item.category || "";
+    categoryLabel.htmlFor = category.id;
     const untilLabel = el("label", "Snooze until"),
         until = el("input");
     until.id = "triage-until";
@@ -796,6 +841,10 @@ function renderDetail({ item, changes }) {
     form.append(
         statusLabel,
         status,
+        priorityLabel,
+        priority,
+        categoryLabel,
+        category,
         snooze,
         noteLabel,
         note,
@@ -849,6 +898,8 @@ function renderDetail({ item, changes }) {
                     body: JSON.stringify({
                         disposition: status.value,
                         note: note.value,
+                        priority: priority.value || null,
+                        category: category.value || null,
                         snoozed_until: deadline,
                     }),
                 },
@@ -991,6 +1042,12 @@ function resetFilters() {
     $("#repo").value = "";
     $("#state").value = view === "all" ? "" : "open";
     $("#sort").value = "priority";
+    if ($("#category")) $("#category").value = "";
+    if ($("#priority")) $("#priority").value = "";
+    if ($("#triaged")) $("#triaged").value = "";
+    if ($("#author")) $("#author").value = "";
+    if ($("#since")) $("#since").value = "";
+    if ($("#until")) $("#until").value = "";
     offset = 0;
     focus = "";
     disposition = "inbox";
@@ -1048,8 +1105,25 @@ $("#search").addEventListener("input", () => {
         loadItems();
     }, 180);
 });
-for (const selector of ["#repo", "#state", "#sort"])
-    $(selector).addEventListener("change", () => {
+let authorTimer;
+$("#author")?.addEventListener("input", () => {
+    clearTimeout(authorTimer);
+    authorTimer = setTimeout(() => {
+        offset = 0;
+        loadItems();
+    }, 180);
+});
+for (const selector of [
+    "#repo",
+    "#state",
+    "#sort",
+    "#category",
+    "#priority",
+    "#triaged",
+    "#since",
+    "#until",
+])
+    $(selector)?.addEventListener("change", () => {
         offset = 0;
         loadItems();
     });

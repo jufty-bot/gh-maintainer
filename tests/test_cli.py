@@ -58,6 +58,8 @@ def test_help_and_version_do_not_open_database(tmp_path: Path) -> None:
         ["changes", "--since", "yesterday"],
         ["changes", "--since", "2026-10-01T00:00:00"],
         ["triage", "I_1", "snoozed", "--until", "not-a-date"],
+        ["triage", "I_1", "planned", "--priority", "invalid"],
+        ["triage", "I_1", "planned", "--category", "invalid"],
         ["serve", "--port", "65536"],
         ["rank", "I_1", "bad-score"],
         ["classify", "I_1"],
@@ -292,3 +294,56 @@ async def test_database_vacuum_direct(tmp_path: Path) -> None:
         await db.vacuum()
     finally:
         await db.close()
+
+
+def test_cli_triage_priority_and_category(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "triage_cli.sqlite")
+
+    async def setup_db() -> None:
+        db = Database(db_path)
+        await db.initialize()
+        await seed_demo(db)
+        await db.close()
+
+    asyncio.run(setup_db())
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        [
+            "--db",
+            db_path,
+            "triage",
+            "DEMO_1_39",
+            "planned",
+            "--priority",
+            "urgent",
+            "--category",
+            "bug_fix",
+            "--note",
+            "Fix this ASAP",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Local triage decision saved" in result.output
+
+    # Inspect item with show --format json
+    result = runner.invoke(
+        cli.main,
+        ["--db", db_path, "show", "DEMO_1_39", "--format", "json"],
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    item = data["item"]
+    assert item["priority"] == "urgent"
+    assert item["category"] == "bug_fix"
+    assert item["triaged"] is True
+    assert item["note"] == "Fix this ASAP"
+
+    # Filter with issues
+    result = runner.invoke(
+        cli.main,
+        ["--db", db_path, "issues", "--priority", "urgent"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "DEMO_1_39" in result.output or "39" in result.output

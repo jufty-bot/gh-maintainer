@@ -344,3 +344,25 @@ Files provide defaults rather than selecting commands or running a sequence of c
 CLI configuration remains separate from repository policy and its local-write guards.
 
 Evidence: [configuration contracts](configuration.md) and `tests/test_config.py`.
+
+## D17. Triage categorization, priority assignment, and multi-field filtering
+
+**Decision:** Extend triage decisions with assignable priority (`urgent`, `high`, `medium`, `low`)
+and explicit category classifications (including feature request/contribution, bug fix/report,
+dependency upgrade, documentation, maintenance, security, question, other). When no explicit
+category has been chosen during triage, infer a fallback category deterministically from item
+type, labels, and title conventions. Incorporate assigned priority into computed queue ranking.
+Add filtering by author, date range (`since`/`until`), priority, category, and triaged status
+to CLI item queries, report generation, and dashboard API and UI.
+
+**Why:** Maintainers triage incoming work by evaluating disposition, priority, and category together.
+Deterministic fallback classification categorizes untriaged items immediately without requiring an LLM
+call or manual tagging, while explicit triage choices override inference. Filtering by author and date
+allows targeted review of contributor history or time-bounded sprints.
+
+**Tradeoff:** Category inference relies on common conventions (e.g. `feat:`, `fix:`, `deps:` prefixes
+and issue/PR labels) and may classify ambiguous items as `other` until a maintainer explicitly categorizes
+them. Priority weights (+100 for urgent, +50 for high, +25 for medium) directly affect rank ordering
+alongside disposition adjustments.
+
+Evidence: `tests/test_cli.py`, `tests/test_migrations.py`, `tests/test_reports_web.py`, and migration `0006`.

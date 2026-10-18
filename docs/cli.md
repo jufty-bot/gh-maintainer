@@ -49,7 +49,8 @@ text output includes the current head.
 Item references accept `OWNER/REPO#42` or the stored **issue node ID**, including for PRs.
 Repository names are case-insensitive. Unknown references fail instead of returning an
 empty detail. List commands accept `--repo`, `--state`, `--search`, `--disposition`,
-`--classification`, `--processing`, and `--sort priority|updated|rank`.
+`--classification`, `--processing`, `--author`, `--since`, `--until`,
+`--priority`, `--category`, `--triaged/--untriaged`, and `--sort priority|updated|rank`.
 
 `comments` combines conversation comments, inline review comments, and PR review bodies.
 JSON retains raw payloads, including reply IDs, paths, line context, and review state.
@@ -97,7 +98,7 @@ migration `0004`; the next sync fills them. Local `repos` reads never need crede
 gh-maintainer classify OWNER/REPO#42 bug urgent --producer agent/v1 --revision 3
 gh-maintainer summarize OWNER/REPO#42 'Fixes a crash during startup' --revision 3
 gh-maintainer rank OWNER/REPO#42 90 --reason 'Affects new installations' --revision 3
-gh-maintainer triage OWNER/REPO#42 planned --note 'Reproduce before review' --revision 3
+gh-maintainer triage OWNER/REPO#42 planned --priority high --category bug_report --note 'Reproduce before review' --revision 3
 gh-maintainer prs --classification bug --sort rank --format json
 ```
 

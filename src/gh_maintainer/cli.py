@@ -44,10 +44,12 @@ from gh_maintainer.repositories import (
 )
 from gh_maintainer.schemas import (
     AnalysisInput,
+    Category,
     Contract,
     Disposition,
     ItemFilters,
     Kind,
+    Priority,
     State,
     owner_name,
     repository_name,
@@ -409,6 +411,34 @@ def register_commands() -> None:
                     default="priority",
                     help="Order matching items.",
                 ),
+                click.Option(["--author"], default="", help="Filter by item author."),
+                click.Option(
+                    ["--since"],
+                    type=parse_date,
+                    metavar="TIMESTAMP",
+                    help="Filter by item updated on or after timestamp.",
+                ),
+                click.Option(
+                    ["--until"],
+                    type=parse_date,
+                    metavar="TIMESTAMP",
+                    help="Filter by item updated on or before timestamp.",
+                ),
+                click.Option(
+                    ["--priority"],
+                    type=click.Choice([v.value for v in Priority]),
+                    help="Filter by priority.",
+                ),
+                click.Option(
+                    ["--category"],
+                    type=click.Choice([v.value for v in Category]),
+                    help="Filter by category.",
+                ),
+                click.Option(
+                    ["--triaged/--untriaged"],
+                    default=None,
+                    help="Filter by triaged state.",
+                ),
             ]
         if name in {
             "show",
@@ -485,7 +515,22 @@ def register_commands() -> None:
         if name == "triage":
             params += [
                 click.Argument(
-                    ["disposition"], type=click.Choice([v.value for v in Disposition])
+                    ["disposition"],
+                    required=False,
+                    default="planned",
+                    type=click.Choice([v.value for v in Disposition]),
+                ),
+                click.Option(
+                    ["--priority"],
+                    type=click.Choice([v.value for v in Priority]),
+                    default=None,
+                    help="Assigned priority level.",
+                ),
+                click.Option(
+                    ["--category"],
+                    type=click.Choice([v.value for v in Category]),
+                    default=None,
+                    help="Assigned category.",
                 ),
                 click.Option(["--note"], default="", help="Local maintenance note."),
                 click.Option(
@@ -584,6 +629,16 @@ async def read_command(database: Database, args: SimpleNamespace) -> None:
                 processing=args.processing,
                 classification=args.classification,
                 sort=args.sort,
+                author=getattr(args, "author", "") or "",
+                since=getattr(args, "since", None),
+                until=getattr(args, "until", None),
+                priority=Priority(args.priority)
+                if getattr(args, "priority", None)
+                else None,
+                category=Category(args.category)
+                if getattr(args, "category", None)
+                else None,
+                triaged=getattr(args, "triaged", None),
                 limit=args.limit,
                 offset=args.offset,
             )
@@ -865,11 +920,19 @@ async def run(args: SimpleNamespace) -> int:
             )
             display(processed, f"Marked revision {processed.revision} processed.", args)
         elif args.command == "triage":
+            priority = (
+                Priority(args.priority) if getattr(args, "priority", None) else None
+            )
+            category = (
+                Category(args.category) if getattr(args, "category", None) else None
+            )
             await TriageService(database).decide(
                 args.item_id,
                 Disposition(args.disposition),
                 args.note,
-                args.until,
+                priority=priority,
+                category=category,
+                until=args.until,
                 revision=args.revision,
             )
             if args.format == "json":

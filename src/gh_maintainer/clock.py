@@ -8,7 +8,9 @@ def now() -> datetime:
 
 
 def parse_date(value: str) -> datetime:
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    parsed = datetime.fromisoformat(
+        value.strip().replace(" ", "+").replace("Z", "+00:00")
+    )
     if parsed.tzinfo is None:
         raise ValueError("Use an ISO timestamp including a timezone.")
     return parsed.astimezone(timezone.utc)

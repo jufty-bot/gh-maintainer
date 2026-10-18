@@ -250,14 +250,17 @@ The item endpoint executes a count and a SELECT with SQL filtering, ordering, LI
 OFFSET. Overview counts are SQL aggregates; item details only load the requested item and
 its latest observations. Full JSON/Markdown exports intentionally read the whole portfolio.
 
-The pure policy adds explicit reasons and scores: failing checks 80, conflicts 70, changes
-requested 60, required review 50, 30-day inactivity 30, and unassigned issues 20. Missing
-checks are unknown. SQL expressions implement the same rules for ranking/filtering; parity
-tests compare SQL results with pure policy evaluations.
+The pure policy adds explicit reasons and scores: urgent priority 100, high priority 50,
+medium priority 25, failing checks 80, conflicts 70, changes requested 60, required review 50,
+30-day inactivity 30, and unassigned issues 20. Missing checks are unknown. Categories are
+inferred from labels, Conventional Commits titles, bot authors, and issue/PR kind, and can be
+overridden during triage. SQL expressions implement the same rules for ranking and category
+filtering; parity tests compare SQL results with pure policy evaluations.
 
-Local triage notes survive synchronization. A snooze requires a future aware timestamp and
+Local triage notes, priority, and category survive synchronization. A snooze requires a future aware timestamp and
 expires in both SQL and presentation rules. An item marked locally done returns to the
-inbox when its source update time advances. GitHub state is never changed by local triage.
+inbox when its source update time advances. Results can be filtered by author, date range,
+category, priority, and triaged status. GitHub state is never changed by local triage.
 
 Each item also has a monotonic source revision. Meaningful item/signal changes and comment
 changes increment it once per sync; freshness-only polling does not. Observations retain

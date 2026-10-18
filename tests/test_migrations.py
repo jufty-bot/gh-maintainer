@@ -134,7 +134,11 @@ async def test_adopt_legacy_preserves_every_value_and_is_idempotent(
             }
             assert connection.execute(
                 "SELECT version_num FROM alembic_version"
-            ).fetchone() == ("0005",)
+            ).fetchone() == ("0006",)
+            triage_columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(triage)")
+            }
+            assert {"priority", "category"}.issubset(triage_columns)
             indexes = connection.execute(
                 "SELECT name FROM sqlite_master "
                 "WHERE type='index' AND tbl_name='changes'"
@@ -238,5 +242,36 @@ async def test_changes_index_upgrade_from_0004(tmp_path: Path) -> None:
                 "WHERE type='index' AND tbl_name='changes'"
             ).fetchall()
             assert ("changes_item_id",) in indexes
+    finally:
+        await database.close()
+
+
+async def test_triage_priority_category_upgrade_from_0005(tmp_path: Path) -> None:
+    path = tmp_path / "triage_upgrade.sqlite"
+    legacy_database(path)
+    database = Database(path)
+
+    def schema_0005(connection: Connection) -> None:
+        config = Config()
+        config.set_main_option("script_location", "src/gh_maintainer/migrations")
+        config.attributes["connection"] = connection
+        command.upgrade(config, "0005")
+
+    try:
+        async with database.engine.begin() as connection:
+            await connection.run_sync(schema_0005)
+        with closing(sqlite3.connect(path)) as connection, connection:
+            columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(triage)")
+            }
+            assert "priority" not in columns
+            assert "category" not in columns
+        await database.initialize()
+        with closing(sqlite3.connect(path)) as connection, connection:
+            columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(triage)")
+            }
+            assert "priority" in columns
+            assert "category" in columns
     finally:
         await database.close()

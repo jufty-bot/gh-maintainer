@@ -76,6 +76,27 @@ class Disposition(str, Enum):
     DONE = "done"
 
 
+class Priority(str, Enum):
+    URGENT = "urgent"
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+class Category(str, Enum):
+    FEATURE_REQUEST = "feature_request"
+    FEATURE_CONTRIBUTION = "feature_contribution"
+    BUG_REPORT = "bug_report"
+    BUG_FIX = "bug_fix"
+    DEPENDENCY_UPGRADE = "dependency_upgrade"
+    DOCUMENTATION = "documentation"
+    MAINTENANCE = "maintenance"
+    CI = "ci"
+    QUESTION = "question"
+    SECURITY = "security"
+    OTHER = "other"
+
+
 class ItemSort(str, Enum):
     PRIORITY = "priority"
     UPDATED = "updated"
@@ -360,6 +381,8 @@ class RepositoryStatus(RepositorySnapshot):
 class TriageSnapshot(Contract):
     disposition: Disposition = Disposition.INBOX
     note: str = ""
+    priority: Priority | None = None
+    category: Category | None = None
     snoozed_until: AwareDatetime | None = None
     updated_at: AwareDatetime | None = None
     source_revision: int | None = None
@@ -433,8 +456,10 @@ class CommentPage(Contract):
 
 
 class TriageUpdate(Contract):
-    disposition: Disposition
+    disposition: Disposition = Disposition.PLANNED
     note: str = Field(default="", max_length=10000)
+    priority: Priority | None = None
+    category: Category | None = None
     snoozed_until: AwareDatetime | None = None
 
 
@@ -462,6 +487,9 @@ class ItemView(ItemSnapshot, Assessment):
     labels: list[str]
     assignees: list[str]
     author: str
+    priority: Priority | None = None
+    category: Category = Category.OTHER
+    triaged: bool = False
     processing_state: Literal["unprocessed", "changed", "processed"] = "unprocessed"
     processed_revision: int | None = None
     processed_by: str | None = None
@@ -525,6 +553,12 @@ class ItemFilters(Contract):
     classification: str | None = None
     sort: ItemSort = ItemSort.PRIORITY
     focus: ItemFocus | None = None
+    author: str = ""
+    since: AwareDatetime | None = None
+    until: AwareDatetime | None = None
+    priority: Priority | None = None
+    category: Category | None = None
+    triaged: bool | None = None
     limit: int = Field(default=100, ge=1, le=500)
     offset: int = Field(default=0, ge=0)
 

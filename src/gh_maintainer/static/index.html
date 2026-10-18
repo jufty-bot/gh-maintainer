@@ -228,6 +228,35 @@
                         <option value="updated">Recently updated</option>
                         <option value="oldest">Oldest update first</option>
                     </select>
+                    <select id="category" aria-label="Category">
+                        <option value="">All categories</option>
+                        <option value="feature_request">Feature Request</option>
+                        <option value="feature_contribution">Feature Contribution</option>
+                        <option value="bug_report">Bug Report</option>
+                        <option value="bug_fix">Bug Fix</option>
+                        <option value="dependency_upgrade">Dependency Upgrade</option>
+                        <option value="documentation">Documentation</option>
+                        <option value="maintenance">Maintenance</option>
+                        <option value="ci">CI/Automation</option>
+                        <option value="question">Question</option>
+                        <option value="security">Security</option>
+                        <option value="other">Other</option>
+                    </select>
+                    <select id="priority" aria-label="Priority">
+                        <option value="">All priorities</option>
+                        <option value="urgent">Urgent</option>
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                    </select>
+                    <select id="triaged" aria-label="Triage status">
+                        <option value="">All triage status</option>
+                        <option value="true">Triaged</option>
+                        <option value="false">Untriaged</option>
+                    </select>
+                    <input id="author" type="text" placeholder="Author..." style="max-width:130px;padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text);font-size:11px;" />
+                    <input id="since" type="date" title="Updated on/after" style="max-width:130px;padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text);font-size:11px;" />
+                    <input id="until" type="date" title="Updated on/before" style="max-width:130px;padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text);font-size:11px;" />
                 </div>
                 <div class="focus-bar" id="focus-bar">
                     <div

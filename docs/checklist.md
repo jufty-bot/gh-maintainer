@@ -26,6 +26,20 @@ Split partial work into separate tasks instead of marking an entire milestone co
 
 These references establish the starting inventory; they do not record a fresh test run.
 
+## Triage categorization, priority assignment, and date/author filtering
+
+- [x] Add `Priority` (`urgent`, `high`, `medium`, `low`) and `Category` enums (`feature_request`, `feature_contribution`, `bug_fix`, `bug_report`, `dependency_upgrade`, `documentation`, `maintenance`, `ci_automation`, `question`, `security`, `other`).
+- [x] Implement schema migration `0006_triage_priority_category.py` adding `priority` and `category` to the `triage` table.
+- [x] Implement deterministic category inference in policies based on labels, PR detection, and title heuristics.
+- [x] Integrate priority weights into queue scoring (`urgent` +100, `high` +50, `medium` +25).
+- [x] Add CLI and API query filtering by `author`, `since`, `until`, `priority`, `category`, and `triaged`/`untriaged`.
+- [x] Support priority and category selection in CLI `triage` command and web dashboard triage modal.
+- [x] Display category and priority badges and filter controls in the web dashboard.
+- [x] Export priority, category, and triaged status in markdown reports.
+
+Evidence: `tests/test_cli.py` (CLI triage and filter tests), `tests/test_migrations.py` (`test_triage_priority_category_upgrade_from_0005`), `tests/test_reports_web.py` (API triage and filter tests, report formatting).
+Validation: all 278 Python tests passed; Ruff check, format, mypy, strict MkDocs, and `git diff --check` passed.
+
 ## Observation indexing and retention pruning
 
 - [x] Add composite index on `changes(item_id, id)` via Alembic migration `0005`.

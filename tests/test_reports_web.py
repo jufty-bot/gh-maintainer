@@ -11,10 +11,17 @@ from gh_maintainer.clock import now, parse_date
 from gh_maintainer.database import Database
 from gh_maintainer.demo import seed_demo
 from gh_maintainer.models import Item, Repository, TriageDecision
+from gh_maintainer.policies import infer_category
 from gh_maintainer.queries import CatalogQueries, QueueExpressions
 from gh_maintainer.report import markdown
 from gh_maintainer.repositories import CatalogRepository, TriageService
-from gh_maintainer.schemas import Disposition, ItemFilters, Kind
+from gh_maintainer.schemas import (
+    Category,
+    Disposition,
+    ItemFilters,
+    ItemSnapshot,
+    Kind,
+)
 from gh_maintainer.web import create_app
 
 pytestmark = pytest.mark.anyio
@@ -317,3 +324,195 @@ async def test_triage_filters_use_effective_dispositions(database: Database) -> 
             assert not {item["id"] for item in page["items"]} & {
                 item["id"] for item in second["items"]
             }
+
+
+async def test_api_and_sql_author_date_category_priority_triaged_filters(
+    database: Database,
+) -> None:
+    await seed_demo(database)
+    app = create_app("unused", database=database)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        # Filter on author
+        by_author = (await client.get("/api/items?author=contributor")).json()
+        assert by_author["total"] == 6
+        assert all(item["author"] == "contributor" for item in by_author["items"])
+        empty_author = (await client.get("/api/items?author=nonexistent")).json()
+        assert empty_author["total"] == 0
+
+        # Filter on date (since/until)
+        at = now()
+        since_time = (at - timedelta(days=5)).isoformat()
+        recent = (await client.get(f"/api/items?since={since_time}")).json()
+        assert 0 < recent["total"] < 6
+
+        # Initially untriaged
+        untriaged = (await client.get("/api/items?triaged=false")).json()
+        assert untriaged["total"] == 6
+        triaged = (await client.get("/api/items?triaged=true")).json()
+        assert triaged["total"] == 0
+
+        # Triage via API endpoint
+        triage_res = await client.post(
+            "/api/items/DEMO_1_42/triage",
+            json={
+                "disposition": "planned",
+                "priority": "urgent",
+                "category": "bug_fix",
+                "note": "Urgent bug fix needed",
+            },
+        )
+        assert triage_res.status_code == 200
+        assert triage_res.json()["status"] == "ok"
+
+        # Check detail reflects priority and category
+        detail = (await client.get("/api/items/DEMO_1_42")).json()["item"]
+        assert detail["priority"] == "urgent"
+        assert detail["category"] == "bug_fix"
+        assert detail["triaged"] is True
+        assert detail["note"] == "Urgent bug fix needed"
+
+        # Filter on triaged
+        triaged = (await client.get("/api/items?triaged=true")).json()
+        assert triaged["total"] == 1
+        assert triaged["items"][0]["id"] == "DEMO_1_42"
+
+        # Filter on priority
+        urgent = (await client.get("/api/items?priority=urgent")).json()
+        assert urgent["total"] == 1
+        assert urgent["items"][0]["id"] == "DEMO_1_42"
+
+        # Filter on category
+        bug_fix = (await client.get("/api/items?category=bug_fix")).json()
+        assert bug_fix["total"] >= 1
+        assert any(item["id"] == "DEMO_1_42" for item in bug_fix["items"])
+
+        # Invalid filters return 422
+        assert (await client.get("/api/items?priority=super")).status_code == 422
+        assert (await client.get("/api/items?category=invalid")).status_code == 422
+
+        # Invalid triage item returns 404
+        assert (
+            await client.post(
+                "/api/items/nonexistent/triage",
+                json={"disposition": "planned"},
+            )
+        ).status_code == 404
+
+
+def test_category_inference_heuristics() -> None:
+    def make_item(
+        title: str,
+        kind: Kind,
+        labels: list[str] | None = None,
+        author: str = "coder",
+    ) -> ItemSnapshot:
+        raw = {
+            "node_id": "test_id",
+            "number": 1,
+            "title": title,
+            "state": "open",
+            "updated_at": "2026-10-01T00:00:00Z",
+            "html_url": "https://github.com/o/r/issues/1",
+            "labels": [{"name": lbl} for lbl in (labels or [])],
+            "user": {"login": author},
+            "body": "Body",
+        }
+        if kind == Kind.PR:
+            raw["pull_request"] = {}
+        return ItemSnapshot.from_github(raw, "1")
+
+    # Bot accounts
+    assert (
+        infer_category(make_item("Bump axios", Kind.PR, author="dependabot[bot]"))
+        == Category.DEPENDENCY_UPGRADE
+    )
+    assert (
+        infer_category(make_item("Update redis", Kind.PR, author="renovate"))
+        == Category.DEPENDENCY_UPGRADE
+    )
+
+    # Dependency labels & prefixes
+    assert (
+        infer_category(make_item("deps: bump flask", Kind.PR))
+        == Category.DEPENDENCY_UPGRADE
+    )
+    assert (
+        infer_category(make_item("bump urllib", Kind.PR)) == Category.DEPENDENCY_UPGRADE
+    )
+    assert (
+        infer_category(make_item("Upgrade", Kind.PR, labels=["dependencies"]))
+        == Category.DEPENDENCY_UPGRADE
+    )
+
+    # Security
+    assert infer_category(make_item("sec: fix cve-1234", Kind.PR)) == Category.SECURITY
+    assert (
+        infer_category(
+            make_item("Vulnerability report", Kind.ISSUE, labels=["security"])
+        )
+        == Category.SECURITY
+    )
+
+    # Documentation
+    assert (
+        infer_category(make_item("docs: update readme", Kind.PR))
+        == Category.DOCUMENTATION
+    )
+    assert (
+        infer_category(
+            make_item("Fix typo in docs", Kind.ISSUE, labels=["documentation"])
+        )
+        == Category.DOCUMENTATION
+    )
+
+    # CI / Build
+    assert infer_category(make_item("ci: add lint action", Kind.PR)) == Category.CI
+    assert (
+        infer_category(make_item("Workflow fails", Kind.ISSUE, labels=["ci"]))
+        == Category.CI
+    )
+
+    # Question
+    assert (
+        infer_category(
+            make_item("How to configure auth?", Kind.ISSUE, labels=["question"])
+        )
+        == Category.QUESTION
+    )
+
+    # Bug: PR vs Issue
+    assert infer_category(make_item("fix: null pointer", Kind.PR)) == Category.BUG_FIX
+    assert (
+        infer_category(make_item("Crash on startup", Kind.ISSUE, labels=["bug"]))
+        == Category.BUG_REPORT
+    )
+
+    # Feature: PR vs Issue
+    assert (
+        infer_category(make_item("feat: add dark mode", Kind.PR))
+        == Category.FEATURE_CONTRIBUTION
+    )
+    assert (
+        infer_category(
+            make_item("Add dark mode option", Kind.ISSUE, labels=["enhancement"])
+        )
+        == Category.FEATURE_REQUEST
+    )
+
+    # Maintenance
+    assert (
+        infer_category(make_item("refactor: clean up db session", Kind.PR))
+        == Category.MAINTENANCE
+    )
+    assert (
+        infer_category(make_item("Code cleanup", Kind.ISSUE, labels=["chore"]))
+        == Category.MAINTENANCE
+    )
+
+    # Fallback
+    assert (
+        infer_category(make_item("Weekly sync meeting notes", Kind.ISSUE))
+        == Category.OTHER
+    )

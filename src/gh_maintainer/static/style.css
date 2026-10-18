@@ -1478,3 +1478,10 @@ dialog h2 {
     border-radius: 6px;
     margin-bottom: 12px;
 }
+.category-tag{background:#1d2b33;color:#8ec3df;padding:2px 7px;border-radius:4px;font-size:10px;text-transform:capitalize}
+.priority-tag{font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600}
+.priority-tag.urgent{background:#4a1f1f;color:#ff9d9d}
+.priority-tag.high{background:#452d19;color:#ffbc7d}
+.priority-tag.medium{background:#383a1f;color:#e6e885}
+.priority-tag.low{background:#23312a;color:#a9d8b7}
+.triaged-tag{background:#1f3325;color:#a9d8b7;padding:2px 6px;border-radius:4px;font-size:10px}

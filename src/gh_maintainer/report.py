@@ -27,9 +27,14 @@ def markdown(data: Portfolio) -> str:
     for item in queue:
         title = item.title.replace("\n", " ").replace("[", "\\[").replace("]", "\\]")
         reasons = ", ".join(item.reasons) or "Open item"
+        category_label = item.category.value.replace("_", " ")
+        priority_label = f"; priority: {item.priority.value}" if item.priority else ""
+        triaged_label = " (triaged)" if item.triaged else ""
+        disp = item.disposition.value
         lines.append(
             f"- [{item.repo}#{item.number}: {title}]({item.url}) "
-            f"— {reasons}; triage: {item.disposition.value}"
+            f"— {reasons}; category: {category_label}{priority_label}; "
+            f"triage: {disp}{triaged_label}"
         )
     if not queue:
         lines.append("No active items in the maintenance queue.")

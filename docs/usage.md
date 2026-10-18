@@ -121,7 +121,7 @@ uv run gh-maintainer report --output maintenance.md
 uv run gh-maintainer report --format json --output portfolio.json
 
 # Use an item's node ID from its dashboard details or JSON export
-uv run gh-maintainer triage I_EXAMPLE planned --note 'Reproduce with current release'
+uv run gh-maintainer triage I_EXAMPLE planned --priority high --category bug_report --note 'Reproduce with current release'
 uv run gh-maintainer triage I_EXAMPLE waiting --note 'Waiting for author response'
 uv run gh-maintainer triage I_EXAMPLE snoozed --until 2026-12-01T09:00:00Z
 uv run gh-maintainer triage I_EXAMPLE done
@@ -130,7 +130,7 @@ uv run gh-maintainer triage I_EXAMPLE done
 `done` is a local triage decision, separate from GitHub's open/closed status. An item
 returns to the inbox when new observed source activity advances its revision after that decision.
 Snoozes expire automatically. Open an item in the dashboard to edit its local disposition,
-next-action note, and snooze deadline, or use the CLI commands above. The app never merges
+priority, category, next-action note, and snooze deadline, or use the CLI commands above. The app never merges
 PRs, closes issues, sends messages, or changes GitHub labels.
 
 ### Dashboard workflow
@@ -140,8 +140,9 @@ PRs, closes issues, sends messages, or changes GitHub labels.
 - **Save & next** records your decision and opens the next item on the current page.
   The triage inbox has separate lanes for inbox, planned, waiting, snoozed, and done.
   Snoozed and done items leave the maintenance queue; planned and waiting items remain.
-- Search titles, labels, repository names, and item numbers. Filter by repository or
-  attention level, and sort by priority, recent updates, or oldest updates.
+- Search titles, labels, repository names, and item numbers. Filter by repository,
+  attention level, author, date range (`since`/`until`), priority, category, or
+  triaged status, and sort by priority, recent updates, or oldest updates.
 - Item details show PR signals, assignees, labels, and recent local source observations.
   Copy an item ID for the CLI, or open the original item on GitHub.
 - Press `/` to focus search, `j` / `k` to move between items while reviewing, and `Esc`
@@ -151,10 +152,10 @@ PRs, closes issues, sends messages, or changes GitHub labels.
 Markdown is sanitized before display. Renderer assets are bundled with the app, so
 rendering works offline without a CDN or a frontend build step.
 
-The local triage API is `PUT /api/items/{item_id}/triage`, with a JSON body containing
-`disposition`, `note`, and optional timezone-aware `snoozed_until`. It requires the
-`X-Maintainer-Request: 1` header and rejects cross-site browser requests. The dashboard
-still needs the local or authenticated private deployment described below.
+The local triage API is `/api/items/{item_id}/triage` (accepting `PUT` or `POST`), with a JSON body
+containing `disposition`, `note`, optional `priority`, optional `category`, and optional timezone-aware
+`snoozed_until`. It requires the `X-Maintainer-Request: 1` header on PUT and rejects cross-site browser requests.
+The dashboard still needs the local or authenticated private deployment described below.
 
 ## What the index contains
 

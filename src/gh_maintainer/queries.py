@@ -144,7 +144,15 @@ class QueueExpressions:
                 30,
             ),
         ]
+        priority = TriageDecision.priority
+        priority_weights = [
+            (priority == "urgent", 100),
+            (priority == "high", 50),
+            (priority == "medium", 25),
+        ]
         score: ColumnElement[int] = literal(0)
+        for applies, weight in priority_weights:
+            score = score + case((applies, weight), else_=0)
         for applies, weight in weights:
             score = score + case((applies, weight), else_=0)
         self.score = case((Item.state == "open", score), else_=0)
@@ -156,6 +164,144 @@ class QueueExpressions:
 
 def count_if(condition: ColumnElement[bool]) -> ColumnElement[int]:
     return func.coalesce(func.sum(case((condition, 1), else_=0)), 0)
+
+
+def category_expression() -> ColumnElement[str]:
+    extract = func.json_extract
+    author = func.lower(func.coalesce(extract(Item.raw, "$.user.login"), ""))
+    labels = func.lower(func.coalesce(extract(Item.raw, "$.labels"), ""))
+    title = func.lower(Item.title)
+    is_pr = Item.kind == "pr"
+    is_issue = Item.kind == "issue"
+
+    is_bot = author.in_(["dependabot", "dependabot[bot]", "renovate", "renovate[bot]"])
+    has_dep_label = or_(
+        labels.contains("dependencies"),
+        labels.contains("dependency"),
+        labels.contains("deps"),
+        labels.contains("dependabot"),
+        labels.contains("renovate"),
+    )
+    dep_title = or_(
+        title.startswith("deps:"),
+        title.startswith("deps("),
+        title.startswith("build(deps"),
+        title.startswith("bump "),
+    )
+    is_dep = or_(is_bot, and_(is_pr, or_(has_dep_label, dep_title)))
+
+    is_sec = or_(
+        labels.contains("security"),
+        labels.contains("vulnerability"),
+        labels.contains("cve"),
+        title.startswith("sec:"),
+        title.startswith("security:"),
+        title.startswith("security("),
+    )
+
+    is_doc = or_(
+        labels.contains("documentation"),
+        labels.contains("docs"),
+        labels.contains("doc"),
+        title.startswith("docs:"),
+        title.startswith("doc:"),
+        title.startswith("docs("),
+    )
+
+    is_ci = or_(
+        labels.contains("ci"),
+        labels.contains("automation"),
+        labels.contains("actions"),
+        labels.contains("build"),
+        labels.contains("workflows"),
+        title.startswith("ci:"),
+        title.startswith("ci("),
+        title.startswith("build:"),
+        title.startswith("build("),
+    )
+
+    is_question = and_(
+        is_issue,
+        or_(
+            labels.contains("question"),
+            labels.contains("support"),
+            labels.contains("discussion"),
+            labels.contains("help wanted"),
+        ),
+    )
+
+    has_bug_label = or_(labels.contains("bug"), labels.contains("defect"))
+    bug_title = or_(
+        title.startswith("fix:"),
+        title.startswith("fix("),
+        title.startswith("bug:"),
+        title.startswith("bug("),
+        title.startswith("hotfix:"),
+        title.startswith("hotfix("),
+    )
+    is_bug = or_(has_bug_label, bug_title)
+
+    has_feat_label = or_(labels.contains("enhancement"), labels.contains("feature"))
+    feat_title = or_(
+        title.startswith("feat:"),
+        title.startswith("feat("),
+        title.startswith("feature:"),
+        title.startswith("feature("),
+    )
+    is_feat = or_(has_feat_label, feat_title)
+
+    has_maint_label = or_(
+        labels.contains("maintenance"),
+        labels.contains("chore"),
+        labels.contains("refactor"),
+        labels.contains("cleanup"),
+        labels.contains("tech debt"),
+        labels.contains("technical debt"),
+        labels.contains("style"),
+    )
+    maint_title = or_(
+        title.startswith("chore:"),
+        title.startswith("chore("),
+        title.startswith("refactor:"),
+        title.startswith("refactor("),
+        title.startswith("style:"),
+        title.startswith("style("),
+    )
+    is_maint = or_(has_maint_label, maint_title)
+
+    pr_fix_fallback = and_(is_pr, or_(title.contains("fix"), title.contains("bug")))
+    pr_feat_fallback = and_(is_pr, title.contains("feat"))
+    issue_bug_fallback = and_(
+        is_issue,
+        or_(
+            title.contains("bug"),
+            title.contains("error"),
+            title.contains("fail"),
+            title.contains("crash"),
+        ),
+    )
+    issue_feat_fallback = and_(
+        is_issue, or_(title.contains("feature"), title.contains("request"))
+    )
+
+    inferred = case(
+        (is_dep, "dependency_upgrade"),
+        (is_sec, "security"),
+        (is_doc, "documentation"),
+        (is_ci, "ci"),
+        (is_question, "question"),
+        (and_(is_bug, is_pr), "bug_fix"),
+        (and_(is_bug, is_issue), "bug_report"),
+        (and_(is_feat, is_pr), "feature_contribution"),
+        (and_(is_feat, is_issue), "feature_request"),
+        (is_maint, "maintenance"),
+        (pr_fix_fallback, "bug_fix"),
+        (pr_feat_fallback, "feature_contribution"),
+        (issue_bug_fallback, "bug_report"),
+        (issue_feat_fallback, "feature_request"),
+        else_="other",
+    )
+    return func.coalesce(TriageDecision.category, inferred)
 
 
 class CatalogQueries:
@@ -382,6 +528,33 @@ class CatalogQueries:
             statement = statement.where(self.rules.score >= HIGH_PRIORITY_SCORE)
         elif filters.focus == ItemFocus.STALE:
             statement = statement.where(self.rules.stale)
+        if filters.author:
+            author_val = func.lower(
+                func.coalesce(func.json_extract(Item.raw, "$.user.login"), "ghost")
+            )
+            statement = statement.where(author_val == filters.author.lower())
+        if filters.since:
+            statement = statement.where(Item.updated_at >= filters.since)
+        if filters.until:
+            statement = statement.where(Item.updated_at <= filters.until)
+        if filters.priority:
+            statement = statement.where(
+                TriageDecision.priority == filters.priority.value
+            )
+        if filters.category:
+            statement = statement.where(category_expression() == filters.category.value)
+        if filters.triaged is not None:
+            is_triaged = and_(
+                TriageDecision.updated_at.is_not(None),
+                Item.updated_at <= TriageDecision.updated_at,
+                or_(
+                    TriageDecision.disposition != "inbox",
+                    TriageDecision.priority.is_not(None),
+                    TriageDecision.category.is_not(None),
+                    func.length(func.coalesce(TriageDecision.note, "")) > 0,
+                ),
+            )
+            statement = statement.where(is_triaged if filters.triaged else ~is_triaged)
         total = await self.session.scalar(
             select(func.count()).select_from(statement.subquery())
         )
