@@ -40,6 +40,17 @@ def main() -> None:
         assert release in command("--version")
         db = work / "index.sqlite"
         command("--db", str(db), "demo")
+        repositories = json.loads(
+            command("--db", str(db), "repos", "--format", "json")
+        )["repos"]
+        orbit = next(repo for repo in repositories if repo["name"] == "example/orbit")
+        assert orbit["activity"]["last_commit"]["sha"]
+        assert orbit["activity"]["last_release"]["tag_name"] == "v0.2.0"
+        assert (
+            orbit["activity"]["last_pr"]["number"],
+            orbit["activity"]["last_issue"]["number"],
+        ) == (42, 39)
+        assert orbit["activity_synced_at"] and not orbit["activity_stale"]
         item = json.loads(
             command("--db", str(db), "show", "example/orbit#42", "--format", "json")
         )["item"]

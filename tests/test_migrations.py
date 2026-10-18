@@ -6,6 +6,9 @@ from contextlib import closing
 from pathlib import Path
 
 import pytest
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import Connection
 
 from gh_maintainer.clock import parse_date
 from gh_maintainer.database import Database
@@ -131,7 +134,7 @@ async def test_adopt_legacy_preserves_every_value_and_is_idempotent(
             }
             assert connection.execute(
                 "SELECT version_num FROM alembic_version"
-            ).fetchone() == ("0003",)
+            ).fetchone() == ("0004",)
             assert connection.execute("SELECT * FROM owners").fetchall() == [
                 ("77", "owner", "User")
             ]
@@ -160,3 +163,44 @@ async def test_unknown_schema_is_rejected_without_partial_changes(
         assert connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
         ).fetchall() == [("unrelated",)]
+
+
+async def test_activity_upgrade_from_0003_retains_processing_and_analysis(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "existing.sqlite"
+    legacy_database(path)
+    database = Database(path)
+
+    def previous_schema(connection: Connection) -> None:
+        config = Config()
+        config.set_main_option("script_location", "src/gh_maintainer/migrations")
+        config.attributes["connection"] = connection
+        command.upgrade(config, "0003")
+
+    try:
+        async with database.engine.begin() as connection:
+            await connection.run_sync(previous_schema)
+        with closing(sqlite3.connect(path)) as connection, connection:
+            connection.execute("UPDATE items SET revision=7")
+            connection.execute(
+                "INSERT INTO summaries VALUES(?,?,?,?,?,?)",
+                ("I_1", 7, "agent", "Keep analysis", AT, "Preserve this summary"),
+            )
+            connection.execute(
+                "INSERT INTO processing VALUES(?,?,?,?)", ("I_1", 7, AT, "agent")
+            )
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(repos)")}
+            assert "activity" not in columns
+        await database.initialize()
+        async with database.sessions() as session:
+            queries = CatalogQueries(session)
+            item = (await queries.show("I_1")).item
+            assert item.revision == 7 and item.processed_revision == 7
+            assert item.summary.text == "Preserve this summary"
+            repo = (await queries.overview()).repos[0]
+            assert repo.activity is None and repo.activity_synced_at is None
+            assert repo.activity_error is None and repo.activity_stale
+            assert repo.raw["full_name"] == "owner/project"
+    finally:
+        await database.close()

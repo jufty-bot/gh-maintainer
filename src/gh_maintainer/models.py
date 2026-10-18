@@ -76,6 +76,9 @@ class Repository(Base):
     signals_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     error: Mapped[str | None]
     comments_synced_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    activity: Mapped[JsonObject | None] = mapped_column(JSON(none_as_null=True))
+    activity_synced_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    activity_error: Mapped[str | None]
 
 
 class Item(Base):

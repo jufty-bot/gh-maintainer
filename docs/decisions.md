@@ -272,3 +272,61 @@ PyGithub transport choice; authentication and local storage contracts are unchan
 
 Evidence: `github.py`, `concurrency.py`, `sync.py`, `repositories.py`, and transport,
 conversation, selection, cancellation and checkpoint tests.
+
+## D14. Reduce portfolio work without reducing coverage
+
+**Decision:** Reuse the existing source/catalog boundaries. Fetch repositories in bounded
+concurrency windows, share signal requests of at most 20 PR nodes, and commit each
+repository sequentially. Query the PR's head/rollup directly while retaining the stored
+signal shape. Compare inventory in SQL batches, write only changed metadata/memberships,
+and reconcile only scoped missing IDs. Load full snapshots for incoming/open items, PR
+numbers for historical review coverage, and comments only for incoming IDs or fully
+refreshed review scopes. Avoid repeated full-payload serialization on unchanged items.
+Resolve explicit repository selections with bounded workers and record selection failures
+in sorted inventory order after the read requests complete.
+
+**Why:** A portfolio with one open PR per repository previously underfilled every GraphQL
+request. Historical PR payloads and unrelated comments also scaled with accumulated data,
+while owner discovery rewrote unchanged inventory. Raw embedded account profiles and
+repository statistics could invalidate otherwise current analysis after incidental changes.
+Revision comparisons now reduce those embedded profiles to identity fields while retaining
+the latest full raw documents; other source fields, including unknown fields, stay significant.
+
+**Tradeoff:** A slow repository holds up its bounded window; staging never spans the whole
+portfolio. A failed shared signal batch can make all repositories represented in that batch
+partial. Those repositories retain all their old signals/timestamps, including successful
+parts of a multi-batch repository; other batches proceed. No schema migration, dependency,
+automatic polling delay or weakened reconciliation is introduced. Existing history remains
+intact; the comparison policy applies to future observations. Review bodies and open PR
+details are still fetched each sync. Conditional caching, per-node error recovery and more
+complex scheduling need their own coverage evidence before replacing this simple approach.
+
+Evidence: `tests/test_sync_efficiency.py`, transport, selection, maintenance, cancellation
+and checkpoint tests. See [portfolio efficiency](roadmap.md#portfolio-sync-efficiency) for
+next candidates and [checklist](checklist.md#portfolio-sync-efficiency) for validation.
+
+## D15. Repository recency with independent coverage
+
+**Decision:** Store one typed latest commit/release/PR/issue snapshot, with raw source data,
+on each repository. Migration `0004` adds its observation time/error independently from
+item/comment/signal checkpoints. Fetch up to 20 repositories per GraphQL request after
+discovery, including repositories whose later conversation ingestion fails. Expose the
+snapshot and derived stale flag through the existing `repos`/overview contracts.
+
+**Why:** Maintainers need repository recency even for repositories without issues or PRs.
+Existing item update timestamps do not identify the newest-created item, and repository
+push times cannot identify a default-branch commit. One shared probe per 20 repositories
+avoids four extra REST requests per repository. Explicit selection semantics use the
+default-branch tip, GitHub's designated latest release and newest-created PR/issue across
+all states. Source IDs, links and timestamps remain inspectable.
+
+**Tradeoff:** The summary is a latest snapshot, not a full commit/release event archive.
+Missing/partial aliases preserve old data/time and mark activity stale; valid nulls record
+known credential-visible absence. Global errors affect a batch; alias errors isolate the
+affected repository. Activity failures make the run partial without making item analysis
+stale, and successful activity reads survive failed item/conversation fetches. Observation
+times are explicit; no automatic age expiry or repository-skip heuristic is introduced.
+
+Evidence and validation: [repository activity checklist](checklist.md#repository-activity),
+`tests/test_repository_activity.py`, `tests/test_migrations.py` and the portfolio scale tests.
+The [CLI activity contract](cli.md#repository-activity) owns public field semantics.

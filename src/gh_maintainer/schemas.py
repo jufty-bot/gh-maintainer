@@ -6,9 +6,51 @@ import re
 from enum import Enum
 from typing import Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue
+from pydantic import (
+    AliasChoices,
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    field_validator,
+)
 
 JsonObject = dict[str, JsonValue]
+
+
+def source_content(raw: JsonObject) -> JsonObject:
+    """Compare source content without embedded account/repository profile metadata.
+
+    Unknown source fields remain significant. Raw documents are always retained;
+    only known embedded profiles are reduced to their source identities.
+    """
+    result = raw.copy()
+    actor_fields = {"id", "node_id", "login", "type"}
+    for key in ("user", "assignee", "merged_by", "closed_by", "editor"):
+        value = result.get(key)
+        if isinstance(value, dict):
+            result[key] = {k: v for k, v in value.items() if k in actor_fields}
+    for key in ("assignees", "requested_reviewers"):
+        values = result.get(key)
+        if isinstance(values, list):
+            result[key] = [
+                {k: v for k, v in value.items() if k in actor_fields}
+                if isinstance(value, dict)
+                else value
+                for value in values
+            ]
+    for key in ("head", "base"):
+        value = result.get(key)
+        if isinstance(value, dict):
+            ref = source_content(value)
+            repo = ref.get("repo")
+            if isinstance(repo, dict):
+                ref["repo"] = {
+                    k: v for k, v in repo.items() if k in {"id", "node_id", "full_name"}
+                }
+            result[key] = ref
+    return result
 
 
 class Contract(BaseModel):
@@ -212,6 +254,96 @@ class ItemSnapshot(Contract):
         )
 
 
+class RepositoryCommit(Contract):
+    sha: str = Field(min_length=1, validation_alias=AliasChoices("sha", "oid"))
+    message: str = Field(validation_alias=AliasChoices("message", "messageHeadline"))
+    committed_at: AwareDatetime = Field(
+        validation_alias=AliasChoices("committed_at", "committedDate")
+    )
+    url: str = Field(min_length=1)
+
+
+class RepositoryRelease(Contract):
+    id: str = Field(min_length=1)
+    name: str | None
+    tag_name: str = Field(
+        min_length=1, validation_alias=AliasChoices("tag_name", "tagName")
+    )
+    published_at: AwareDatetime = Field(
+        validation_alias=AliasChoices("published_at", "publishedAt")
+    )
+    url: str = Field(min_length=1)
+
+
+class RepositoryItem(Contract):
+    id: str = Field(min_length=1)
+    number: int = Field(gt=0)
+    title: str
+    state: State
+    created_at: AwareDatetime = Field(
+        validation_alias=AliasChoices("created_at", "createdAt")
+    )
+    updated_at: AwareDatetime = Field(
+        validation_alias=AliasChoices("updated_at", "updatedAt")
+    )
+    url: str = Field(min_length=1)
+
+    @field_validator("state", mode="before")
+    @classmethod
+    def normalize_state(cls, value: object) -> object:
+        return value.lower() if isinstance(value, str) else value
+
+
+class RepositoryActivity(Contract):
+    default_branch: str | None
+    last_commit: RepositoryCommit | None
+    last_release: RepositoryRelease | None
+    last_pr: RepositoryItem | None
+    last_issue: RepositoryItem | None
+    raw: JsonObject
+
+    @classmethod
+    def from_github(cls, raw: JsonObject, repo_id: str) -> RepositoryActivity:
+        # Required nullable keys distinguish an empty repository from a partial
+        # response. Never turn missing connections or fields into known absence.
+        if str(raw.get("databaseId")) != repo_id:
+            raise ValueError(
+                "GitHub returned an unexpected repository activity identity."
+            )
+        branch = raw["defaultBranchRef"]
+        if branch is not None and not isinstance(branch, dict):
+            raise ValueError("GitHub returned invalid default branch activity.")
+        default_branch = branch["name"] if branch is not None else None
+        commit = (
+            RepositoryCommit.model_validate(branch["target"])
+            if branch is not None
+            else None
+        )
+        release = raw["latestRelease"]
+
+        def latest(key: str) -> RepositoryItem | None:
+            connection = raw[key]
+            if not isinstance(connection, dict):
+                raise ValueError("GitHub returned invalid repository item activity.")
+            nodes = connection["nodes"]
+            if not isinstance(nodes, list) or len(nodes) > 1:
+                raise ValueError("GitHub returned invalid repository item activity.")
+            return RepositoryItem.model_validate(nodes[0]) if nodes else None
+
+        return cls.model_validate(
+            {
+                "default_branch": default_branch,
+                "last_commit": commit,
+                "last_release": RepositoryRelease.model_validate(release)
+                if release is not None
+                else None,
+                "last_pr": latest("pullRequests"),
+                "last_issue": latest("issues"),
+                "raw": raw,
+            }
+        )
+
+
 class RepositoryStatus(RepositorySnapshot):
     present: bool = True
     synced_at: AwareDatetime | None = None
@@ -219,6 +351,10 @@ class RepositoryStatus(RepositorySnapshot):
     signals_at: AwareDatetime | None = None
     error: str | None = None
     comments_synced_at: AwareDatetime | None = None
+    activity: RepositoryActivity | None = None
+    activity_synced_at: AwareDatetime | None = None
+    activity_error: str | None = None
+    activity_stale: bool = True
 
 
 class TriageSnapshot(Contract):

@@ -53,6 +53,40 @@ It reports when comments were last synced and any repository coverage error. Rec
 longer visible after reconciliation are retained; use `--include-unavailable` to see them.
 GraphQL review-thread resolution state is not currently indexed.
 
+### Repository activity
+
+`gh-maintainer repos --format json` includes `activity` for each repository:
+
+| Field | Meaning |
+| --- | --- |
+| `default_branch` | Name of the observed default branch |
+| `last_commit` | Default-branch tip: SHA, message headline, committer timestamp (`committed_at`), and URL |
+| `last_release` | GitHub's designated latest release: source ID, name, tag, publication timestamp (`published_at`), and URL |
+| `last_pr` | Most recently **created** PR across open/closed/merged states: source PR node ID, number, title, state, creation/update timestamps, and URL |
+| `last_issue` | Most recently **created** issue across open/closed states, excluding PRs: source issue node ID, number, title, state, creation/update timestamps, and URL |
+| `raw` | The source GraphQL activity payload retained with the normalized summary |
+
+Text output shows the four identities and dates. JSON includes full links and timestamps;
+`last_pr` / `last_issue` selection uses creation time, even when an older item was updated
+more recently. A commit denotes the current default-branch tip; its date can go backwards
+after a force push. A release follows GitHub's `latestRelease` selection rather than sorting
+tag names or semantic versions. Full commit/release histories are outside this snapshot.
+
+Repository-level `activity_synced_at`, `activity_error` and `activity_stale` describe the
+summary's coverage. `activity: null` with no observation time means it has not been fetched.
+After a successful observation, a null entry means that no such record was visible (for
+example an empty repository or no release). Text uses `unknown` before observation and
+`-` for observed absence. A failed or incomplete lookup keeps the previous snapshot/time
+and sets an error; unavailable repositories also display stale activity. No automatic age
+expiry is applied: inspect the observation time when freshness matters.
+Failed explicit repository selection also marks retained activity stale.
+
+Activity coverage is independent of item/comment coverage. A summary lookup failure makes
+the sync run partial without invalidating item analysis; item/conversation failures can
+retain an independently successful activity observation. `synced` still counts repositories
+whose item/comment ingestion committed. Existing indexes acquire the additive fields via
+migration `0004`; the next sync fills them. Local `repos` reads never need credentials.
+
 ## Save analysis and triage
 
 ```bash
@@ -100,6 +134,9 @@ Reading an item, saving analysis, and triaging it do not mark it processed. Use
 `mark-processed` after inspecting the item and its conversation. It requires successful
 item/comment coverage and saves a shared per-item checkpoint with the actor and time.
 New observed source activity advances the item revision and makes it pending again.
+Embedded account profile changes and PR head/base repository statistics update retained raw
+data without advancing that revision. Content, identities, refs, review states and signals
+remain significant; see the [comparison contract](architecture.md#querying-and-triage).
 
 `--processing unprocessed` selects never-processed items; `changed` selects items changed
 since processing; `processed` selects acknowledged revisions. `pending` and the

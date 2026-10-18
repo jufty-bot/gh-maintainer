@@ -128,6 +128,8 @@ async def test_inaccessible_selection_is_partial_and_retains_checkpoints(
     assert (await catalog.repo("1")).present
     assert len(await catalog.items("1")) == 3
     assert "404" in (await catalog.repo("1")).error
+    assert (await catalog.repo("1")).activity_stale
+    assert "404" in (await catalog.repo("1")).activity_error
 
 
 @pytest.mark.anyio

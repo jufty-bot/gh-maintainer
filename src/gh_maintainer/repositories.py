@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from types import TracebackType
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,14 +37,16 @@ from gh_maintainer.schemas import (
     CommentSnapshot,
     Disposition,
     ItemSnapshot,
-    JsonObject,
     Kind,
     ProcessingView,
+    RepositoryActivity,
     RepositoryPayload,
     RepositorySnapshot,
     RepositoryStatus,
+    State,
     TriageSnapshot,
     repository_name,
+    source_content,
 )
 
 LEASE_SECONDS = 300
@@ -55,7 +57,13 @@ def item_snapshot(record: Item) -> ItemSnapshot:
 
 
 def repo_snapshot(record: Repository) -> RepositoryStatus:
-    return RepositoryStatus.model_validate(record, from_attributes=True)
+    return RepositoryStatus.model_validate(record, from_attributes=True).model_copy(
+        update={
+            "activity_stale": not record.present
+            or record.activity_synced_at is None
+            or bool(record.activity_error)
+        }
+    )
 
 
 def triage_snapshot(record: TriageDecision | None) -> TriageSnapshot:
@@ -191,8 +199,8 @@ class CatalogRepository:
                         else "User",
                     ),
                 )
-            for account in owners.values():
-                statement = insert(Owner).values(**account.model_dump())
+            if owners:
+                statement = insert(Owner)
                 await session.execute(
                     statement.on_conflict_do_update(
                         index_elements=[Owner.id],
@@ -200,24 +208,69 @@ class CatalogRepository:
                             "login": statement.excluded.login,
                             "kind": statement.excluded.kind,
                         },
-                    )
+                        where=or_(
+                            Owner.login != statement.excluded.login,
+                            Owner.kind != statement.excluded.kind,
+                        ),
+                    ),
+                    [account.model_dump() for account in owners.values()],
                 )
             if owner:
-                reconcile = update(Repository).where(
+                reconcile = select(Repository.id).where(
+                    Repository.present.is_(True),
                     Repository.id.in_(
                         select(RepositoryOwner.repo_id).where(
                             RepositoryOwner.owner_id == owner.id
                         )
-                    )
+                    ),
                 )
                 if public_only:
                     # Public listings cannot reconcile previously indexed private repos.
                     reconcile = reconcile.where(
                         func.json_extract(Repository.raw, "$.private") == 0
                     )
-                await session.execute(reconcile.values(present=False))
-            for repo in repos:
-                statement = insert(Repository).values(**repo.model_dump(), present=True)
+                present = set(await session.scalars(reconcile))
+                missing = list(present - memberships.keys())
+                for offset in range(0, len(missing), 500):
+                    await session.execute(
+                        update(Repository)
+                        .where(
+                            Repository.id.in_(missing[offset : offset + 500]),
+                            Repository.present.is_(True),
+                        )
+                        .values(present=False)
+                    )
+            existing: dict[str, Repository] = {}
+            existing_memberships: dict[str, str] = {}
+            repo_ids = list(memberships)
+            for offset in range(0, len(repo_ids), 500):
+                batch = repo_ids[offset : offset + 500]
+                existing.update(
+                    (record.id, record)
+                    for record in await session.scalars(
+                        select(Repository).where(Repository.id.in_(batch))
+                    )
+                )
+                existing_memberships.update(
+                    (repo_id, owner_id)
+                    for repo_id, owner_id in await session.execute(
+                        select(RepositoryOwner.repo_id, RepositoryOwner.owner_id).where(
+                            RepositoryOwner.repo_id.in_(batch)
+                        )
+                    )
+                )
+            changed_repos = [
+                {**repo.model_dump(), "present": True}
+                for repo in repos
+                if (old := existing.get(repo.id)) is None
+                or not old.present
+                or any(
+                    getattr(old, key) != getattr(repo, key)
+                    for key in ("name", "url", "archived", "raw")
+                )
+            ]
+            if changed_repos:
+                statement = insert(Repository)
                 await session.execute(
                     statement.on_conflict_do_update(
                         index_elements=[Repository.id],
@@ -225,16 +278,22 @@ class CatalogRepository:
                             name: getattr(statement.excluded, name)
                             for name in ("name", "url", "archived", "raw", "present")
                         },
-                    )
+                    ),
+                    changed_repos,
                 )
-                membership = insert(RepositoryOwner).values(
-                    repo_id=repo.id, owner_id=memberships[repo.id]
-                )
+            changed_memberships = [
+                {"repo_id": repo_id, "owner_id": owner_id}
+                for repo_id, owner_id in memberships.items()
+                if existing_memberships.get(repo_id) != owner_id
+            ]
+            if changed_memberships:
+                membership = insert(RepositoryOwner)
                 await session.execute(
                     membership.on_conflict_do_update(
                         index_elements=[RepositoryOwner.repo_id],
                         set_={"owner_id": membership.excluded.owner_id},
-                    )
+                    ),
+                    changed_memberships,
                 )
 
     async def repo(self, repo_id: str) -> RepositoryStatus:
@@ -243,6 +302,29 @@ class CatalogRepository:
             if record is None:
                 raise ValueError("Unknown repository ID.")
             return repo_snapshot(record)
+
+    async def commit_activity(
+        self,
+        snapshots: dict[str, RepositoryActivity],
+        errors: dict[str, str],
+        observed_at: datetime,
+        lease: SyncLease | None = None,
+    ) -> None:
+        """Activity coverage is independent of item/comment checkpoints."""
+        async with self.database.sessions.begin() as session:
+            if lease:
+                await lease.guard(session)
+            for record in await session.scalars(
+                select(Repository).where(
+                    Repository.id.in_(snapshots.keys() | errors.keys())
+                )
+            ):
+                record.activity_error = errors.get(record.id)
+                if record.id in snapshots:
+                    payload = snapshots[record.id].model_dump(mode="json")
+                    if record.activity != payload:
+                        record.activity = payload
+                    record.activity_synced_at = observed_at
 
     @staticmethod
     async def _items(
@@ -255,14 +337,6 @@ class CatalogRepository:
         if ids is None:
             return {record.id: record for record in await session.scalars(query)}
         records: dict[str, Item] = {}
-        # Stay below SQLite's variable limit, including on older installations.
-        item_ids = list(ids)
-        for offset in range(0, len(item_ids), 500):
-            batch = item_ids[offset : offset + 500]
-            records.update(
-                (record.id, record)
-                for record in await session.scalars(query.where(Item.id.in_(batch)))
-            )
         if include_prs:
             records.update(
                 (record.id, record)
@@ -270,8 +344,17 @@ class CatalogRepository:
                     query.where(
                         Item.kind == Kind.PR,
                         Item.available.is_(True),
+                        Item.state == State.OPEN,
                     )
                 )
+            )
+        # Stay below SQLite's variable limit; do not load incoming open PRs twice.
+        item_ids = list(ids - records.keys())
+        for offset in range(0, len(item_ids), 500):
+            batch = item_ids[offset : offset + 500]
+            records.update(
+                (record.id, record)
+                for record in await session.scalars(query.where(Item.id.in_(batch)))
             )
         return records
 
@@ -308,9 +391,30 @@ class CatalogRepository:
             records = await self._parents(session, repo_id, numbers)
             return [item_snapshot(record) for record in records.values()]
 
+    async def pull_numbers(self, repo_id: str) -> list[int]:
+        """Review coverage needs PR numbers, not historical raw payloads."""
+        async with self.database.sessions() as session:
+            return list(
+                await session.scalars(
+                    select(Item.number).where(
+                        Item.repo_id == repo_id,
+                        Item.kind == Kind.PR,
+                        Item.available.is_(True),
+                    )
+                )
+            )
+
     @staticmethod
-    def _source_data(snapshot: ItemSnapshot) -> JsonObject:
-        return snapshot.model_dump(mode="json", exclude={"signals_at", "revision"})
+    def _source_data(snapshot: ItemSnapshot) -> dict[str, object]:
+        data = snapshot.model_dump(
+            exclude={"raw", "pr", "signals", "signals_at", "revision"}
+        )
+        data.update(
+            raw=source_content(snapshot.raw),
+            pr=source_content(snapshot.pr) if snapshot.pr is not None else None,
+            signals=snapshot.signals,
+        )
+        return data
 
     @staticmethod
     def _observe(
@@ -337,6 +441,8 @@ class CatalogRepository:
                 kinds.append("available" if after.available else "unavailable")
             if before.signals != after.signals:
                 kinds.append("signals_changed")
+        before_json = before.model_dump(mode="json") if before else None
+        after_json = after.model_dump(mode="json")
         for kind in kinds or ["updated"]:
             session.add(
                 Observation(
@@ -344,8 +450,8 @@ class CatalogRepository:
                     observed_at=at,
                     kind=kind,
                     revision=after.revision,
-                    before_json=before.model_dump(mode="json") if before else None,
-                    after_json=after.model_dump(mode="json"),
+                    before_json=before_json,
+                    after_json=after_json,
                 )
             )
 
@@ -389,11 +495,18 @@ class CatalogRepository:
                     touched.add(snapshot.id)
                     self._observe(session, before, snapshot, started_at)
                 if record is None:
-                    record = Item(**snapshot.model_dump())
+                    record = Item(
+                        **{
+                            key: getattr(snapshot, key)
+                            for key in ItemSnapshot.model_fields
+                        }
+                    )
                     session.add(record)
                 else:
-                    for key, value in snapshot.model_dump().items():
-                        setattr(record, key, value)
+                    for key in ItemSnapshot.model_fields:
+                        value = getattr(snapshot, key)
+                        if getattr(record, key) != value:
+                            setattr(record, key, value)
                 records[snapshot.id] = record
             if full:
                 for item_id, record in records.items():
@@ -409,12 +522,36 @@ class CatalogRepository:
             # Parent rows must exist before inserting comments with their composite FK.
             await session.flush()
             if comments is not None:
-                existing = {
-                    record.id: record
-                    for record in await session.scalars(
-                        select(Comment).where(Comment.repo_id == repo_id)
+                query = select(Comment).where(Comment.repo_id == repo_id)
+                existing_comments: dict[str, Comment] = {}
+                if comments_full:
+                    existing_comments.update(
+                        (record.id, record) for record in await session.scalars(query)
                     )
-                }
+                else:
+                    comment_ids = list({comment.id for comment in comments})
+                    for offset in range(0, len(comment_ids), 500):
+                        existing_comments.update(
+                            (record.id, record)
+                            for record in await session.scalars(
+                                query.where(
+                                    Comment.id.in_(comment_ids[offset : offset + 500])
+                                )
+                            )
+                        )
+                    numbers = list(review_numbers or ())
+                    for offset in range(0, len(numbers), 500):
+                        existing_comments.update(
+                            (record.id, record)
+                            for record in await session.scalars(
+                                query.where(
+                                    Comment.kind == "review",
+                                    Comment.available.is_(True),
+                                    Comment.number.in_(numbers[offset : offset + 500]),
+                                )
+                            )
+                        )
+                existing = existing_comments
                 # Comment-only activity can touch a closed issue absent from the
                 # incremental issue listing. Load those parents by their numbers.
                 parent_numbers = {comment.number for comment in comments}
@@ -427,7 +564,12 @@ class CatalogRepository:
                         and comment.number in (review_numbers or set())
                     )
                 )
-                records.update(await self._parents(session, repo_id, parent_numbers))
+                known_numbers = {item.number for item in records.values()}
+                records.update(
+                    await self._parents(
+                        session, repo_id, parent_numbers - known_numbers
+                    )
+                )
                 parents = {item.number: item for item in records.values()}
                 incoming = {comment.id: comment for comment in comments}
                 for comment_id, comment_record in existing.items():
@@ -459,8 +601,12 @@ class CatalogRepository:
                     after_data = comment.model_dump(mode="json")
                     if before_data == after_data:
                         continue
+                    meaningful = before_data is None or {
+                        **before_data,
+                        "raw": source_content(old.raw if old else {}),
+                    } != {**after_data, "raw": source_content(comment.raw)}
                     parent = parents[comment.number]
-                    if parent.id not in touched:
+                    if meaningful and parent.id not in touched:
                         parent.revision += 1
                         touched.add(parent.id)
                     kind = "commented" if old is None else "comment_edited"
@@ -468,16 +614,17 @@ class CatalogRepository:
                         kind = "reviewed"
                     if not comment.available:
                         kind = "comment_unavailable"
-                    session.add(
-                        Observation(
-                            item_id=parent.id,
-                            revision=parent.revision,
-                            kind=kind,
-                            observed_at=started_at,
-                            before_json=before_data,
-                            after_json=after_data,
+                    if meaningful:
+                        session.add(
+                            Observation(
+                                item_id=parent.id,
+                                revision=parent.revision,
+                                kind=kind,
+                                observed_at=started_at,
+                                before_json=before_data,
+                                after_json=after_data,
+                            )
                         )
-                    )
                     if old is None:
                         session.add(Comment(**comment.model_dump()))
                     else:
@@ -503,7 +650,9 @@ class CatalogRepository:
             await session.execute(
                 update(Repository)
                 .where(func.lower(Repository.name) == name.lower())
-                .values(error=error)
+                .values(
+                    error=error, activity_error=f"Repository selection failed: {error}"
+                )
             )
 
 

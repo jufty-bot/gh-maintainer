@@ -53,6 +53,12 @@ scope. Public-only inventories reconcile only known-public records; explicit lis
 upsert their resolved repositories. Login changes and repository transfers retain IDs,
 source records, and local decisions. PR-specific node IDs come from PR details for GraphQL
 enrichment. Legacy owner metadata remains stored for compatibility.
+Discovery compares incoming metadata and memberships in bounded SQL batches. Unchanged
+owners/repositories/memberships are not rewritten. A complete scoped inventory marks only
+previously present repositories missing from that inventory absent; it does not
+temporarily mark every repository absent.
+Explicit repository names resolve through bounded workers with inventory-order error
+reporting; failed selections are recorded after those read requests finish.
 
 ## Database location and management
 
@@ -79,7 +85,7 @@ the roles; it does not replace those definitions.
 | `metadata`        | String key                                            | Legacy owner settings and the renewable sync lease                                                                 |
 | `owners`          | Stable account ID                                     | User/organization display login and kind                                                                           |
 | `repo_owners`     | Repository ID → owner ID                              | Current membership for scoped inventory reconciliation                                                             |
-| `repos`           | Stable repository ID                                  | Raw metadata, presence, archive flag, item/comment/signal checkpoints, reconciliation time, and latest error       |
+| `repos`           | Stable repository ID                                  | Raw metadata, presence, archive flag, item/comment/signal checkpoints, reconciliation time, and latest error; latest repository activity with independent observation time/error |
 | `items`           | Issue node ID; unique repository ID + number          | Normalized issue/PR identity and state, raw issue/PR payloads, signal snapshot/time, availability, source revision |
 | `comments`        | Comment/review node ID; parent repository ID + number | Conversation/inline/review content, author, timestamps, raw reply/line context, availability                       |
 | `changes`         | Increasing local observation ID; item ID              | Event kind, local revision when known, observation time, before/after source snapshots                             |
@@ -105,6 +111,32 @@ JSON columns store parsed source documents. Normalized dates use `UTCDateTime`, 
 persists canonical UTC text for compatibility with the original SQLite schema and returns
 aware datetimes. Source URLs and display names can change without becoming identities.
 
+### Repository activity snapshots
+
+Migration `0004` adds nullable `activity` JSON, `activity_synced_at` UTC text and
+`activity_error` text to `repos`, preserving existing raw payloads, revisions, analysis,
+processing and history. `RepositoryActivity` validates default-branch name/tip, designated
+latest release, and newest-created PR/issue summaries; the
+[CLI contract](cli.md#repository-activity) defines fields and selection semantics.
+`repo_snapshot` validates stored JSON and derives `activity_stale` from missing successful
+coverage, an activity error, or repository absence. It has no implicit age TTL.
+
+After discovery, the source fetches aliases for up to 20 repositories per GraphQL request.
+Each alias selects a default-branch commit and latest release plus one PR and one issue,
+ordered by creation time across all states. Names are GraphQL variables and returned
+numeric repository identities must match the stable indexed IDs. Required nullable fields
+distinguish an empty source from a missing/partial payload. Errors with known alias paths
+invalidate only that repository's summary; global errors invalidate the batch.
+
+Activity fetches occur outside database transactions and commit in fenced bounded batches
+before conversation ingestion. Success replaces the latest summary and advances its own
+observation time, including observed null entries. Failure retains prior data/time and
+records an error, making the run partial; it never clears last-known values or advances
+item/comment checkpoints. Activity errors contribute to the overview's incomplete count.
+They do not invalidate item analysis, whose dependencies remain indexed item/conversation
+coverage. Repository activity snapshots do not create item revisions or item observations.
+This retains one latest snapshot, with raw evidence, rather than an activity event history.
+
 ## Async lifecycle and transactions
 
 The application owns one async engine/session factory, with a fresh `AsyncSession` per
@@ -126,13 +158,31 @@ until reset. Out-of-order responses cannot replenish a window's allowance. Graph
 200 rate-limit errors trigger the shared cooldown; ordinary permission errors do not.
 Budget and cooldown coordination remains local to this source instance.
 
-Incremental catalog reads select incoming item IDs, available PRs needed for complete
-review coverage, and comment parents by number. Commits read affected items and comment
-parents; full reconciliation still loads all historical items. Unchanged closed PRs reuse
+Incremental catalog reads select incoming item IDs and available open PR snapshots,
+without loading overlapping IDs twice. Review coverage loads only the numbers of other
+available PRs. Commits read incoming comment IDs and existing available reviews in the
+fully refreshed PR scopes, plus missing comment parents; full reconciliation still loads
+all historical records. An empty incremental comment scope needs no comment query.
+Unchanged closed PRs reuse
 cached details, preserving merged state. Review bodies continue to be fully listed each
 sync because GitHub offers no incremental review window. Unexpected failures and
 cancellation cancel and await worker tasks before journal completion and lease release.
 Expected repository errors remain isolated, with deterministic inventory-order reporting.
+
+Repositories are fetched in windows of at most `--concurrency` entries. Each window shares
+GraphQL signal requests of at most 20 PR nodes across repositories, then commits repositories
+sequentially because SQLite has one writer. The window's staged snapshots are released
+before fetching the next window; memory does not grow with the whole selected portfolio.
+A slow repository can delay the rest of its window. This bounded approach trades that
+latency for fewer requests and avoids a background batching service.
+
+The signal query reads `headRefOid` and `statusCheckRollup` directly from `PullRequest`;
+the adapter preserves the existing stored `commits.nodes[].commit` signal shape. Each
+failed signal batch marks only repositories represented in that batch partial. If any
+batch for one repository fails, all of that repository's previous signals and observation
+times are retained, including PRs from successful batches. Other repositories can commit
+fresh signals. A failed item/comment/review/detail fetch excludes its repository from
+signal batching and leaves its source checkpoints unchanged.
 
 GitHub batches are staged as validated snapshots. The catalog commits one repository's
 items, comments, observations, availability and checkpoints in one short transaction. A failed page
@@ -160,11 +210,14 @@ a single-writer database; aiosqlite provides event-loop integration, not paralle
 2. The source resolves explicit repository names or finishes the selected owner's inventory.
    Discovery commits owner/repository metadata with scoped presence reconciliation. Explicit
    lookup failures are recorded per selection; an incomplete owner inventory is not applied.
+   Bounded GraphQL activity queries then commit the latest commit/release/PR/issue summaries
+   with their independent observation times/errors.
 3. For each repository, `SyncService._repository` chooses full or incremental item/comment
    windows from the last successful checkpoints. It stages validated source snapshots.
 4. It fetches comment feeds, resolves previously unknown parents, and refreshes review
    bodies. Open PRs are also refreshed even when no issue timestamp changed. PR detail
-   requests provide the PR node IDs and head context used for signal enrichment.
+   requests provide the PR node IDs and head context used for signal enrichment shared
+   across the current bounded repository window.
 5. The catalog commits items, comments, observed changes, availability, source revisions,
    and checkpoints atomically. Missing source records are reconciled only from the relevant
    successful complete listing. Local analysis, triage, and processing rows are preserved.
@@ -212,13 +265,22 @@ their event kind, revision, and before/after snapshots. A local done decision re
 source revision and returns to the inbox on later source activity, including a push or
 comment edit without a parent timestamp change. Legacy triage keeps its timestamp fallback.
 
+Revision comparison reduces embedded account profiles (`user`, `assignee`, `merged_by`,
+`closed_by`, `editor`, `assignees`, and `requested_reviewers`) to ID/node ID/login/type.
+PR head/base repository profiles compare ID/node ID/full name; ref names and SHAs remain
+significant. Avatar URLs, profile links, and embedded repository statistics therefore do
+not invalidate processing or analysis. The latest complete raw payloads are still stored.
+All other source fields, including unknown fields, timestamps, comment bodies, review
+states, labels, assignments, head/base SHAs and signals remain significant. Existing
+observation history and revisions are preserved; this comparison applies to future syncs.
+
 `summaries`, `classifications`, and `rankings` each store one current caller-supplied result
 per item with producer, reason, source revision, and save time. Stale results remain visible
 in item details; stale ranks and classifications do not drive current ranking/filtering.
 Fixed caller-supplied scores have no implicit time decay. Pure priority rules still evaluate
 elapsed time on each query. `processing` stores a shared per-item acknowledged revision,
 actor, and time. Reads and analysis writes do not advance it. Optional revision guards reject
-stale writes; marking processed requires complete repository coverage.
+stale writes; marking processed requires complete item/conversation coverage.
 
 The CLI reuses the SQL query layer for lists, details, comments, and activity history.
 Click owns command discovery, help, parameter conversion, and argument errors; shared
@@ -274,6 +336,8 @@ ownership or the legacy owner metadata. Existing tables and their values are pre
 Migration `0003` adds conversations, analysis, processing, source revisions, and comment
 checkpoints. Added columns preserve original values and legacy observations; old activity
 has no inferred revision. Original notes, source documents, and checkpoints are retained.
+Migration `0004` adds the independent repository activity snapshot and coverage fields;
+existing indexes start with unknown activity until the next successful observation.
 
 SQLite permits legacy TEXT JSON, integer booleans, and primary-key declarations that do
 not explicitly repeat NOT NULL. Alembic comparison hooks recognize those existing storage
@@ -292,7 +356,7 @@ in the original column.
 Coverage is limited to repositories visible to the credential. This is a polling index;
 observations do not reconstruct transitions between polls or events before the first sync.
 Other users' named inventories use GitHub's public listing; explicit repository lists
-can index accessible private repositories across owners. Webhooks, releases and security
+can index accessible private repositories across owners. Webhooks, full release history and security
 findings are later extensions. Initial staging is
 still per repository; resumable disk-backed staging should precede very large backfills.
 Stored observations currently have no automatic retention policy. GitHub bodies remain

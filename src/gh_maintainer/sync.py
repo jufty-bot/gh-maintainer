@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from datetime import timedelta
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from time import monotonic
 from typing import Literal
 
@@ -14,7 +15,12 @@ from structlog.typing import FilteringBoundLogger
 from gh_maintainer.clock import now, timestamp
 from gh_maintainer.concurrency import map_concurrently
 from gh_maintainer.database import Database
-from gh_maintainer.github import DEFAULT_CONCURRENCY, GitHubError, GitHubSource
+from gh_maintainer.github import (
+    DEFAULT_CONCURRENCY,
+    SIGNAL_BATCH_SIZE,
+    GitHubError,
+    GitHubSource,
+)
 from gh_maintainer.repositories import CatalogRepository, SyncJournal, SyncLease
 from gh_maintainer.schemas import (
     CommentSnapshot,
@@ -27,11 +33,27 @@ from gh_maintainer.schemas import (
     SyncResult,
     owner_name,
     repository_name,
+    source_content,
 )
 
 OVERLAP = timedelta(minutes=5)
 RECONCILE_AFTER = timedelta(days=7)
 logger = structlog.get_logger(__name__)
+
+
+@dataclass
+class RepositoryBatch:
+    repo: RepositorySnapshot
+    rows: dict[str, ItemSnapshot]
+    comments: list[CommentSnapshot]
+    review_numbers: set[int]
+    open_prs: dict[str, str]
+    started_at: datetime
+    started: float
+    full: bool
+    comments_full: bool
+    log: FilteringBoundLogger
+    signals_error: str | None = None
 
 
 class SyncService:
@@ -53,9 +75,8 @@ class SyncService:
         self,
         repo: RepositorySnapshot,
         force_full: bool,
-        lease: SyncLease,
         log: FilteringBoundLogger,
-    ) -> str | None:
+    ) -> RepositoryBatch:
         started = monotonic()
         previous = await self.catalog.repo(repo.id)
         started_at = now()
@@ -129,19 +150,24 @@ class SyncService:
                 batch_comments=len(comment_batch),
                 comments=len(comments),
             )
-        review_numbers: set[int] = set()
         candidates = rows.values() if full else by_number.values()
+        review_numbers = {
+            item.number
+            for item in candidates
+            if item.kind == Kind.PR and item.available
+        }
+        if not full:
+            review_numbers.update(await self.catalog.pull_numbers(repo.id))
         log.info("Fetching pull request reviews")
 
-        async def refresh_reviews(item: ItemSnapshot) -> None:
-            review_numbers.add(item.number)
-            async for review_batch in self.source.reviews(repo, item.number):
+        async def refresh_reviews(number: int) -> None:
+            async for review_batch in self.source.reviews(repo, number):
                 comments.extend(review_batch)
-            log.debug("Pull request reviews fetched", number=item.number)
+            log.debug("Pull request reviews fetched", number=number)
 
         await map_concurrently(
             refresh_reviews,
-            [item for item in candidates if item.kind == Kind.PR and item.available],
+            sorted(review_numbers),
             self.concurrency,
         )
         open_prs: dict[str, str] = {}
@@ -158,7 +184,7 @@ class SyncService:
                 not full
                 and old is not None
                 and State.OPEN not in (old.state, item.state)
-                and old.raw == item.raw
+                and source_content(old.raw) == source_content(item.raw)
                 and old.pr is not None
             ):
                 raw = old.pr
@@ -175,38 +201,156 @@ class SyncService:
             [item for item in rows.values() if item.kind == Kind.PR],
             self.concurrency,
         )
-        signals_error = None
         log.info("Fetching pull request signals", open_pull_requests=len(open_prs))
-        try:
-            signals = await self.source.signals(list(open_prs.values()))
-            if set(signals) != set(open_prs.values()):
-                raise GitHubError("GitHub returned incomplete pull request signals.")
-            for item_id, node_id in open_prs.items():
-                rows[item_id] = rows[item_id].model_copy(
-                    update={"signals": signals[node_id], "signals_at": started_at}
-                )
-        except (GitHubError, ValueError) as error:
-            signals_error = f"PR signals incomplete: {error}"
-            log.warning("Pull request signals incomplete", error=str(error))
-        await self.catalog.commit_repo(
-            repo.id,
-            list(rows.values()),
+        return RepositoryBatch(
+            repo,
+            rows,
+            comments,
+            review_numbers,
+            open_prs,
             started_at,
+            started,
             bool(full),
-            signals_error,
+            comments_full,
+            log,
+        )
+
+    async def _signals(self, repositories: list[RepositoryBatch]) -> None:
+        # Share requests across the bounded window of staged repositories. Do not
+        # stage the entire inventory, or a hundred backfills would exhaust memory.
+        by_node = {
+            node_id: batch
+            for batch in repositories
+            for node_id in batch.open_prs.values()
+        }
+        node_ids = list(by_node)
+        signals = {}
+        for offset in range(0, len(node_ids), SIGNAL_BATCH_SIZE):
+            ids = node_ids[offset : offset + SIGNAL_BATCH_SIZE]
+            try:
+                fetched = await self.source.signals(ids)
+                if set(fetched) != set(ids):
+                    raise GitHubError(
+                        "GitHub returned incomplete pull request signals."
+                    )
+                signals.update(fetched)
+            except (GitHubError, ValueError) as error:
+                for node_id in ids:
+                    by_node[node_id].signals_error = f"PR signals incomplete: {error}"
+        for batch in repositories:
+            if batch.signals_error:
+                batch.log.warning(
+                    "Pull request signals incomplete", error=batch.signals_error
+                )
+                continue
+            for item_id, node_id in batch.open_prs.items():
+                batch.rows[item_id] = batch.rows[item_id].model_copy(
+                    update={"signals": signals[node_id], "signals_at": batch.started_at}
+                )
+
+    async def _commit(self, batch: RepositoryBatch, lease: SyncLease) -> None:
+        await self.catalog.commit_repo(
+            batch.repo.id,
+            list(batch.rows.values()),
+            batch.started_at,
+            batch.full,
+            batch.signals_error,
             lease,
-            comments=comments,
-            comments_full=comments_full,
-            review_numbers=review_numbers,
+            comments=batch.comments,
+            comments_full=batch.comments_full,
+            review_numbers=batch.review_numbers,
         )
-        log.info(
+        batch.log.info(
             "Repository sync finished",
-            status="partial" if signals_error else "complete",
-            items=len(rows),
-            comments=len(comments),
-            duration_seconds=round(monotonic() - started, 3),
+            status="partial" if batch.signals_error else "complete",
+            items=len(batch.rows),
+            comments=len(batch.comments),
+            duration_seconds=round(monotonic() - batch.started, 3),
         )
-        return signals_error
+
+    async def _window(
+        self,
+        repos: list[RepositorySnapshot],
+        full: bool,
+        lease: SyncLease,
+        log: FilteringBoundLogger,
+    ) -> list[tuple[bool, str | None]]:
+        """Stage at most one concurrency window and release it before the next."""
+
+        async def ingest(
+            repo: RepositorySnapshot,
+        ) -> tuple[RepositoryBatch | None, str | None]:
+            self.progress(f"Syncing {repo.name}")
+            repo_log = log.bind(repository=repo.name, repository_id=repo.id)
+            try:
+                return await self._repository(repo, full, repo_log), None
+            except (GitHubError, ValueError) as error:
+                await self.catalog.fail_repo(repo.id, str(error), lease)
+                repo_log.error("Repository sync failed", error=str(error))
+                return None, f"{repo.name}: {error}"
+
+        staged = await map_concurrently(ingest, repos, self.concurrency)
+        await self._signals([batch for batch, _ in staged if batch is not None])
+        results = []
+        # SQLite has one writer. Commit in inventory order, keeping errors
+        # deterministic and independent repository data atomic.
+        for batch, fetch_error in staged:
+            if batch is None:
+                results.append((False, fetch_error))
+                continue
+            try:
+                await self._commit(batch, lease)
+                results.append(
+                    (
+                        True,
+                        f"{batch.repo.name}: {batch.signals_error}"
+                        if batch.signals_error
+                        else None,
+                    )
+                )
+            except (GitHubError, ValueError) as failure:
+                await self.catalog.fail_repo(batch.repo.id, str(failure), lease)
+                batch.log.error("Repository sync failed", error=str(failure))
+                results.append((False, f"{batch.repo.name}: {failure}"))
+        return results
+
+    async def _activity(
+        self,
+        repos: list[RepositorySnapshot],
+        lease: SyncLease,
+        log: FilteringBoundLogger,
+    ) -> list[str]:
+        failures = []
+        for offset in range(0, len(repos), SIGNAL_BATCH_SIZE):
+            batch = repos[offset : offset + SIGNAL_BATCH_SIZE]
+            observed_at = now()
+            snapshots = {}
+            errors = {}
+            try:
+                snapshots = await self.source.repository_activity(batch)
+                if snapshots.keys() - {repo.id for repo in batch}:
+                    raise GitHubError("GitHub returned unexpected repository activity.")
+                for repo in batch:
+                    if repo.id not in snapshots:
+                        errors[repo.id] = (
+                            "Repository activity incomplete: no complete snapshot."
+                        )
+            except (GitHubError, ValueError) as error:
+                snapshots = {}
+                errors = {
+                    repo.id: f"Repository activity incomplete: {error}"
+                    for repo in batch
+                }
+            await self.catalog.commit_activity(snapshots, errors, observed_at, lease)
+            for repo in batch:
+                if repo.id in errors:
+                    failures.append(f"{repo.name}: {errors[repo.id]}")
+                    log.warning(
+                        "Repository activity incomplete",
+                        repository=repo.name,
+                        error=errors[repo.id],
+                    )
+        return failures
 
     async def run(
         self,
@@ -240,16 +384,33 @@ class SyncService:
                 account = None
                 public_only = False
                 if only:
-                    for name in sorted(only):
+
+                    async def resolve(
+                        name: str,
+                    ) -> tuple[RepositorySnapshot | None, str | None]:
                         try:
-                            repos.append(await self.source.repository(name))
+                            return await self.source.repository(name), None
                         except (GitHubError, ValueError) as error:
-                            errors.append(f"{name}: {error}")
-                            await self.catalog.fail_selection(name, str(error), lease)
+                            return None, str(error)
+
+                    names = sorted(only)
+                    selections = await map_concurrently(
+                        resolve, names, self.concurrency
+                    )
+                    for name, (selected_repo, selection_error) in zip(
+                        names, selections, strict=True
+                    ):
+                        if selected_repo is not None:
+                            repos.append(selected_repo)
+                        else:
+                            errors.append(f"{name}: {selection_error}")
+                            await self.catalog.fail_selection(
+                                name, str(selection_error), lease
+                            )
                             log.error(
                                 "Repository selection failed",
                                 repository=name,
-                                error=str(error),
+                                error=selection_error,
                             )
                 else:
                     account = await self.source.account(owner)
@@ -272,21 +433,14 @@ class SyncService:
                     account, repos, lease, public_only=public_only
                 )
                 log.info("Repository discovery finished", discovered=len(repos))
+                errors.extend(await self._activity(repos, lease, log))
 
-                async def ingest(repo: RepositorySnapshot) -> tuple[bool, str | None]:
-                    self.progress(f"Syncing {repo.name}")
-                    repo_log = log.bind(repository=repo.name, repository_id=repo.id)
-                    try:
-                        error = await self._repository(repo, full, lease, repo_log)
-                        return True, f"{repo.name}: {error}" if error else None
-                    except (GitHubError, ValueError) as error:
-                        await self.catalog.fail_repo(repo.id, str(error), lease)
-                        repo_log.error("Repository sync failed", error=str(error))
-                        return False, f"{repo.name}: {error}"
-
-                outcomes = await map_concurrently(ingest, repos, self.concurrency)
-                synced = sum(success for success, _ in outcomes)
-                errors.extend(error for _, error in outcomes if error)
+                for offset in range(0, len(repos), self.concurrency):
+                    outcomes = await self._window(
+                        repos[offset : offset + self.concurrency], full, lease, log
+                    )
+                    synced += sum(success for success, _ in outcomes)
+                    errors.extend(error for _, error in outcomes if error)
                 status: Literal["partial", "complete"] = (
                     "partial" if errors else "complete"
                 )

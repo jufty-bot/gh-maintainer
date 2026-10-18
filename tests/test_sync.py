@@ -202,7 +202,7 @@ async def test_incremental_reads_only_incoming_items_and_open_prs(
     statements = []
 
     def capture(_conn, _cursor, statement, _parameters, _context, _many):
-        if statement.startswith("SELECT items."):
+        if statement.startswith("SELECT items.id,"):
             statements.append(statement)
 
     event.listen(database.engine.sync_engine, "before_cursor_execute", capture)
@@ -212,6 +212,7 @@ async def test_incremental_reads_only_incoming_items_and_open_prs(
         event.remove(database.engine.sync_engine, "before_cursor_execute", capture)
     assert len(statements) == 2
     assert "items.kind =" in statements[0]
+    assert "items.state =" in statements[0]
     assert "items.id IN" in statements[1]
 
 

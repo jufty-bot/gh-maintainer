@@ -605,12 +605,45 @@ async def read_command(database: Database, args: SimpleNamespace) -> None:
             display(change_page, "\n".join(lines), args)
         else:
             overview = await query.overview()
-            lines = ["REPOSITORY\tPRESENT\tITEMS SYNCED\tCOMMENTS SYNCED\tERROR"]
-            lines += [
-                f"{repo.name}\t{repo.present}\t{repo.synced_at or 'never'}\t"
-                f"{repo.comments_synced_at or 'never'}\t{repo.error or '-'}"
-                for repo in overview.repos
+            lines = [
+                "REPOSITORY\tPRESENT\tITEMS SYNCED\tCOMMENTS SYNCED\tLAST COMMIT\t"
+                "LAST RELEASE\tLAST PR\tLAST ISSUE\tACTIVITY SYNCED\t"
+                "ACTIVITY STALE\tERROR\tACTIVITY ERROR"
             ]
+            for repo in overview.repos:
+                activity = repo.activity
+                absent = "-" if activity is not None else "unknown"
+                commit = activity.last_commit if activity else None
+                release = activity.last_release if activity else None
+                pr = activity.last_pr if activity else None
+                issue = activity.last_issue if activity else None
+                last = [
+                    f"{commit.sha[:12]} {commit.committed_at.isoformat()}"
+                    if commit
+                    else absent,
+                    f"{release.tag_name} {release.published_at.isoformat()}"
+                    if release
+                    else absent,
+                    f"#{pr.number} {pr.created_at.isoformat()}" if pr else absent,
+                    f"#{issue.number} {issue.created_at.isoformat()}"
+                    if issue
+                    else absent,
+                ]
+                lines.append(
+                    "\t".join(
+                        [
+                            repo.name,
+                            str(repo.present),
+                            str(repo.synced_at or "never"),
+                            str(repo.comments_synced_at or "never"),
+                            *last,
+                            str(repo.activity_synced_at or "never"),
+                            str(repo.activity_stale),
+                            repo.error or "-",
+                            repo.activity_error or "-",
+                        ]
+                    )
+                )
             display(overview, "\n".join(lines), args)
 
 

@@ -21,14 +21,15 @@ New contributors should start with [project context](project-context.md) and
 | Select an explicit repository list | Implemented: repeatable `sync --repo` / `watch --repo` resolves repositories directly across owners | Coverage remains limited to accessible repositories |
 | Select all repositories belonging to an owner | Implemented: `--owner` accepts users and organizations; default is the authenticated user | Other users' inventories are public-only; use explicit lists for accessible private repositories |
 | Ingest all issues and PRs | Implemented within the selected scope, including closed and merged items | Credential-limited polling coverage |
+| Repository recency | Implemented: last default-branch commit, designated latest release, newest-created PR/issue, dates, links and independent activity coverage through `repos` | Latest snapshots only; full commit/release history remains outside scope |
 | Ingest their comments | Implemented: issue conversations, inline review comments, and review bodies, including replies and raw line context | GraphQL thread resolution is available through live context; sync does not persist thread state |
 | Database location and management | Implemented: platform user data default, explicit overrides, `db path`, and `db delete --yes` | Existing working-directory indexes remain selectable; no automatic move |
 | Incremental SQLite storage | Implemented for items and comments: checkpoints, overlap, reconciliation, atomic commits, migrations | Review bodies require a full per-PR listing each sync |
-| Parallel incremental ingestion | Implemented: async HTTPX, bounded repository/PR/review workers, targeted reads, cached closed PR details and shared aiolimiter pacing | Per-process budgets; full review listings and interrupted per-repository backfills remain |
+| Parallel incremental ingestion | Implemented: async HTTPX, bounded repository windows with shared PR signal batches, targeted item/comment reads, cached closed PR details and shared aiolimiter pacing | Per-process budgets; window barriers, full review listings and interrupted per-repository backfills remain |
 | Sync logging | Implemented: readable structlog events on stderr for discovery, repository progress, counts, timing, and failures; incremental windows use ISO UTC timestamps | JSON results remain on stdout |
 | Efficient querying through the CLI | Implemented: Click commands with descriptive help, validated options, repositories, PRs/issues, details, comments, status, SQL pagination, and JSON | Keep public contracts stable as skills are added |
 | Additional tables for analysis and triage | Implemented: persisted summaries, classifications, rankings, triage, and processing checkpoints | Analysis is supplied by humans/agents; no built-in model provider |
-| Track processing and later activity | Implemented: source revisions, pending/changed filters, activity kinds, and guarded acknowledgements | Only observed activity can be recorded |
+| Track processing and later activity | Implemented: source revisions, pending/changed filters, activity kinds, guarded acknowledgements; embedded profile/statistics updates retain raw data without invalidating analysis | Only observed activity can be recorded |
 | Repository policy | Implemented: explicit validated JSON, hash provenance, optional local-write guards | Changes to policy require explicit reconsideration; not an access sandbox |
 | Technical context | Implemented: live gh guidance/code/CI/thread sections with SHA identity and bounded evidence | Upstream API limits, nested replies and external providers remain explicit gaps |
 | Agent skills for repository maintenance | Six skills bundled with policy/context and recorded evaluations | Broader adversarial/provider/host coverage remains incremental |
@@ -38,6 +39,42 @@ The current tables are `metadata`, `owners`, `repo_owners`, `repos`, `items`, `c
 `changes`, `triage`, `runs`, `processing`, `summaries`, `classifications`, and `rankings`,
 plus Alembic's schema version table. The baseline is usable entirely through the CLI;
 the dashboard and reports also consume the index. See [CLI workflows](cli.md).
+
+## Portfolio sync efficiency
+
+Hundreds of repositories make per-repository request and persistence costs material.
+The current implementation batches signals across a bounded repository window, queries
+the PR head directly, avoids unchanged inventory writes, and targets historical PR/comment
+reads. Embedded profile changes no longer create revision/analysis churn. Scope and
+freshness remain unchanged; [D14](decisions.md#d14-reduce-portfolio-work-without-reducing-coverage)
+records the tradeoffs, and the [checklist](checklist.md#portfolio-sync-efficiency) owns
+validation evidence.
+
+The remaining request floor is significant: every repository still polls three REST feeds
+(issues, conversation comments, inline comments), plus review pages for every available PR
+and details for open PRs. Even 300 repositories with empty feeds and no PRs require about
+900 feed requests. At the default two request starts per second, pacing alone is roughly
+7.5 minutes, before inventory, retries, or response latency. This is a cost calculation,
+not a live benchmark. Increasing concurrency does not bypass the shared request-start rate.
+Repository activity adds one GraphQL request per up to 20 repositories (15 for 300 repos)
+to capture all four summaries; these probes are separate from open-PR signal requests.
+
+Next candidates are **planned**, in the following investigation order:
+
+| Candidate | Intended reduction | Completion criteria / limits |
+| --- | --- | --- |
+| Endpoint-level telemetry and reproducible portfolio fixtures | Identify whether feeds, review pages, details, retries, or persistence dominate | Count attempts, statuses, response bytes, durations and changed records by endpoint family without logging credentials/content; retain aggregate run contracts and test hundreds of mixed active/quiet repos |
+| Persistent conditional REST requests | Avoid unchanged response bodies and primary-budget charges | Store ETag/Last-Modified by exact URL/query, API representation and credential scope; handle `304`, cached pagination, failed commits and forced full reconciliation safely; bound storage; a `304` still takes a paced request |
+| Batch review metadata through GraphQL | Replace one review-body REST listing per historical PR with smaller shared probes | Cover new reviews, edits, dismissals, pending reviews, pagination and unavailable records; `updatedAt` exists on reviews, but the review connection has no `since` filter, so metadata enumeration remains necessary |
+| Combine open-PR metadata with the signal query | Reduce repeated PR detail requests | Prove invalidation for head/base refs, state, draft, merge and review requests; preserve retained REST payload/provenance and head-change detection; do not gate CI/mergeability on issue timestamps |
+| Bounded rolling scheduling and staggered reconciliation | Reduce window stragglers and periodic full-sync spikes | Preserve bounded staged memory, deterministic errors, fenced atomic commits and complete seven-day reconciliation; compare with the simpler current windows before adding coordination |
+| Explicit per-repository polling cadence | Reduce the three-feed request floor for quiet repositories | Define observable next-due/last-success/age semantics and an explicit refresh override; retain comment-only activity on closed items and do not claim skipped repositories were refreshed; this changes freshness and is not enabled now |
+
+GitHub documents [conditional requests](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api#use-conditional-requests)
+and the [PR/review GraphQL fields](https://docs.github.com/en/graphql/reference/pulls).
+Repository `updated_at`/`pushed_at`, the PR issue timestamp, and an unchanged head SHA are
+not complete descendant-change watermarks. Webhooks and resumable staging remain
+[later extensions](#later-extensions); neither is required for these local improvements.
 
 ## Baseline delivery sequence
 
@@ -191,7 +228,7 @@ rationale in [decisions](decisions.md), and track completion in the [checklist](
 ## Later extensions
 
 Webhooks, a GitHub App, resumable staging for very large backfills, and additional source
-domains such as releases, discussions, and security alerts can follow the baseline.
+domains such as full release history, discussions, and security alerts can follow the baseline.
 Dashboard expansion is secondary to completing the CLI and its data contracts. Polling
 cannot reconstruct events that occurred entirely between observations, and coverage always
 depends on what the credential can access.

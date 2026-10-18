@@ -311,7 +311,10 @@ class CatalogQueries:
             open_prs=item_counts[2],
             attention=item_counts[3],
             incomplete_repositories=sum(
-                repo.present and (bool(repo.error) or not repo.synced_at)
+                repo.present
+                and (
+                    bool(repo.error) or bool(repo.activity_error) or not repo.synced_at
+                )
                 for repo in repos
             ),
         )

@@ -14,6 +14,11 @@ from gh_maintainer.schemas import (
     AccountSnapshot,
     ItemSnapshot,
     JsonObject,
+    Kind,
+    RepositoryActivity,
+    RepositoryCommit,
+    RepositoryItem,
+    RepositoryRelease,
     RepositorySnapshot,
     State,
 )
@@ -104,6 +109,7 @@ async def seed_demo(database: Database) -> None:
                 "title": title,
                 "state": "closed" if number == MERGED_PR else "open",
                 "updated_at": updated,
+                "created_at": updated,
                 "html_url": (
                     f"{repo['html_url']}/"
                     f"{'pull' if kind == 'pr' else 'issues'}/{number}"
@@ -133,6 +139,50 @@ async def seed_demo(database: Database) -> None:
                     row = row.model_copy(update={"state": State.MERGED})
             rows.append(row)
         await catalog.commit_repo(str(repo["id"]), rows, at, True, None, comments=[])
+        latest_items = {}
+        for kind in (Kind.PR, Kind.ISSUE):
+            candidates = [item for item in rows if item.kind == kind]
+            latest = (
+                max(candidates, key=lambda item: item.updated_at)
+                if candidates
+                else None
+            )
+            latest_items[kind] = (
+                RepositoryItem(
+                    id=str((latest.pr or {}).get("node_id", latest.id)),
+                    number=latest.number,
+                    title=latest.title,
+                    state=latest.state,
+                    created_at=latest.updated_at,
+                    updated_at=latest.updated_at,
+                    url=latest.url,
+                )
+                if latest
+                else None
+            )
+        sha = "a" * 39 + str(repo["id"])
+        activity = RepositoryActivity(
+            default_branch="main",
+            last_commit=RepositoryCommit(
+                sha=sha,
+                message="Synthetic default branch tip",
+                committed_at=at - timedelta(days=1),
+                url=f"{repo['html_url']}/commit/{sha}",
+            ),
+            last_release=RepositoryRelease(
+                id="DEMO_RELEASE_1",
+                name="Synthetic release",
+                tag_name="v0.2.0",
+                published_at=at - timedelta(days=3),
+                url=f"{repo['html_url']}/releases/tag/v0.2.0",
+            )
+            if repo["id"] == 1
+            else None,
+            last_pr=latest_items[Kind.PR],
+            last_issue=latest_items[Kind.ISSUE],
+            raw={"synthetic": True},
+        )
+        await catalog.commit_activity({str(repo["id"]): activity}, {}, at)
 
     async with SyncLease(database) as lease:
         journal = SyncJournal(database)

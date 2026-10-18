@@ -23,7 +23,7 @@ of the index. They are useful, but completing agent workflows takes priority ove
 | Area | Available now | Boundary |
 | --- | --- | --- |
 | Selection | Explicit repository lists across owners; user/organization inventories | Coverage is limited by the credential and selected listing mode |
-| Ingestion | Open/closed issues, open/closed/merged PRs, comments, inline review comments, review bodies | Polling observations cannot reconstruct everything between syncs |
+| Ingestion | Open/closed issues, open/closed/merged PRs, comments, inline review comments, review bodies; repository last commit/release/PR/issue snapshots | Activity coverage is independent; polling cannot reconstruct everything between syncs or provide full commit/release history |
 | Queries | Inventory, item details, comments, PR status, activity; SQL filters/pagination and JSON | Technical context is fetched live on demand, separately from indexed conversations |
 | Local analysis | Summaries, classification labels, ranks, and triage notes | Callers supply the content; there is no model invocation or built-in taxonomy |
 | Continuity | Source revisions, stale analysis, processing checkpoints, changes since processing | Acknowledgement is shared per item, not tracked independently per agent |
@@ -53,7 +53,8 @@ makes that item pending again, including closed/merged items if the query includ
 An agent should pass the revision it actually inspected when writing or acknowledging.
 
 **Stale and incomplete mean different things.** An analysis result is stale if its source
-revision differs or repository coverage is incomplete. A sync error may mean new data was
+revision differs or item/conversation coverage is incomplete. Repository activity summaries
+have independent observation times/errors. A sync error may mean new data was
 not observed at all. Check source timestamps and errors; a current local revision is not
 proof that the remote repository has not changed since the last poll. No automatic age
 limit expires manually saved analysis.
@@ -140,7 +141,7 @@ provider, automatic GitHub writes, and a larger hosted application are not curre
 | Comments are empty | `comments_synced_at`, coverage error, pagination, and whether the database has been synced since migration `0003` |
 | Marking processed fails | Repository errors/comment coverage, then whether the inspected revision still matches |
 | A guarded write is rejected | Read the new item/activity/conversation before revising the decision; do not only substitute a newer revision number |
-| Analysis appears stale or no longer affects a filter/rank | Source revision mismatch or incomplete repository coverage |
+| Analysis appears stale or no longer affects a filter/rank | Source revision mismatch or incomplete item/conversation coverage |
 | A locally done item returns to inbox | New observed source activity; the note remains and the decision needs reconsideration |
 | A sync is slow | Number of available PR review listings, per-repository staging size, rate limits, and source-call/run telemetry |
 | Schema initialization is refused | Database selection and recognized migration history; preserve the file and investigate rather than deleting data to bypass validation |

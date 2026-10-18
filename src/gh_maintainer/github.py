@@ -21,9 +21,11 @@ from pydantic import TypeAdapter
 from gh_maintainer.schemas import (
     AccountSnapshot,
     CommentSnapshot,
+    Commit,
     ItemSnapshot,
     JsonObject,
     PullPayload,
+    RepositoryActivity,
     RepositorySnapshot,
     SignalsPayload,
 )
@@ -32,6 +34,7 @@ JSON_OBJECT = TypeAdapter(JsonObject)
 JSON_OBJECTS = TypeAdapter(list[JsonObject])
 DEFAULT_CONCURRENCY = 4
 DEFAULT_REQUESTS_PER_SECOND = 2.0
+SIGNAL_BATCH_SIZE = 20
 LOW_BUDGET_FRACTION = 0.1
 MAX_WAIT = 30
 MAX_RETRIES = 3
@@ -98,6 +101,9 @@ class GitHubSource(Protocol):
     ) -> AsyncIterator[list[ItemSnapshot]]: ...
     async def pull(self, repo: RepositorySnapshot, number: int) -> JsonObject: ...
     async def signals(self, ids: list[str]) -> dict[str, JsonObject]: ...
+    async def repository_activity(
+        self, repos: list[RepositorySnapshot]
+    ) -> dict[str, RepositoryActivity]: ...
 
 
 class AsyncGitHubSource:
@@ -489,9 +495,87 @@ class AsyncGitHubSource:
                 for raw in batch
             ]
 
+    async def repository_activity(
+        self, repos: list[RepositorySnapshot]
+    ) -> dict[str, RepositoryActivity]:
+        result = {}
+        for offset in range(0, len(repos), SIGNAL_BATCH_SIZE):
+            batch = repos[offset : offset + SIGNAL_BATCH_SIZE]
+            variables: JsonObject = {}
+            declarations: list[str] = []
+            selections: list[str] = []
+            for index, repo in enumerate(batch):
+                owner, name = repo.name.split("/", 1)
+                variables[f"owner{index}"] = owner
+                variables[f"name{index}"] = name
+                declarations.extend((f"$owner{index}:String!", f"$name{index}:String!"))
+                selections.append(
+                    f"r{index}:repository(owner:$owner{index},name:$name{index}){{...Activity}}"
+                )
+            query = (
+                "query RepositoryActivity("
+                + ",".join(declarations)
+                + "){"
+                + " ".join(selections)
+                + "}"
+                + """
+              fragment Activity on Repository {
+                databaseId
+                defaultBranchRef {
+                  name target {... on Commit {oid messageHeadline committedDate url}}
+                }
+                latestRelease {id name tagName publishedAt url}
+                pullRequests(first:1,states:[OPEN,CLOSED,MERGED],
+                  orderBy:{field:CREATED_AT,direction:DESC}) {
+                  nodes {id number title state createdAt updatedAt url}
+                }
+                issues(first:1,states:[OPEN,CLOSED],
+                  orderBy:{field:CREATED_AT,direction:DESC}) {
+                  nodes {id number title state createdAt updatedAt url}
+                }
+              }
+            """
+            )
+            payload = JSON_OBJECT.validate_python(
+                self._json(
+                    await self._request(
+                        "POST",
+                        "/graphql",
+                        body={"query": query, "variables": variables},
+                    )
+                )
+            )
+            data = payload.get("data")
+            errors = payload.get("errors", [])
+            if not isinstance(data, dict) or not isinstance(errors, list):
+                raise GitHubError("GitHub returned incomplete repository activity.")
+            failed = set()
+            for error in errors:
+                path = error.get("path") if isinstance(error, dict) else None
+                if (
+                    not isinstance(path, list)
+                    or not path
+                    or not isinstance(path[0], str)
+                    or path[0] not in {f"r{i}" for i in range(len(batch))}
+                ):
+                    raise GitHubError("GitHub returned incomplete repository activity.")
+                failed.add(str(path[0]))
+            for index, repo in enumerate(batch):
+                alias = f"r{index}"
+                raw = data.get(alias)
+                if alias in failed or not isinstance(raw, dict):
+                    continue
+                try:
+                    result[repo.id] = RepositoryActivity.from_github(raw, repo.id)
+                except (ValueError, KeyError, TypeError):
+                    # Other aliases can be complete even when one repository is
+                    # inaccessible or one nested field is missing/malformed.
+                    continue
+        return result
+
     async def signals(self, ids: list[str]) -> dict[str, JsonObject]:
         result: dict[str, JsonObject] = {}
-        batch_size = 20
+        batch_size = SIGNAL_BATCH_SIZE
         for offset in range(0, len(ids), batch_size):
             batch = ids[offset : offset + batch_size]
             response = JSON_OBJECT.validate_python(
@@ -503,9 +587,7 @@ class AsyncGitHubSource:
                             "query": """query($ids:[ID!]!){nodes(ids:$ids){
                             ... on PullRequest{
                               id number reviewDecision mergeable mergeStateStatus
-                              commits(last:1){nodes{commit{
-                                oid statusCheckRollup{state}
-                              }}}
+                              headRefOid statusCheckRollup{state}
                             }}}""",
                             "variables": {"ids": list(batch)},
                         },
@@ -522,6 +604,18 @@ class AsyncGitHubSource:
                 raise GitHubError("GitHub returned incomplete pull request signals.")
             for node in nodes:
                 raw = JSON_OBJECT.validate_python(node)
+                # Preserve the public stored signal shape while querying the head
+                # directly, without traversing a commit connection per PR.
+                if "headRefOid" in raw or "statusCheckRollup" in raw:
+                    head = Commit.model_validate(
+                        {
+                            "oid": raw.pop("headRefOid", None),
+                            "statusCheckRollup": raw.pop("statusCheckRollup", None),
+                        }
+                    )
+                    raw["commits"] = {
+                        "nodes": [{"commit": head.model_dump(mode="json")}]
+                    }
                 signal = SignalsPayload.model_validate(raw)
                 if not signal.id or signal.id not in batch:
                     raise GitHubError(

@@ -9,6 +9,7 @@ from gh_maintainer.schemas import (
     CommentSnapshot,
     ItemSnapshot,
     JsonObject,
+    RepositoryActivity,
     RepositorySnapshot,
 )
 
@@ -59,6 +60,31 @@ class FakeSource:
         self.comment_windows: list[datetime | None] = []
         self.fail_comments = False
         self.fail_reviews = False
+        self.fail_activity = False
+        self.activity_batches: list[list[str]] = []
+        self.activity_values: dict[str, RepositoryActivity] = {}
+
+    async def repository_activity(
+        self, repos: list[RepositorySnapshot]
+    ) -> dict[str, RepositoryActivity]:
+        self.calls += 1
+        self.activity_batches.append([repo.id for repo in repos])
+        if self.fail_activity:
+            raise GitHubError("Repository activity unavailable.")
+        return {
+            repo.id: self.activity_values.get(
+                repo.id,
+                RepositoryActivity(
+                    default_branch=None,
+                    last_commit=None,
+                    last_release=None,
+                    last_pr=None,
+                    last_issue=None,
+                    raw={},
+                ),
+            )
+            for repo in repos
+        }
 
     async def issue(self, repo: RepositorySnapshot, number: int) -> ItemSnapshot:
         self.calls += 1

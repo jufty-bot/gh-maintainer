@@ -87,6 +87,51 @@ async def test_graphql_batches_and_separates_issue_and_pr_ids() -> None:
         await adapter.close()
 
 
+@pytest.mark.parametrize("state", ["SUCCESS", "FAILURE", "PENDING", None])
+async def test_direct_head_signals_preserve_the_public_shape(state: str | None) -> None:
+    def respond(request: httpx.Request) -> httpx.Response:
+        query = json.loads(request.content)["query"]
+        assert "headRefOid" in query
+        assert "commits(" not in query
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "nodes": [
+                        {
+                            "id": "PR_2",
+                            "reviewDecision": "APPROVED",
+                            "mergeable": "MERGEABLE",
+                            "headRefOid": "new-head",
+                            "statusCheckRollup": {"state": state} if state else None,
+                        }
+                    ]
+                }
+            },
+        )
+
+    adapter = source(transport=httpx.MockTransport(respond))
+    try:
+        signals = (await adapter.signals(["PR_2"]))["PR_2"]
+        assert signals == {
+            "id": "PR_2",
+            "reviewDecision": "APPROVED",
+            "mergeable": "MERGEABLE",
+            "commits": {
+                "nodes": [
+                    {
+                        "commit": {
+                            "oid": "new-head",
+                            "statusCheckRollup": {"state": state} if state else None,
+                        }
+                    }
+                ]
+            },
+        }
+    finally:
+        await adapter.close()
+
+
 @pytest.mark.parametrize(
     "payload",
     [
@@ -324,19 +369,40 @@ async def test_http_source_syncs_incrementally(database) -> None:
         elif "/pulls/" in path:
             payload = await fake.pull(repo, int(path.rsplit("/", 1)[-1]))
         elif path == "/graphql":
+            if "RepositoryActivity" in json.loads(request.content)["query"]:
+                return httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "r0": {
+                                "databaseId": 1,
+                                "defaultBranchRef": None,
+                                "latestRelease": None,
+                                "issues": {"nodes": []},
+                                "pullRequests": {"nodes": []},
+                            }
+                        }
+                    },
+                )
             ids = json.loads(request.content)["variables"]["ids"]
-            payload = {"data": {"nodes": list((await fake.signals(ids)).values())}}
+            nodes = list((await fake.signals(ids)).values())
+            for node in nodes:
+                head = node.pop("commits")["nodes"][0]["commit"]
+                node.update(
+                    headRefOid=head["oid"], statusCheckRollup=head["statusCheckRollup"]
+                )
+            payload = {"data": {"nodes": nodes}}
         else:
             raise AssertionError(path)
         return httpx.Response(200, json=payload)
 
     adapter = source(transport=httpx.MockTransport(respond))
     try:
-        assert (await SyncService(database, adapter).run()).source_calls == 10
+        assert (await SyncService(database, adapter).run()).source_calls == 11
         adapter.calls = 0
         result = await SyncService(database, adapter).run()
         assert result.status == "complete"
-        assert result.source_calls == 9
+        assert result.source_calls == 10
         items = await CatalogRepository(database).items("1")
         assert next(item for item in items if item.number == 3).state == State.MERGED
     finally:

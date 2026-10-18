@@ -273,3 +273,67 @@ strict documentation build, source/wheel build and isolated installed-wheel smok
 (including legacy migration) passed. Browser behavior and GitHub write operations are
 unchanged. See [D13](decisions.md#d13-bounded-parallel-ingestion-with-shared-request-pacing)
 for rationale and [Usage](usage.md#correctness-and-limits) for operating limits.
+
+## Portfolio sync efficiency
+
+- [x] Batch open-PR signals across bounded repository windows, query the head directly,
+  and preserve the public stored signal shape; explicit repository lookups use bounded workers.
+- [x] Preserve repository source atomicity, lease/cancellation cleanup and prior signals
+  when any batch for that repository fails; allow unaffected signal batches to commit.
+- [x] Skip unchanged inventory metadata/membership writes and reconcile only missing
+  scoped IDs, with bounded SQLite parameter lists and bulk writes.
+- [x] Load full snapshots for incoming/open PRs once, historical review candidates as
+  numbers, and comments by incoming IDs or fully refreshed review scope; reuse loaded parents.
+- [x] Retain full raw payloads while excluding embedded account profiles and PR head/base
+  repository statistics from revision invalidation; preserve meaningful and unknown fields.
+- [x] Avoid repeated full item serialization and assigning unchanged fields; serialize
+  observation snapshots once even when multiple event kinds are recorded.
+- [x] Exercise 201-repository backfill/incremental runs, 1,201-repository discovery and
+  disappearance/reappearance, 601-comment incremental edits, bounded staged-object lifetime,
+  profile-only changes, review dismissal, partial signal batches and unchanged-head CI changes.
+
+Evidence: `tests/test_sync_efficiency.py`, `tests/test_sync.py`, `tests/test_github.py`,
+`tests/test_selection.py`, `tests/test_maintenance.py` and `tests/test_logging.py`.
+All 205 Python tests passed on Python 3.14 and 3.10. Ruff lint/format, application mypy,
+strict MkDocs, `git diff --check`, source/wheel build and the isolated installed-wheel
+smoke (including legacy migration) passed. Offline signal-count fixtures reduced 201 requests to 51 at concurrency 4
+and 11 at concurrency 20; these are request counts, not live GitHub throughput benchmarks.
+The database schema and public CLI/JSON shapes are unchanged. See
+[D14](decisions.md#d14-reduce-portfolio-work-without-reducing-coverage) and the
+[roadmap](roadmap.md#portfolio-sync-efficiency) for semantics, tradeoffs and remaining work.
+
+- [ ] Endpoint-level request/byte/change telemetry and heterogeneous portfolio measurements.
+- [ ] Persistent conditional REST requests and fully covered batched review probes.
+- [ ] Reduce open-PR detail requests with complete invalidation/freshness evidence.
+- [ ] Evaluate rolling scheduling, staggered reconciliation and explicit polling cadence.
+
+Completion criteria and investigation order belong to the
+[portfolio roadmap](roadmap.md#portfolio-sync-efficiency). Full historical review listings,
+the three-feed-per-repository request floor and interrupted backfill restarts remain explicit.
+
+## Repository activity
+
+- [x] Record each repository's latest default-branch tip, designated latest release,
+  newest-created PR and newest-created issue, with identities, dates, links and raw evidence.
+- [x] Fetch all four records in GraphQL batches of up to 20 repositories; validate stable
+  repository IDs and required nullable fields; isolate partial alias errors.
+- [x] Keep independent activity observation times/errors, retain prior snapshots on failure,
+  mark failed runs partial and distinguish never observed, known absence and stale coverage.
+- [x] Add packaged migration `0004`; preserve existing source/history, revisions,
+  analysis and processing in legacy and explicit `0003` upgrades.
+- [x] Expose typed activity and coverage in `repos` JSON and identities/dates in text;
+  seed representative synthetic demo data and document the public selection contract.
+- [x] Validate bounded 201-repository activity requests, empty repositories, partial/malformed
+  responses, force pushes/default-branch changes, failure retention/recovery, independent
+  conversation coverage, local analysis freshness and offline CLI output.
+
+Evidence: `tests/test_repository_activity.py`, `tests/test_sync_efficiency.py`,
+`tests/test_migrations.py`, the HTTP-backed sync test and `scripts/check_install.py`.
+All 218 Python tests passed on Python 3.14 and 3.10. Ruff lint/format, application mypy,
+strict MkDocs, `git diff --check`, source/wheel builds and the isolated installed-wheel
+smoke (including demo activity and legacy migration) passed. See the
+[activity contract](cli.md#repository-activity),
+[architecture](architecture.md#repository-activity-snapshots) and
+[D15](decisions.md#d15-repository-recency-with-independent-coverage).
+This implements latest snapshots; full commit/release history and an activity event archive
+remain outside scope. The source/item observation history and local decisions are retained.

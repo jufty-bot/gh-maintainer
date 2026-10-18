@@ -7,6 +7,8 @@ items, rank the queue, record triage decisions, and track what changed since an 
 last processed. Incremental syncs retain history and flag earlier analysis when new
 activity arrives. FastAPI serves a dashboard with Markdown descriptions, searchable
 maintenance queues, and editable local triage decisions.
+`repos` records each repository's latest default-branch commit, release, PR, and issue,
+with timestamps, links, and sync coverage.
 
 The [bundled skills](docs/skills.md) teach agents to triage and prioritize work, review
 PRs, diagnose CI, reproduce issues, and prepare fixes or maintenance digests. Agents can

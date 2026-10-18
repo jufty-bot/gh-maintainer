@@ -27,6 +27,12 @@ Run `uv run gh-maintainer --help` to discover commands and
 `uv run gh-maintainer COMMAND --help` to see options and defaults. The Click CLI also
 supports `-h` and `--version`; see [CLI help and discovery](cli.md#help-and-command-discovery).
 
+`gh-maintainer repos --format json` also shows each repository's last default-branch
+commit, designated latest release, newest-created PR, and newest-created issue, including
+dates and links. The [repository activity contract](cli.md#repository-activity) explains
+selection, known absence, and stale/failed lookups. Activity refreshes in batches of up to
+20 repositories per GraphQL request on each sync, independently of conversation ingestion.
+
 ### Select repositories
 
 `sync` and `watch` accept the same mutually exclusive selection options:
@@ -151,6 +157,8 @@ still needs the local or authenticated private deployment described below.
   reply/path context, per-repository comment checkpoints, and retained availability history.
 - PR detail payloads, current-head check rollups, review decisions, mergeability, and
   the separate time at which PR signals were successfully observed.
+- Latest repository commit/release/PR/issue activity with raw source evidence and its
+  independent observation time/error; full commit/release history is not indexed.
 - An append-only log of observed source changes, per-repository checkpoints and errors,
   run history, and local triage notes.
 - Source revisions, processing checkpoints, summaries, classifications, and ranks supplied
@@ -167,9 +175,20 @@ REST listing follows `Link` pagination to exhaustion and avoids the search API's
 **before** fetching, and a five-minute overlap. Every previously open PR is refreshed
 on every sync: CI and review changes need not advance the issue timestamp. Unchanged
 closed PRs in the overlap window reuse their cached details, including merged state.
-Incremental reads select incoming items, available PRs needed for review coverage, and
-comment parents by number instead of loading all historical issues. Commit reads target
-changed items and comment parents; full reconciliation still checks every stored item.
+Incremental reads select incoming items and open PR snapshots; historical review coverage
+loads PR numbers instead of raw PR payloads. Comment reads target incoming IDs and the PR
+review scopes being reconciled. Full reconciliation still checks every stored item.
+Unchanged discovery does not rewrite repository metadata or ownership memberships.
+Explicit repository selections resolve through the same bounded concurrency limit.
+
+Repositories share signal requests (up to 20 PR nodes per request) within windows bounded
+by `--concurrency`. Each window commits repositories sequentially and releases its staged
+data before starting the next; a slow repository can delay its window. For 201 repositories
+with one open PR each, offline tests use 51 signal requests at default concurrency 4,
+or 11 at concurrency 20, instead of one request per repository. These are request-count
+regressions, not live throughput benchmarks; REST requests still use the shared rate limit.
+If a signal batch fails, its represented repositories retain all their previous signals
+and signal timestamps and report partial coverage; other batches can succeed.
 
 Repository-level comment feeds use a separate checkpoint and the same five-minute overlap;
 the initial comment backfill and periodic full sync reconcile availability. Every known
@@ -178,6 +197,13 @@ because that endpoint has no incremental timestamp filter. This adds one paginat
 listing per PR. Comment/review fetch failures roll back the repository's item and comment
 updates together, retaining both checkpoints. Existing databases backfill comments on their
 next successful sync. `sync --full` also reconciles missing comments immediately.
+
+Embedded account profile changes (such as avatar URLs) and PR head/base repository
+statistics update the retained raw payload without advancing the source revision or
+invalidating processing/analysis. Account identities, repository identities, ref SHAs,
+item/comment content, review states and other source fields still count as activity.
+See the exact [revision comparison contract](architecture.md#querying-and-triage)
+and [remaining portfolio efficiency work](roadmap.md#portfolio-sync-efficiency).
 
 A repository's item updates, observations, and checkpoint commit in one SQLite
 transaction. Failed repositories keep their previous checkpoint and data. Failed
@@ -201,7 +227,7 @@ expires within five minutes. Sync exits nonzero on partial coverage so a schedul
 Coverage always means **repositories visible to the credential**. A fine-grained token
 limited to selected repositories cannot reveal repositories it was not granted. Use a
 credential covering the owner's full inventory when completeness matters. Fine-grained
-permissions should include metadata, issues, pull requests, checks, and commit statuses
+permissions should include metadata, contents (for commits/releases), issues, pull requests, checks, and commit statuses
 for all intended repositories; additional GitHub permission policies can restrict signals.
 Existing GitHub CLI credentials work without being copied into configuration files.
 
@@ -209,7 +235,7 @@ This is a polling index, not a complete GitHub event archive. It cannot reconstr
 transitions that happened entirely between syncs or before the first backfill. GitHub
 pagination is not a snapshot; overlap and periodic reconciliation help recover concurrent
 changes. Comments and review bodies are retained, but GraphQL review-thread resolution
-state, commits, workflow history, releases, discussions, and security alerts are not
+state, full commit/release histories, workflow history, discussions, and security alerts are not
 backfilled. A null or unavailable check result is **unknown**, never a passing check.
 Green checks and approval do not establish that branch rules permit merging.
 
