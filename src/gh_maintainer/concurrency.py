@@ -6,6 +6,8 @@ import asyncio
 from collections.abc import Awaitable, Callable, Sequence
 from typing import TypeVar
 
+import anyio
+
 T = TypeVar("T")
 R = TypeVar("R")
 
@@ -26,7 +28,8 @@ async def map_concurrently(
     try:
         await asyncio.gather(*tasks)
     finally:
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        with anyio.CancelScope(shield=True):
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
     return [results[index] for index in range(len(items))]

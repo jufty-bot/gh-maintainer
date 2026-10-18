@@ -18,6 +18,7 @@ dependencies = [
   "structlog>=25,<27",
   "pyyaml>=6,<7",
   "mcp>=2.3,<3",
+  "anyio>=4.8,<5",
 ]
 authors = [
   { name = "Justin Flannery", email = "juftin@juftin.com" }

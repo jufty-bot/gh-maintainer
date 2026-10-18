@@ -34,10 +34,17 @@ manager alongside the shared runtime's database lifecycle. Stdio reserves stdout
 and sends logs to stderr. Shutdown cancels the watcher, waits for source/lease cleanup,
 then disposes its owned database. No GitHub credential is resolved until a sync runs.
 
+`mcp_contracts.py` applies the selected CLI command defaults to SDK signatures and
+nested request models, keeping tool validation and discovery in agreement. Explicit
+tool arguments take precedence. Triage defaults to `planned`, matching the CLI.
 Explicit tool definitions retain CLI operations without requiring matching REST routes.
 The project depends directly on `mcp>=2.3,<3` using the tested release in `uv.lock`.
 Transport tests use the SDK's clients and HTTP/stdio transports, including
-legacy and current HTTP connections against the same combined application.
+legacy and current HTTP connections against the same combined application. HTTP
+streams SSE responses and retains legacy SDK sessions for progress and cancellation.
+Sync progress uses an awaited observer and the request's SDK context; notifications
+count completed stages without claiming a percentage. Cancellation shields worker
+drain, failed-run journaling, lease release, and source closure from interruption.
 
 Tools call the existing query/write services, preserving revision and policy guards.
 Partial sync or context coverage returns MCP `isError=true` with the full structured result.

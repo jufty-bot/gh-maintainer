@@ -228,10 +228,14 @@ def execute(ctx: click.Context, **options: object) -> None:
     args = SimpleNamespace(command=options.pop("command", ctx.info_name), **options)
     try:
         if args.command == "mcp" and args.transport == "stdio":
-            asyncio.run(run_stdio(args.db))
+            asyncio.run(run_stdio(args.db, config=ctx.meta.get("config")))
             code = 0
         elif args.command in {"serve", "mcp"}:
-            uvicorn.run(create_app(args.db), host=args.host, port=args.port)
+            uvicorn.run(
+                create_app(args.db, config=ctx.meta.get("config")),
+                host=args.host,
+                port=args.port,
+            )
             code = 0
         else:
             code = asyncio.run(run(args))

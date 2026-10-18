@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from inspect import isawaitable
 from time import monotonic
 from typing import Literal
 
+import anyio
 import structlog
 from structlog.typing import FilteringBoundLogger
 
@@ -61,7 +63,7 @@ class SyncService:
         self,
         database: Database,
         source: GitHubSource,
-        progress: Callable[[str], None] = lambda _: None,
+        progress: Callable[[str], Awaitable[None] | None] = lambda _: None,
         concurrency: int = DEFAULT_CONCURRENCY,
     ) -> None:
         if concurrency < 1:
@@ -70,6 +72,11 @@ class SyncService:
         self.database, self.source, self.progress = database, source, progress
         self.catalog = CatalogRepository(database)
         self.journal = SyncJournal(database)
+
+    async def _progress(self, message: str) -> None:
+        result = self.progress(message)
+        if isawaitable(result):
+            await result
 
     async def _repository(
         self,
@@ -98,6 +105,7 @@ class SyncService:
         async for batch in self.source.issues(repo, since):
             rows.update((item.id, item) for item in batch)
             log.info("Issue batch fetched", batch_items=len(batch), items=len(rows))
+            await self._progress(f"{repo.name}: fetched {len(rows)} items")
         existing = {
             item.id: item
             for item in await self.catalog.items(
@@ -145,6 +153,7 @@ class SyncService:
                     rows[parent.id] = parent
                     by_number[parent.number] = parent
                 comments.append(comment)
+            await self._progress(f"{repo.name}: fetched {len(comments)} comments")
             log.info(
                 "Comment batch fetched",
                 batch_comments=len(comment_batch),
@@ -163,6 +172,7 @@ class SyncService:
         async def refresh_reviews(number: int) -> None:
             async for review_batch in self.source.reviews(repo, number):
                 comments.extend(review_batch)
+                await self._progress(f"{repo.name}: fetched reviews for #{number}")
             log.debug("Pull request reviews fetched", number=number)
 
         await map_concurrently(
@@ -192,6 +202,7 @@ class SyncService:
                 raw = await self.source.pull(repo, item.number)
             pull = PullPayload.model_validate(raw)
             log.debug("Pull request refreshed", number=item.number)
+            await self._progress(f"{repo.name}: refreshed pull request #{item.number}")
             rows[item.id] = item.with_pull(raw)
             if rows[item.id].state == State.OPEN:
                 open_prs[item.id] = pull.node_id
@@ -227,6 +238,7 @@ class SyncService:
         signals = {}
         for offset in range(0, len(node_ids), SIGNAL_BATCH_SIZE):
             ids = node_ids[offset : offset + SIGNAL_BATCH_SIZE]
+            await self._progress(f"Fetching signals for {len(ids)} pull requests")
             try:
                 fetched = await self.source.signals(ids)
                 if set(fetched) != set(ids):
@@ -280,7 +292,7 @@ class SyncService:
         async def ingest(
             repo: RepositorySnapshot,
         ) -> tuple[RepositoryBatch | None, str | None]:
-            self.progress(f"Syncing {repo.name}")
+            await self._progress(f"Syncing {repo.name}")
             repo_log = log.bind(repository=repo.name, repository_id=repo.id)
             try:
                 return await self._repository(repo, full, repo_log), None
@@ -300,6 +312,7 @@ class SyncService:
                 continue
             try:
                 await self._commit(batch, lease)
+                await self._progress(f"Synced {batch.repo.name}")
                 results.append(
                     (
                         True,
@@ -379,6 +392,7 @@ class SyncService:
                     repositories=sorted(only or ()),
                     owner=owner,
                 )
+                await self._progress("Discovering repositories")
                 log.info("Discovering repositories")
                 repos: list[RepositorySnapshot] = []
                 account = None
@@ -423,6 +437,9 @@ class SyncService:
                             # App credentials may lack /user access.
                             public_only = True
                     async for batch in self.source.repositories(account):
+                        await self._progress(
+                            f"Discovered {len(repos) + len(batch)} repositories"
+                        )
                         for repo in batch:
                             payload = RepositoryPayload.model_validate(repo.raw)
                             if payload.owner.id == account.id:
@@ -433,6 +450,9 @@ class SyncService:
                     account, repos, lease, public_only=public_only
                 )
                 log.info("Repository discovery finished", discovered=len(repos))
+                await self._progress(
+                    f"Refreshing activity for {len(repos)} repositories"
+                )
                 errors.extend(await self._activity(repos, lease, log))
 
                 for offset in range(0, len(repos), self.concurrency):
@@ -457,6 +477,9 @@ class SyncService:
                     source_calls=self.source.calls,
                     duration_seconds=round(monotonic() - started, 3),
                 )
+                await self._progress(
+                    f"Sync {status}: {synced} of {len(repos)} repositories synced"
+                )
                 return SyncResult(
                     owner=account.login if account else None,
                     scope="owner" if account else "repositories",
@@ -476,7 +499,8 @@ class SyncService:
                     source_calls=self.source.calls,
                     duration_seconds=round(monotonic() - started, 3),
                 )
-                await self.journal.finish(
-                    run_id, "failed", self.source.calls, str(error), lease
-                )
+                with anyio.CancelScope(shield=True):
+                    await self.journal.finish(
+                        run_id, "failed", self.source.calls, str(error), lease
+                    )
                 raise

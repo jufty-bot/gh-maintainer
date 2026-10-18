@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.routing import Route
 
 from gh_maintainer.clock import parse_date
+from gh_maintainer.config import Config
 from gh_maintainer.database import Database
 from gh_maintainer.mcp import MCPRuntime
 from gh_maintainer.queries import CatalogQueries
@@ -36,11 +37,13 @@ from gh_maintainer.schemas import (
 STATIC = Path(__file__).parent / "static"
 
 
-def create_app(db_path: str, database: Database | None = None) -> FastAPI:
-    runtime = MCPRuntime(db_path, database)
+def create_app(
+    db_path: str, database: Database | None = None, config: Config | None = None
+) -> FastAPI:
+    runtime = MCPRuntime(db_path, database, config)
     db = runtime.database
     mcp_app = runtime.server.streamable_http_app(
-        streamable_http_path="/mcp", stateless_http=True, json_response=True
+        streamable_http_path="/mcp", stateless_http=False, json_response=False
     )
 
     @asynccontextmanager

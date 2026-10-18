@@ -3,18 +3,20 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from datetime import timedelta
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
+import anyio
 from mcp.server import MCPServer
+from mcp.server.mcpserver import Context
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import Field
 
 from gh_maintainer.clock import now, parse_date
-from gh_maintainer.config import SyncOptions
+from gh_maintainer.config import Config, SyncOptions
 from gh_maintainer.database import Database
 from gh_maintainer.demo import seed_demo
 from gh_maintainer.github import (
@@ -24,7 +26,8 @@ from gh_maintainer.github import (
     resolve_token,
 )
 from gh_maintainer.logging import configure_logging
-from gh_maintainer.mcp_commands import guard_policy, register_commands, tool_errors
+from gh_maintainer.mcp_commands import guard_policy, register_commands
+from gh_maintainer.mcp_contracts import configured_tool
 from gh_maintainer.queries import CatalogQueries
 from gh_maintainer.report import markdown
 from gh_maintainer.repositories import CatalogRepository, SyncLease, TriageService
@@ -79,6 +82,7 @@ class MaintenanceTools:
         owner: str | None = None,
         concurrency: int = DEFAULT_CONCURRENCY,
         requests_per_second: float = DEFAULT_REQUESTS_PER_SECOND,
+        progress: Callable[[str], Awaitable[None]] | None = None,
     ) -> SyncResult:
         options = SyncOptions(
             full=full,
@@ -98,10 +102,14 @@ class MaintenanceTools:
         )
         try:
             return await SyncService(
-                self.database, source, concurrency=concurrency
+                self.database,
+                source,
+                progress=progress or (lambda _: None),
+                concurrency=concurrency,
             ).run(full, only, owner)
         finally:
-            await source.close()
+            with anyio.CancelScope(shield=True):
+                await source.close()
 
     def watch_status(self) -> WatchStatus:
         return self._status.model_copy(
@@ -164,16 +172,19 @@ class MaintenanceTools:
             return self.watch_status()
 
 
-def register_tools(server: MCPServer[None], tools: MaintenanceTools) -> None:
+def register_tools(
+    server: MCPServer[None], tools: MaintenanceTools, config: Config
+) -> None:
     db = tools.database
+    tool = configured_tool(server, config)
 
-    @server.tool(
+    @tool(
         annotations=ToolAnnotations(
             read_only_hint=False, destructive_hint=False, open_world_hint=True
         )
     )
-    @tool_errors
     async def sync(
+        ctx: Context[None, Any],
         full: bool = False,
         repo: list[str] | None = None,
         owner: str | None = None,
@@ -188,19 +199,29 @@ def register_tools(server: MCPServer[None], tools: MaintenanceTools) -> None:
         with the complete SyncResult in structuredContent, just as CLI sync exits 1.
         GitHub credentials are resolved on the server only when syncing.
         """
-        result = await tools.sync(full, repo, owner, concurrency, requests_per_second)
+        completed = 0
+        lock = asyncio.Lock()
+
+        async def progress(message: str) -> None:
+            nonlocal completed
+            async with lock:
+                completed += 1
+                await ctx.report_progress(completed, message=message)
+
+        result = await tools.sync(
+            full, repo, owner, concurrency, requests_per_second, progress
+        )
         return CallToolResult(
             content=[TextContent(type="text", text=result.model_dump_json(indent=2))],
             structured_content=result.model_dump(mode="json"),
             is_error=result.status != "complete",
         )
 
-    @server.tool(
+    @tool(
         annotations=ToolAnnotations(
             read_only_hint=False, destructive_hint=True, open_world_hint=False
         )
     )
-    @tool_errors
     async def report(
         format: Literal["markdown", "json"] = "markdown",  # noqa: A002
         output: str | None = None,
@@ -217,11 +238,10 @@ def register_tools(server: MCPServer[None], tools: MaintenanceTools) -> None:
             await asyncio.to_thread(Path(output).write_text, text, encoding="utf-8")
         return text
 
-    @server.tool(annotations=LOCAL_WRITE)
-    @tool_errors
+    @tool(annotations=LOCAL_WRITE)
     async def triage(
         item_id: str,
-        disposition: Disposition,
+        disposition: Disposition = Disposition.PLANNED,
         note: str = "",
         until: str | None = None,
         revision: Annotated[int, Field(ge=1)] | None = None,
@@ -245,26 +265,23 @@ def register_tools(server: MCPServer[None], tools: MaintenanceTools) -> None:
         )
         return "Local triage decision saved."
 
-    @server.tool(annotations=LOCAL_WRITE)
-    @tool_errors
+    @tool(annotations=LOCAL_WRITE)
     async def demo() -> str:
         """Seed example data. Requires an empty index and no GitHub credential."""
         await seed_demo(db)
         return "Demo data created."
 
-    @server.tool(annotations=LOCAL_WRITE)
-    @tool_errors
+    @tool(annotations=LOCAL_WRITE)
     async def migrate() -> str:
         """Apply packaged database migrations (also run at server startup)."""
         await db.initialize()
         return "Database schema is up to date."
 
-    @server.tool(
+    @tool(
         annotations=ToolAnnotations(
             read_only_hint=False, destructive_hint=True, open_world_hint=False
         )
     )
-    @tool_errors
     async def prune(
         keep: Annotated[int, Field(ge=0)] = 50,
         days: Annotated[int, Field(ge=0)] | None = None,
@@ -285,12 +302,11 @@ def register_tools(server: MCPServer[None], tools: MaintenanceTools) -> None:
             await db.vacuum()
         return deleted
 
-    @server.tool(
+    @tool(
         annotations=ToolAnnotations(
             read_only_hint=False, destructive_hint=False, open_world_hint=True
         )
     )
-    @tool_errors
     async def watch(
         interval: Annotated[int, Field(ge=60)] = 900,
         full: bool = False,
@@ -313,27 +329,23 @@ def register_tools(server: MCPServer[None], tools: MaintenanceTools) -> None:
             interval, full, repo, owner, concurrency, requests_per_second
         )
 
-    @server.tool(annotations=READ_ONLY)
-    @tool_errors
+    @tool(annotations=READ_ONLY)
     async def watch_status() -> WatchStatus:
         """Read watcher activity, its last sync result and any fatal error."""
         return tools.watch_status()
 
-    @server.tool(annotations=LOCAL_WRITE)
-    @tool_errors
+    @tool(annotations=LOCAL_WRITE)
     async def stop_watch() -> WatchStatus:
         """Stop the watcher and await sync cleanup. Safe to repeat."""
         return await tools.stop_watch()
 
-    @server.tool(annotations=READ_ONLY)
-    @tool_errors
+    @tool(annotations=READ_ONLY)
     async def overview() -> Overview:
         """Read repository inventory, counts and the latest sync run from the index."""
         async with db.sessions() as session:
             return await CatalogQueries(session).overview()
 
-    @server.tool(annotations=READ_ONLY)
-    @tool_errors
+    @tool(annotations=READ_ONLY)
     async def list_items(
         q: str = "",
         kind: Kind | None = None,
@@ -356,25 +368,29 @@ def register_tools(server: MCPServer[None], tools: MaintenanceTools) -> None:
         async with db.sessions() as session:
             return await CatalogQueries(session).page(filters)
 
-    @server.tool(annotations=READ_ONLY)
-    @tool_errors
+    @tool(annotations=READ_ONLY)
     async def item_detail(item_id: str) -> ItemDetail:
         """Read an indexed item by issue node ID or OWNER/REPO#NUMBER reference."""
         async with db.sessions() as session:
             return await CatalogQueries(session).show(item_id)
 
-    register_commands(server, db)
+    register_commands(server, db, config)
 
 
 class MCPRuntime:
     """Share tool registration and resource ownership across both transports."""
 
-    def __init__(self, db_path: str, database: Database | None = None) -> None:
+    def __init__(
+        self,
+        db_path: str,
+        database: Database | None = None,
+        config: Config | None = None,
+    ) -> None:
         self.database = database or Database(db_path)
         self.owns_database = database is None
         self.tools = MaintenanceTools(self.database)
         self.server = MCPServer[None]("GitHub Maintainer")
-        register_tools(self.server, self.tools)
+        register_tools(self.server, self.tools, config or Config())
 
     @asynccontextmanager
     async def lifespan(self) -> AsyncIterator[None]:
@@ -390,8 +406,8 @@ class MCPRuntime:
                 await self.database.close()
 
 
-async def run_stdio(db_path: str) -> None:
+async def run_stdio(db_path: str, config: Config | None = None) -> None:
     """Serve MCP on stdin/stdout, reserving stdout for protocol messages."""
-    runtime = MCPRuntime(db_path)
+    runtime = MCPRuntime(db_path, config=config)
     async with runtime.lifespan():
         await runtime.server.run_stdio_async()

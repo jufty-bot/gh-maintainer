@@ -1,18 +1,15 @@
 """CLI query, analysis, policy, and context contracts exposed as MCP tools."""
 
-from collections.abc import Awaitable, Callable
-from functools import wraps
 from pathlib import Path
-from typing import Annotated, Literal, ParamSpec, TypeVar
+from typing import Annotated, Literal
 
 from mcp.server import MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
-from pydantic import AwareDatetime, ConfigDict, Field
-from sqlalchemy.exc import SQLAlchemyError
+from pydantic import ConfigDict, Field
 
 from gh_maintainer.clock import parse_date
 from gh_maintainer.config import (
+    Config,
     ListOptions,
     PolicyFile,
     RepositoryPolicy,
@@ -22,12 +19,12 @@ from gh_maintainer.config import (
 )
 from gh_maintainer.context import ContextRequest, context_for
 from gh_maintainer.database import Database
+from gh_maintainer.mcp_contracts import configured_tool
 from gh_maintainer.queries import CatalogQueries
 from gh_maintainer.repositories import AnalysisService
 from gh_maintainer.schemas import (
     AnalysisInput,
     AnalysisView,
-    Category,
     ChangePage,
     CommentPage,
     Contract,
@@ -36,7 +33,6 @@ from gh_maintainer.schemas import (
     ItemPage,
     Kind,
     Overview,
-    Priority,
     ProcessingView,
     repository_name,
 )
@@ -48,23 +44,6 @@ LOCAL_WRITE = ToolAnnotations(
 )
 
 
-P = ParamSpec("P")
-R = TypeVar("R")
-
-
-def tool_errors(fn: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
-    """Expose the same operational errors as the CLI through the SDK's ToolError."""
-
-    @wraps(fn)
-    async def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
-        try:
-            return await fn(*args, **kwargs)
-        except (RuntimeError, ValueError, OSError, SQLAlchemyError) as error:
-            raise ToolError(str(error)) from error
-
-    return wrapped
-
-
 class SkillResult(Contract):
     skills: list[str]
     installed_to: str | None
@@ -74,12 +53,6 @@ class ListRequest(ListOptions):
     """CLI list options plus the current author/date/triage filters."""
 
     model_config = ConfigDict(extra="forbid", strict=False)
-    author: str = ""
-    since: AwareDatetime | None = None
-    until: AwareDatetime | None = None
-    priority: Priority | None = None
-    category: Category | None = None
-    triaged: bool | None = None
 
 
 class StatusRequest(ListRequest):
@@ -105,7 +78,9 @@ async def guard_policy(
         )
 
 
-def register_commands(server: MCPServer[None], db: Database) -> None:
+def register_commands(server: MCPServer[None], db: Database, config: Config) -> None:
+    tool = configured_tool(server, config)
+
     async def page(kind: Kind, options: ListRequest) -> ItemPage:
         if options.unprocessed and options.processing:
             raise ValueError("unprocessed and processing cannot be combined.")
@@ -113,7 +88,7 @@ def register_commands(server: MCPServer[None], db: Database) -> None:
         values.update(
             kind=kind,
             q=options.search,
-            repo=options.repo or "",
+            repo=repository_name(options.repo) if options.repo else "",
             state=None if options.state == "all" else options.state,
             processing="pending" if options.unprocessed else options.processing,
         )
@@ -122,40 +97,34 @@ def register_commands(server: MCPServer[None], db: Database) -> None:
                 ItemFilters.model_validate(values)
             )
 
-    @server.tool(annotations=READ_ONLY)
-    @tool_errors
+    @tool(annotations=READ_ONLY, nested=("options", ListRequest))
     async def prs(options: ListRequest | None = None) -> ItemPage:
         """List PRs (open by default) with CLI filters and pagination."""
         return await page(Kind.PR, options or ListRequest())
 
-    @server.tool(annotations=READ_ONLY)
-    @tool_errors
+    @tool(annotations=READ_ONLY, nested=("options", ListRequest))
     async def issues(options: ListRequest | None = None) -> ItemPage:
         """List issues (open by default) with CLI filtering and pagination options."""
         return await page(Kind.ISSUE, options or ListRequest())
 
-    @server.tool(annotations=READ_ONLY)
-    @tool_errors
+    @tool(annotations=READ_ONLY, nested=("options", StatusRequest))
     async def status(options: StatusRequest | None = None) -> ItemPage:
         """List PRs in all states by default, including signals and processing."""
         return await page(Kind.PR, options or StatusRequest())
 
-    @server.tool(annotations=READ_ONLY)
-    @tool_errors
+    @tool(annotations=READ_ONLY)
     async def show(item_id: str) -> ItemDetail:
         """Read an item by issue node ID or OWNER/REPO#NUMBER, including revision."""
         async with db.sessions() as session:
             return await CatalogQueries(session).show(item_id)
 
-    @server.tool(annotations=READ_ONLY)
-    @tool_errors
+    @tool(annotations=READ_ONLY)
     async def repos() -> Overview:
         """Read repository inventory, activity snapshots, counts and sync coverage."""
         async with db.sessions() as session:
             return await CatalogQueries(session).overview()
 
-    @server.tool(annotations=READ_ONLY)
-    @tool_errors
+    @tool(annotations=READ_ONLY)
     async def comments(
         item_id: str,
         limit: Annotated[int, Field(ge=1, le=500)] = 100,
@@ -168,8 +137,7 @@ def register_commands(server: MCPServer[None], db: Database) -> None:
                 item_id, limit, offset, include_unavailable
             )
 
-    @server.tool(annotations=READ_ONLY)
-    @tool_errors
+    @tool(annotations=READ_ONLY)
     async def changes(
         item_id: str | None = None,
         since: str | None = None,
@@ -207,8 +175,7 @@ def register_commands(server: MCPServer[None], db: Database) -> None:
         )
         return await AnalysisService(db).save(item_id, kind, data, revision)
 
-    @server.tool(annotations=LOCAL_WRITE)
-    @tool_errors
+    @tool(annotations=LOCAL_WRITE)
     async def classify(
         item_id: str,
         labels: Annotated[list[str], Field(min_length=1)],
@@ -227,8 +194,7 @@ def register_commands(server: MCPServer[None], db: Database) -> None:
             "classify",
         )
 
-    @server.tool(annotations=LOCAL_WRITE)
-    @tool_errors
+    @tool(annotations=LOCAL_WRITE)
     async def summarize(
         item_id: str,
         text: str,
@@ -247,8 +213,7 @@ def register_commands(server: MCPServer[None], db: Database) -> None:
             "summarize",
         )
 
-    @server.tool(annotations=LOCAL_WRITE)
-    @tool_errors
+    @tool(annotations=LOCAL_WRITE)
     async def rank(
         item_id: str,
         score: Annotated[float, Field(allow_inf_nan=False)],
@@ -267,8 +232,7 @@ def register_commands(server: MCPServer[None], db: Database) -> None:
             "rank",
         )
 
-    @server.tool(annotations=LOCAL_WRITE)
-    @tool_errors
+    @tool(annotations=LOCAL_WRITE)
     async def mark_processed(
         item_id: str,
         revision: Annotated[int, Field(ge=1)] | None = None,
@@ -279,8 +243,10 @@ def register_commands(server: MCPServer[None], db: Database) -> None:
         await guard_policy(db, item_id, policy, "mark-processed")
         return await AnalysisService(db).mark_processed(item_id, revision, actor)
 
-    @server.tool(annotations=ToolAnnotations(read_only_hint=True, open_world_hint=True))
-    @tool_errors
+    @tool(
+        annotations=ToolAnnotations(read_only_hint=True, open_world_hint=True),
+        nested=("request", ContextRequest),
+    )
     async def context(
         item_id: str, request: ContextRequest | None = None
     ) -> CallToolResult:
@@ -297,8 +263,7 @@ def register_commands(server: MCPServer[None], db: Database) -> None:
             is_error=not packet.complete,
         )
 
-    @server.tool(annotations=LOCAL_WRITE)
-    @tool_errors
+    @tool(annotations=LOCAL_WRITE)
     async def policy(
         repo: str, file: str = ".gh-maintainer.json", initialize: bool = False
     ) -> SelectedPolicy:
@@ -311,8 +276,7 @@ def register_commands(server: MCPServer[None], db: Database) -> None:
                 stream.write(content.model_dump_json(indent=2) + "\n")
         return load_policy(path, name)
 
-    @server.tool(annotations=LOCAL_WRITE)
-    @tool_errors
+    @tool(annotations=LOCAL_WRITE)
     async def skills(install: str | None = None) -> SkillResult:
         """List bundled skills or install to a server directory without overwriting."""
         names = (
@@ -328,8 +292,7 @@ def register_commands(server: MCPServer[None], db: Database) -> None:
             skills=names, installed_to=str(Path(install).resolve()) if install else None
         )
 
-    @server.tool(annotations=READ_ONLY)
-    @tool_errors
+    @tool(annotations=READ_ONLY)
     async def db_path() -> str:
         """Return the index path. Database deletion requires stopping MCP."""
         path = str(db.engine.url.database)

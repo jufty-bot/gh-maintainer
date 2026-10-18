@@ -402,6 +402,12 @@ Stdio is the default for subprocess clients; HTTP requires `--transport http` or
 explicit configuration default.
 Tools call the existing query, sync, triage, analysis, policy, and context services.
 The CLI remains usable without a server, and the index is selected once at startup.
+Use the selected CLI operation defaults in tool signatures and nested request models;
+explicit tool values take precedence and triage defaults to `planned`. Contract tests
+compare CLI parameters, defaults, constraints, and results against MCP.
+Use streamed HTTP responses and legacy SDK sessions to support request-scoped progress
+and cancellation. Progress is an awaited sync observer; shield cleanup so cancelled
+clients cannot leave workers, source clients, or database leases behind.
 
 **Why:** MCP clients need the same indexed evidence and guarded decisions as CLI users.
 Sharing domain services preserves pagination, revision checks, processing semantics,
@@ -419,4 +425,5 @@ shutdown. Stop the server before deleting its database through the CLI. Server-s
 policy, report, and skill paths remain filesystem operations. See [MCP contracts](mcp.md).
 
 Evidence: `src/gh_maintainer/mcp.py`, `src/gh_maintainer/mcp_commands.py`,
-`tests/test_mcp.py`, and generated configuration schema.
+`tests/test_mcp.py`, `tests/test_mcp_contracts.py`, `tests/test_mcp_progress.py`,
+and the generated configuration schema.

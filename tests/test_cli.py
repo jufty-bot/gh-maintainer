@@ -147,7 +147,7 @@ def test_demo_reports_and_serve(
     assert "Maintenance report" in report.read_text()
 
     received = []
-    monkeypatch.setattr(cli, "create_app", lambda db: db)
+    monkeypatch.setattr(cli, "create_app", lambda db, *, config: (db, config))
     monkeypatch.setattr(
         cli.uvicorn, "run", lambda app, **kwargs: received.append((app, kwargs))
     )
@@ -155,7 +155,7 @@ def test_demo_reports_and_serve(
         cli.main, [*options, "serve", "--host", "127.0.0.2", "--port", "9000"]
     )
     assert result.exit_code == 0, result.output
-    assert received == [(str(path), {"host": "127.0.0.2", "port": 9000})]
+    assert received == [((str(path), None), {"host": "127.0.0.2", "port": 9000})]
 
 
 def test_interruption_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:

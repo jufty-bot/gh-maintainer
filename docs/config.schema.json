@@ -2,6 +2,23 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/jufty-bot/gh-maintainer/main/docs/config.schema.json",
   "$defs": {
+    "Category": {
+      "enum": [
+        "feature_request",
+        "feature_contribution",
+        "bug_report",
+        "bug_fix",
+        "dependency_upgrade",
+        "documentation",
+        "maintenance",
+        "ci",
+        "question",
+        "security",
+        "other"
+      ],
+      "title": "Category",
+      "type": "string"
+    },
     "ChangesOptions": {
       "additionalProperties": false,
       "properties": {
@@ -429,6 +446,71 @@
           ],
           "title": "Sort",
           "type": "string"
+        },
+        "author": {
+          "default": "",
+          "title": "Author",
+          "type": "string"
+        },
+        "since": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Since"
+        },
+        "until": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Until"
+        },
+        "priority": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Priority"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "category": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Category"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "triaged": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Triaged"
         }
       },
       "title": "ListOptions",
@@ -517,6 +599,16 @@
       "title": "PolicyOptions",
       "type": "object"
     },
+    "Priority": {
+      "enum": [
+        "urgent",
+        "high",
+        "medium",
+        "low"
+      ],
+      "title": "Priority",
+      "type": "string"
+    },
     "ProcessOptions": {
       "additionalProperties": false,
       "properties": {
@@ -574,6 +666,46 @@
         }
       },
       "title": "ProcessOptions",
+      "type": "object"
+    },
+    "PruneOptions": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "default": "text",
+          "enum": [
+            "text",
+            "json"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "keep": {
+          "default": 50,
+          "minimum": 0,
+          "title": "Keep",
+          "type": "integer"
+        },
+        "days": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Days"
+        },
+        "vacuum": {
+          "default": false,
+          "title": "Vacuum",
+          "type": "boolean"
+        }
+      },
+      "title": "PruneOptions",
       "type": "object"
     },
     "RankOptions": {
@@ -846,6 +978,71 @@
           ],
           "title": "Sort",
           "type": "string"
+        },
+        "author": {
+          "default": "",
+          "title": "Author",
+          "type": "string"
+        },
+        "since": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Since"
+        },
+        "until": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Until"
+        },
+        "priority": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Priority"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "category": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Category"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "triaged": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Triaged"
         }
       },
       "title": "StatusOptions",
@@ -1047,8 +1244,30 @@
               "type": "null"
             }
           ],
-          "default": null,
+          "default": "planned",
           "title": "Disposition"
+        },
+        "priority": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Priority"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "category": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Category"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "note": {
           "default": "",
@@ -1186,6 +1405,9 @@
     },
     "report": {
       "$ref": "#/$defs/ReportOptions"
+    },
+    "prune": {
+      "$ref": "#/$defs/PruneOptions"
     },
     "serve": {
       "$ref": "#/$defs/ServeOptions"

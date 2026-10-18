@@ -25,6 +25,7 @@ from sqlalchemy import func, select
 
 from gh_maintainer.cli import main, run
 from gh_maintainer.clock import now
+from gh_maintainer.config import load_config
 from gh_maintainer.context import ContextPacket
 from gh_maintainer.database import Database
 from gh_maintainer.models import Observation
@@ -426,7 +427,7 @@ def test_mcp_cli_launch_and_database_selection(monkeypatch: pytest.MonkeyPatch) 
     ):
         result = CliRunner().invoke(main, arguments)
     assert result.exit_code == 0, result.output
-    factory.assert_called_once_with("after.sqlite")
+    factory.assert_called_once_with("after.sqlite", config=None)
     serve.assert_called_once_with(factory.return_value, host="127.0.0.1", port=9000)
 
 
@@ -474,7 +475,7 @@ def test_stdio_cli_avoids_http_server(monkeypatch: pytest.MonkeyPatch) -> None:
     ):
         result = CliRunner().invoke(main, ["mcp", "--db", "stdio.sqlite"])
     assert result.exit_code == 0, result.output
-    stdio.assert_awaited_once_with("stdio.sqlite")
+    stdio.assert_awaited_once_with("stdio.sqlite", config=None)
     http.assert_not_called()
 
 
@@ -642,11 +643,11 @@ def test_mcp_config_defaults(
         result = CliRunner().invoke(main, arguments)
     assert result.exit_code == 0, result.output
     if (override or configured) == "stdio":
-        stdio.assert_awaited_once_with("configured.sqlite")
+        stdio.assert_awaited_once_with("configured.sqlite", config=load_config(config))
         http.assert_not_called()
     else:
         stdio.assert_not_called()
-        factory.assert_called_once_with("configured.sqlite")
+        factory.assert_called_once_with("configured.sqlite", config=load_config(config))
         http.assert_called_once_with(factory.return_value, host="127.0.0.1", port=8766)
 
 
