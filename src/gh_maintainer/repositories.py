@@ -746,7 +746,11 @@ class TriageService:
         revision: int | None = None,
         priority: Priority | None = None,
         category: Category | None = None,
+        finish_review: bool = False,
+        actor: str = "manual",
     ) -> None:
+        if finish_review and revision is None:
+            raise ValueError("Finishing a review requires the inspected revision.")
         at = at or now()
         if disposition == Disposition.SNOOZED:
             if until is None or until.tzinfo is None or until <= at:
@@ -757,6 +761,8 @@ class TriageService:
             item = await resolve_item(session, item_id)
             if revision is not None and item.revision != revision:
                 raise ValueError("Item changed; read it again before saving triage.")
+            if finish_review:
+                await record_processing(session, item, actor, at)
             statement = insert(TriageDecision).values(
                 item_id=item.id,
                 source_revision=item.revision,
@@ -784,6 +790,36 @@ class TriageService:
                     },
                 )
             )
+
+
+async def record_processing(
+    session: AsyncSession, item: Item, actor: str, at: datetime
+) -> ProcessingView:
+    """Validate coverage and save an acknowledgement in the caller's transaction."""
+    repo = await session.get(Repository, item.repo_id)
+    if repo is None or repo.error or repo.comments_synced_at is None:
+        raise ValueError(
+            "Sync complete item and comment coverage before marking processed."
+        )
+    if not repo.present or not item.available:
+        raise ValueError(
+            "Item is unavailable; sync its repository before finishing review."
+        )
+    result = ProcessingView(
+        item_id=item.id, revision=item.revision, checked_at=at, actor=actor
+    )
+    statement = insert(Processing).values(**result.model_dump())
+    await session.execute(
+        statement.on_conflict_do_update(
+            index_elements=[Processing.item_id],
+            set_={
+                key: getattr(statement.excluded, key)
+                for key in result.model_dump()
+                if key != "item_id"
+            },
+        )
+    )
+    return result
 
 
 class AnalysisService:
@@ -858,23 +894,4 @@ class AnalysisService:
                 raise ValueError(
                     "Item changed; read it again before marking it processed."
                 )
-            repo = await session.get(Repository, item.repo_id)
-            if repo is None or repo.error or repo.comments_synced_at is None:
-                raise ValueError(
-                    "Sync complete item and comment coverage before marking processed."
-                )
-            result = ProcessingView(
-                item_id=item.id, revision=item.revision, checked_at=now(), actor=actor
-            )
-            statement = insert(Processing).values(**result.model_dump())
-            await session.execute(
-                statement.on_conflict_do_update(
-                    index_elements=[Processing.item_id],
-                    set_={
-                        key: getattr(statement.excluded, key)
-                        for key in result.model_dump()
-                        if key != "item_id"
-                    },
-                )
-            )
-            return result
+            return await record_processing(session, item, actor, now())

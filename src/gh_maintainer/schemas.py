@@ -470,6 +470,9 @@ class TriageUpdate(Contract):
     priority: Priority | None = None
     category: Category | None = None
     snoozed_until: AwareDatetime | None = None
+    revision: int | None = Field(default=None, ge=1)
+    finish_review: bool = False
+    actor: str = Field(default="dashboard", min_length=1)
 
 
 class Assessment(Contract):

@@ -7,6 +7,30 @@ implemented; further provider/host coverage and scale extensions remain. Checked
 and validation evidence when closing a task.
 Split partial work into separate tasks instead of marking an entire milestone complete.
 
+## Dashboard workflow and Kanban
+
+- [x] Verify credential detection without exposing tokens, configured selection, first-sync
+  setup, stage polling, partial errors/retry, cancellation, and shutdown cleanup.
+- [x] Verify atomic triage/processing through REST, CLI and MCP, inspected-revision and
+  coverage guards, rollback on failed writes, both policy permissions, and preserved edits.
+- [x] Verify five effective Kanban lanes, independent SQL pagination, shared filters,
+  persistent local moves, deadline-based snoozes, source guards and responsive layouts.
+- [x] Run focused/full Python and browser checks, lint/format/types, packaging and strict docs.
+
+Code: `web.py`, `repositories.py`, `cli.py`, `mcp.py`, and `static/`.
+Evidence: `tests/test_dashboard_workflow.py`, `tests/test_cli.py`, `tests/test_mcp.py`,
+`tests/frontend/workflow.spec.cjs`. See [workflow contracts](usage.md),
+[roadmap status](roadmap.md#current-implementation) and [D20](decisions.md#d20-dashboard-setup-atomic-review-completion-and-shared-kanban-state).
+Validation: all 373 Python tests passed on Python 3.14, including rollback and a source
+sync racing the review transaction. All 34 Playwright checks passed on desktop/mobile,
+including cross-page/final-item completion, drag/drop, stale moves, and lane pagination.
+Ruff lint/format, mypy, Prettier on changed frontend files, `uv build`, strict MkDocs and
+`git diff --check` passed. Desktop/mobile board and setup screenshots were inspected;
+filters wrap without losing their visible labels. Sync uses token-free source fakes,
+and browser checks use a disposable demo index and mocked sync responses; no live GitHub
+sync was performed. Other Python versions and a credentialed browser-sync pilot remain
+outside this change's author-run validation.
+
 ## MCP transports and maintenance tools
 
 - [x] Add `mcp --transport http|stdio` with shared tool registration, startup migrations,

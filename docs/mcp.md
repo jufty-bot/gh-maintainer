@@ -74,7 +74,7 @@ Live context uses the existing authenticated `gh` integration.
 | `sync` | `sync` | `full=false`, optional `repo` list or `owner` (mutually exclusive), `concurrency=4`, `requests_per_second=2`. Returns structured coverage/errors/source call counts. |
 | `watch` | `watch`, `watch_status`, `stop_watch` | Sync options plus `interval=900` (minimum 60). Start returns immediately; status includes options, latest result and fatal error. Stop awaits cleanup and is safe to repeat. |
 | `report` | `report` | `format="markdown"` or `"json"`; returns report text. Optional `output` writes a UTF-8 file on the server, overwriting an existing file. |
-| `triage` | `triage` | `item_id`, `disposition="planned"`, `note`, optional `until`, `revision`, `priority`, `category`, `policy`. Snoozes require a future ISO timestamp including timezone. |
+| `triage` | `triage` | `item_id`, `disposition="planned"`, `note`, optional `until`, `revision`, `priority`, `category`, `policy`. `finish_review=false`; when true, requires `revision` and atomically acknowledges it with `actor="manual"`. Snoozes require a future ISO timestamp including timezone. |
 | `prs`, `issues`, `status` | Same names | Optional `options` object with the CLI's filters and pagination. PRs/issues default to open; status includes all PR states. |
 | `show`, `repos`, `comments`, `changes` | Same names | Structured query results. Comments and changes accept `limit`/`offset`. Changes default to activity since processing; `all` and `since` are mutually exclusive. |
 | `classify`, `summarize`, `rank` | Same names | Save supplied `labels`, `text`, or finite `score`, with `producer`, `reason`, optional `revision` and `policy`. Summary text is literal; supply multiline text directly instead of the CLI's stdin `-` convention. |
@@ -96,6 +96,8 @@ Lists paginate in SQL, with `limit` 1–500 and nonnegative `offset`.
 Structured JSON replaces CLI `--format text|json` for query and analysis tools;
 `report` retains its Markdown/JSON choice. Reading, analysis, and triage do not mark an
 item processed: call `mark_processed` explicitly after inspecting its current revision.
+The explicit `triage(finish_review=true, revision=N)` alternative saves the decision
+and acknowledgement together; policy must permit both triage and processing.
 Policy, installation, and report paths refer to the server filesystem.
 
 ## Sync progress and cancellation

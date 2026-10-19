@@ -40,6 +40,37 @@ def test_help_and_version_do_not_open_database(tmp_path: Path) -> None:
     assert not path.exists()
 
 
+def test_triage_can_finish_an_inspected_review_atomically(tmp_path: Path) -> None:
+    runner = CliRunner()
+    path = tmp_path / "review.sqlite"
+    assert runner.invoke(cli.main, ["--db", str(path), "demo"]).exit_code == 0
+    result = runner.invoke(
+        cli.main,
+        [
+            "--db",
+            str(path),
+            "triage",
+            "example/orbit#42",
+            "planned",
+            "--note",
+            "Inspect the retry behavior",
+            "--revision",
+            "1",
+            "--finish-review",
+            "--actor",
+            "maintainer",
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    item = json.loads(result.stdout)["item"]
+    assert item["processing_state"] == "processed"
+    assert item["processed_by"] == "maintainer"
+    assert item["disposition"] == "planned"
+    assert item["note"] == "Inspect the retry behavior"
+
+
 @pytest.mark.parametrize(
     "options",
     [
@@ -60,6 +91,7 @@ def test_help_and_version_do_not_open_database(tmp_path: Path) -> None:
         ["triage", "I_1", "snoozed", "--until", "not-a-date"],
         ["triage", "I_1", "planned", "--priority", "invalid"],
         ["triage", "I_1", "planned", "--category", "invalid"],
+        ["triage", "I_1", "done", "--finish-review"],
         ["serve", "--port", "65536"],
         ["rank", "I_1", "bad-score"],
         ["classify", "I_1"],

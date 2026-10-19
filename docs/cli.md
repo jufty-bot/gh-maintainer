@@ -101,6 +101,7 @@ gh-maintainer classify OWNER/REPO#42 bug urgent --producer agent/v1 --revision 3
 gh-maintainer summarize OWNER/REPO#42 'Fixes a crash during startup' --revision 3
 gh-maintainer rank OWNER/REPO#42 90 --reason 'Affects new installations' --revision 3
 gh-maintainer triage OWNER/REPO#42 planned --priority high --category bug_report --note 'Reproduce before review' --revision 3
+gh-maintainer triage OWNER/REPO#42 planned --note 'Reviewed; reproduce next' --revision 3 --finish-review --actor maintainer
 gh-maintainer prs --classification bug --sort rank --format json
 ```
 
@@ -126,6 +127,12 @@ revision. `triage` also accepts references and this revision guard; existing dis
 snoozes, and notes keep their meaning. Locally done items return to the inbox on new source
 activity, including comments or pushes that do not advance the parent issue timestamp.
 
+`triage --finish-review --revision N` saves the decision and processing checkpoint in
+one transaction. It requires the revision actually inspected and complete item/comment
+coverage; a rejected or failed write saves neither. `--actor` identifies the reviewer
+(default `manual`). When `--policy` is supplied, both `triage` and `mark-processed`
+permissions are required. Ordinary triage continues to save a decision without processing.
+
 ## Find unprocessed items and new activity
 
 ```bash
@@ -137,9 +144,11 @@ gh-maintainer prs --state all --processing changed
 gh-maintainer changes --format json
 ```
 
-Reading an item, saving analysis, and triaging it do not mark it processed. Use
+Reading an item, saving analysis, and ordinary triage do not mark it processed. Use
 `mark-processed` after inspecting the item and its conversation. It requires successful
 item/comment coverage and saves a shared per-item checkpoint with the actor and time.
+Alternatively, use `triage --finish-review --revision N` to save the decision together
+with that acknowledgement, as the dashboard's **Finish review & next** action does.
 New observed source activity advances the item revision and makes it pending again.
 Embedded account profile changes and PR head/base repository statistics update retained raw
 data without advancing that revision. Content, identities, refs, review states and signals

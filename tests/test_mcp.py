@@ -119,6 +119,43 @@ def text(result: CallToolResult) -> str:
     return block.text
 
 
+async def test_finish_review_requires_revision_and_both_policy_permissions(
+    client: MCPClient, tmp_path: Path
+) -> None:
+    await client.call_tool("demo")
+    request = {
+        "item_id": "example/orbit#42",
+        "disposition": "done",
+        "finish_review": True,
+    }
+    missing = await client.call_tool("triage", request)
+    assert missing.is_error and "inspected revision" in text(missing)
+    policy_path = tmp_path / "review-policy.json"
+    policy = {
+        "version": 1,
+        "repositories": {
+            "example/orbit": {
+                "permissions": ["triage"],
+                "triage": {"done": "Reviewed"},
+            }
+        },
+    }
+    policy_path.write_text(json.dumps(policy))
+    request.update({"revision": 1, "policy": str(policy_path)})
+    denied = await client.call_tool("triage", request)
+    assert denied.is_error and "mark-processed" in text(denied)
+    before = await client.call_tool("show", {"item_id": request["item_id"]})
+    assert before.structured_content["item"]["processing_state"] == "unprocessed"
+    assert before.structured_content["item"]["disposition"] == "inbox"
+    policy["repositories"]["example/orbit"]["permissions"].append("mark-processed")
+    policy_path.write_text(json.dumps(policy))
+    saved = await client.call_tool("triage", {**request, "actor": "reviewer"})
+    assert not saved.is_error and text(saved) == "Review finished."
+    after = await client.call_tool("show", {"item_id": request["item_id"]})
+    assert after.structured_content["item"]["processing_state"] == "processed"
+    assert after.structured_content["item"]["processed_by"] == "reviewer"
+
+
 async def test_tool_discovery_and_cli_coverage(client: MCPClient) -> None:
     discovered = {tool.name: tool for tool in (await client.list_tools()).tools}
     assert {

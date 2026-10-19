@@ -427,3 +427,37 @@ policy, report, and skill paths remain filesystem operations. See [MCP contracts
 Evidence: `src/gh_maintainer/mcp.py`, `src/gh_maintainer/mcp_commands.py`,
 `tests/test_mcp.py`, `tests/test_mcp_contracts.py`, `tests/test_mcp_progress.py`,
 and the generated configuration schema.
+
+## D20. Dashboard setup, atomic review completion, and shared Kanban state
+
+**Decision:** Expose credential detection, repository selection, cancellable sync and
+progress polling in the existing FastAPI dashboard, reusing the MCP maintenance sync
+service and its fenced database writes. Keep credentials on the server and report
+availability separately from actual access verified by sync. Preserve CLI configuration
+defaults; browser selections last for the server session.
+
+Add an explicit finish-review option to triage in the CLI, MCP and dashboard. Require
+the inspected revision and complete source/conversation coverage, and commit the decision
+and processing checkpoint atomically. Supplied policy must authorize both actions.
+The dashboard loads every conversation page before enabling completion; ordinary saving
+and board moves continue without acknowledging processing.
+
+Represent the existing five local dispositions as Kanban columns, with independent
+SQL pagination and shared filters. Card moves retain local decision fields and require
+the displayed source revision. Snoozing opens the deadline form. Source GitHub state
+remains separate from every local lane.
+
+**Why:** Maintainers can set up, refresh, decide and resume work from one workspace while
+CLI and agent clients retain reproducible operations over the same data contracts.
+
+**Tradeoff:** Sync tasks and selections are process-local; use one HTTP worker and config
+for durable defaults. A dashboard without server credentials still supports offline
+review. The default Docker web container keeps credentials with its separate worker.
+Processing acknowledges an indexed revision, not live remote state or a technical code
+review. Source guards do not provide concurrent local-editor conflict detection. No
+new tables, frontend framework, model runner, or GitHub write permissions are introduced.
+
+Evidence: `tests/test_dashboard_workflow.py`, `tests/test_cli.py`, `tests/test_mcp.py`,
+and `tests/frontend/workflow.spec.cjs`; operating contracts are in [Usage](usage.md)
+and [CLI workflows](cli.md). Validation status is tracked in the
+[dashboard checklist](checklist.md#dashboard-workflow-and-kanban).

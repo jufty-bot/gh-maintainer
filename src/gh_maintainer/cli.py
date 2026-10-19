@@ -218,6 +218,8 @@ def execute(ctx: click.Context, **options: object) -> None:
             raise click.UsageError("--repo and --owner cannot be combined.", ctx)
     if ctx.info_name == "changes" and options.get("since") and options.get("all"):
         raise click.UsageError("--since and --all cannot be combined.", ctx)
+    if options.get("finish_review") and options.get("revision") is None:
+        raise click.UsageError("--finish-review requires --revision.", ctx)
     if options.pop("unprocessed", False):
         if options.get("processing"):
             raise click.UsageError(
@@ -532,6 +534,14 @@ def register_commands() -> None:
             ]
         if name == "triage":
             params += [
+                click.Option(
+                    ["--finish-review"],
+                    is_flag=True,
+                    help="Save triage and acknowledge --revision atomically.",
+                ),
+                click.Option(
+                    ["--actor"], default="manual", help="Who reviewed the item."
+                ),
                 click.Argument(
                     ["disposition"],
                     required=False,
@@ -894,6 +904,8 @@ async def run(args: SimpleNamespace) -> int:
                 score=getattr(args, "score", None),
                 disposition=getattr(args, "disposition", None),
             )
+            if getattr(args, "finish_review", False):
+                check_policy(selected.policy, "mark-processed")
         if args.command in {"sync", "watch"}:
             concurrency = getattr(args, "concurrency", DEFAULT_CONCURRENCY)
             source = AsyncGitHubSource(
@@ -968,6 +980,8 @@ async def run(args: SimpleNamespace) -> int:
                 category=category,
                 until=args.until,
                 revision=args.revision,
+                finish_review=args.finish_review,
+                actor=args.actor,
             )
             if args.format == "json":
                 async with database.sessions() as session:
@@ -977,7 +991,11 @@ async def run(args: SimpleNamespace) -> int:
                         ).model_dump_json(indent=2)
                     )
             else:
-                output("Local triage decision saved.")
+                output(
+                    "Review finished."
+                    if args.finish_review
+                    else "Local triage decision saved."
+                )
         elif args.command == "report":
             async with database.sessions() as session:
                 data = await CatalogQueries(session).portfolio()
