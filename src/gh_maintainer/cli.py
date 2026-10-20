@@ -733,6 +733,35 @@ async def read_command(database: Database, args: SimpleNamespace) -> None:
                 lines += [f"Linked pull requests: {pr_refs}"]
             if item.note:
                 lines += ["", f"Triage note: {item.note}"]
+            if item.saved_decision:
+                saved = item.saved_decision
+                lines += [
+                    f"Saved decision: {saved.disposition.value} ({saved.updated_at})"
+                ]
+                if item.follow_up and item.follow_up.decision_at_review is False:
+                    lines.append("Decision was updated after the last review.")
+            if item.follow_up:
+                follow = item.follow_up
+                baseline = (
+                    "last review" if follow.baseline == "review" else "saved decision"
+                )
+                lines += [
+                    "",
+                    f"Since {baseline} (revision {follow.since_revision}):",
+                ]
+                if follow.history_gap:
+                    lines.append("Some source revisions have no retained observations.")
+                if detail.follow_up_changes:
+                    for entry in detail.follow_up_changes.entries:
+                        lines.append(
+                            f"{entry.observed_at}: {entry.label} — "
+                            f"{entry.detail} {entry.url}"
+                        )
+                    lines.append(
+                        f"Showing {len(detail.follow_up_changes.entries)} of "
+                        f"{detail.follow_up_changes.total} retained observations; "
+                        "use changes to paginate."
+                    )
             display(detail, "\n".join(lines), args)
         elif args.command == "comments":
             comment_page = await query.comments(

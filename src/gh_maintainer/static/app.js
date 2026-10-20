@@ -643,6 +643,10 @@ function renderBoardCard(item) {
     if (item.priority) meta.append(badge(item.priority, "warning"));
     meta.append(badge(item.category.replaceAll("_", " ")));
     card.append(meta);
+    const activity = el("div", undefined, "follow-up-badges");
+    for (const label of followUpLabels(item).slice(0, 3))
+        activity.append(badge(label, "warning"));
+    card.append(activity);
     if (item.note) card.append(markdown(item.note, item.url));
     card.append(
         el(
@@ -1082,7 +1086,192 @@ function updateDetailNavigation() {
     $("#next-item").disabled =
         saving || index < 0 || index >= pageItems.length - 1;
 }
-function renderDetail({ item, changes }) {
+function followUpLabels(item) {
+    const kinds = item.follow_up?.kinds || [];
+    const labels = Object.entries({
+        pushed: "New code",
+        author_replied: "Author replied",
+        commented: "New comments",
+        checks_changed: "Checks changed",
+        reviewed: "Review updated",
+        comment_edited: "Comments edited",
+        signals_changed: "PR status changed",
+        reopened: "Reopened",
+        closed: "Closed",
+        merged: "Merged",
+        unavailable: "Visibility changed",
+        available: "Visible again",
+        comment_unavailable: "Conversation visibility changed",
+        updated: "Item edited",
+    })
+        .filter(([kind]) => kinds.includes(kind))
+        .map(([, label]) => label);
+    if (
+        item.follow_up &&
+        item.revision > item.follow_up.since_revision &&
+        !labels.length
+    )
+        labels.push("New activity");
+    if (
+        item.saved_decision?.disposition === "snoozed" &&
+        item.disposition === "inbox"
+    )
+        labels.unshift("Snooze ended");
+    return labels;
+}
+function renderFollowUp(item, firstPage) {
+    const section = el("section", undefined, "follow-up");
+    const follow = item.follow_up;
+    section.append(
+        el(
+            "h3",
+            follow?.baseline === "review"
+                ? "Since your last review"
+                : follow
+                  ? "Since your saved decision"
+                  : "Review history",
+        ),
+    );
+    if (follow)
+        section.append(
+            el(
+                "p",
+                `${follow.baseline === "review" ? "Reviewed" : "Decision saved"} ${formatDate(follow.since_at)} · revision ${follow.since_revision}${item.processed_by && follow.baseline === "review" ? ` · ${item.processed_by}` : ""}`,
+                "help-text",
+            ),
+        );
+    const reasons = el("div", undefined, "follow-up-badges");
+    for (const label of followUpLabels(item))
+        reasons.append(badge(label, "warning"));
+    section.append(reasons);
+    const columns = el("div", undefined, "follow-up-layout");
+    const decision = el("div", undefined, "saved-decision");
+    decision.append(
+        el(
+            "h4",
+            follow?.decision_at_review === false
+                ? "Latest saved decision"
+                : follow?.decision_at_review
+                  ? "Decision at last review"
+                  : "Saved decision",
+        ),
+    );
+    const saved = item.saved_decision;
+    if (saved) {
+        const status = el("div", undefined, "detail-reasons");
+        status.append(
+            badge(dispositions[saved.disposition] || saved.disposition),
+        );
+        if (saved.priority) status.append(badge(saved.priority));
+        decision.append(
+            status,
+            el("p", `Saved ${formatDate(saved.updated_at)}`, "help-text"),
+        );
+        if (saved.note) decision.append(markdown(saved.note, item.url));
+        else decision.append(el("p", "No note was saved.", "help-text"));
+        if (follow?.decision_at_review === false)
+            decision.append(
+                el(
+                    "p",
+                    "This decision was edited after your last review.",
+                    "help-text",
+                ),
+            );
+        if (saved.disposition === "snoozed" && item.disposition === "inbox")
+            decision.append(
+                el(
+                    "p",
+                    `Snooze ended ${formatDate(saved.snoozed_until)}.`,
+                    "signal-warning",
+                ),
+            );
+    } else
+        decision.append(
+            el("p", "No saved decision is available.", "help-text"),
+        );
+    const activity = el("div", undefined, "follow-up-activity");
+    const entries = el("div", undefined, "follow-up-entries");
+    const controls = el("div");
+    const status = el("p", undefined, "help-text");
+    let offset = 0;
+    function appendPage(page) {
+        for (const entry of page.entries) {
+            const row = el("article", undefined, "follow-up-entry");
+            row.append(
+                el("h4", entry.label),
+                el("time", formatDate(entry.observed_at)),
+            );
+            if (entry.detail) row.append(el("p", entry.detail));
+            row.append(safeLink(entry.url, "View on GitHub ↗"));
+            entries.append(row);
+        }
+        offset += page.entries.length;
+        status.textContent = page.total
+            ? `Showing ${offset} of ${page.total} retained observations.`
+            : item.revision > follow.since_revision
+              ? "New activity was observed, but its details are no longer retained."
+              : "No new source activity observed since this checkpoint.";
+        controls.replaceChildren();
+        if (offset < page.total)
+            controls.append(
+                button("Load more activity", "button secondary", load),
+            );
+    }
+    async function load() {
+        controls.replaceChildren(el("span", "Loading activity…", "help-text"));
+        try {
+            const query = new URLSearchParams({
+                revision: follow.since_revision,
+                through_revision: item.revision,
+                limit: 20,
+                offset,
+            });
+            const page = await api(
+                `/api/items/${encodeURIComponent(item.id)}/follow-up?${query}`,
+            );
+            if (section.isConnected) appendPage(page);
+        } catch (error) {
+            if (!section.isConnected) return;
+            const failure = el(
+                "p",
+                `Could not load activity: ${error.message}`,
+                "form-error",
+            );
+            failure.setAttribute("role", "alert");
+            controls.replaceChildren(
+                failure,
+                button("Retry activity", "button secondary", load),
+            );
+        }
+    }
+    if (follow) {
+        if (follow.history_gap)
+            activity.append(
+                el(
+                    "p",
+                    "Some source revisions have no retained observations. Earlier history may have been pruned.",
+                    "signal-warning",
+                ),
+            );
+        appendPage(firstPage || { total: 0, entries: [] });
+    } else
+        status.textContent =
+            "No completed review or decision checkpoint yet. Finish a review to compare later activity.";
+    activity.append(
+        entries,
+        status,
+        controls,
+        el(
+            "p",
+            "Only retained changes observed during sync are shown. Activity between polls may be missing.",
+            "help-text",
+        ),
+    );
+    columns.append(decision, activity);
+    section.append(columns);
+    return section;
+}
+function renderDetail({ item, changes, follow_up_changes }) {
     const content = $("#detail-content");
     dirty = false;
     const heading = el("div", undefined, "detail-heading");
@@ -1121,6 +1310,7 @@ function renderDetail({ item, changes }) {
                 "signal-warning",
             ),
         );
+    main.append(renderFollowUp(item, follow_up_changes));
     if (item.reasons.length) {
         const reasons = el("div", undefined, "detail-reasons");
         for (const reason of item.reasons)

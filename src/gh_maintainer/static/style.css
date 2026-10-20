@@ -241,6 +241,65 @@
     overflow: auto;
     font-size: 12px;
 }
+.follow-up-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin: 8px 0;
+}
+.follow-up {
+    margin-bottom: 24px;
+    padding: 18px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+}
+.follow-up h3 {
+    margin: 0;
+}
+.follow-up h4 {
+    font-size: 12px;
+    margin: 0 0 6px;
+}
+.follow-up-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    gap: 20px;
+    margin-top: 16px;
+}
+.saved-decision {
+    border-inline-end: 1px solid var(--line);
+    padding-inline-end: 16px;
+    overflow-wrap: anywhere;
+}
+.follow-up-entry {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+    overflow-wrap: anywhere;
+}
+.follow-up-entry time,
+.follow-up-entry a {
+    font-size: 11px;
+    color: var(--muted);
+}
+.follow-up-entry p {
+    font-size: 12px;
+    white-space: pre-wrap;
+}
+.follow-up-activity {
+    min-width: 0;
+}
+@media (max-width: 700px) {
+    .follow-up-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .saved-decision {
+        border-inline-end: 0;
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 12px;
+        padding-inline-end: 0;
+    }
+}
 .kanban-pagination {
     font-size: 11px;
 }

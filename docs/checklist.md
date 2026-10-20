@@ -7,6 +7,29 @@ implemented; further provider/host coverage and scale extensions remain. Checked
 and validation evidence when closing a task.
 Split partial work into separate tasks instead of marking an entire milestone complete.
 
+## Review follow-up
+
+- [x] Validate review/decision baselines, saved disposition/note, later local edits,
+  source-only activity, check provenance, bounded excerpts and retention gaps.
+- [x] Validate SQL-backed board summaries and paginated evidence beyond the legacy
+  50-event preview, keeping pages within the inspected source revision.
+- [x] Validate desktop/mobile badges, previous-decision context, evidence links,
+  pagination/retry, untrusted content and preservation of unsaved edits.
+- [x] Run full Python/frontend suites, lint/format/types, strict docs and packaging.
+
+Code: `queries.py`, `policies.py`, `schemas.py`, `web.py`, `cli.py`, and `static/`.
+Evidence: `tests/test_follow_up.py`, `tests/frontend/follow-up.spec.cjs`, existing SQL
+pagination/CLI/MCP contracts, and the synthetic repeated-review browser fixture.
+See [scope](roadmap.md#current-implementation), [workflow](usage.md#review-returning-items)
+and [D21](decisions.md#d21-explain-returning-items-from-existing-review-and-observation-state).
+Validation: all 379 Python tests passed on Python 3.14 and all 40 desktop/mobile
+Playwright checks passed. Ruff lint/format, mypy, changed frontend formatting, strict
+MkDocs, package builds and `git diff --check` passed. Light desktop and dark mobile
+screenshots of the repeated-review view were inspected. Token-free source fakes and
+temporary SQLite indexes cover new comments, head/check changes, unknown signals,
+later decision edits, retained history gaps, revision-bounded pagination and processing
+reset. No live GitHub fetch, model invocation or schema migration was added or tested.
+
 ## Dashboard workflow and Kanban
 
 - [x] Verify credential detection without exposing tokens, configured selection, first-sync

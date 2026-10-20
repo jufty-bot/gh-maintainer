@@ -461,3 +461,24 @@ Evidence: `tests/test_dashboard_workflow.py`, `tests/test_cli.py`, `tests/test_m
 and `tests/frontend/workflow.spec.cjs`; operating contracts are in [Usage](usage.md)
 and [CLI workflows](cli.md). Validation status is tracked in the
 [dashboard checklist](checklist.md#dashboard-workflow-and-kanban).
+
+## D21. Explain returning items from existing review and observation state
+
+**Decision:** Surface review-relative reasons on board cards and paginated evidence in
+item details beside the latest saved decision. Reuse processing revisions, raw source
+observations and the stored triage decision. Prefer the review checkpoint; fall back to
+a revision-bound saved decision and label that baseline explicitly. Add these read models
+to existing CLI/MCP/HTTP results and provide bounded described activity pagination.
+
+**Why:** Maintainers can focus on observed new code, comments and checks while retaining
+their earlier reasoning. Correlated SQLite aggregates keep card queries paginated and
+avoid per-item source/history loads. Fixed revision windows keep later activity outside
+an already inspected detail view; guarded review completion still detects source races.
+
+**Tradeoff:** The index keeps the latest local decision, not a decision audit trail.
+Display its timestamp and label edits after review rather than reconstructing an earlier
+overwritten note. Observation pruning and polling can omit history; missing retained
+revisions and unavailable details remain explicit. Check summaries distinguish unknown
+and mismatched-head signals. No model invocation, new source fetch, migration or historical
+decision snapshot is added. See [follow-up contracts](cli.md#output-and-pagination)
+and [validation](checklist.md#review-follow-up).

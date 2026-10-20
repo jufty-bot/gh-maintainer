@@ -171,6 +171,26 @@ snapshots and have no assigned revision; they remain available through `--all` /
 
 ## Output and pagination
 
+Item JSON includes `saved_decision` (the latest stored disposition/note/timestamp) and
+`follow_up`, an optional summary with `baseline` (`review` or `decision`), `since_revision`,
+`since_at`, normalized activity `kinds`, `history_gap`, and `decision_at_review`.
+Summary kinds include `pushed`, `author_replied`, and `checks_changed`; observation history
+retains its existing source kinds. Lists aggregate these reasons in SQLite without
+fetching conversations or issuing per-item queries.
+
+`show` adds `follow_up_changes`, containing a total and the first 20 described entries
+(`id`, `observed_at`, source `kind`, `label`, bounded plain-text `detail`, and `url`).
+Use `changes ITEM` to paginate raw retained evidence through the existing CLI contract.
+HTTP clients can request `/api/items/ID/follow-up?revision=N&through_revision=M&limit=20&offset=0`
+to keep described pages within the inspected revision. The same `show` fields are
+available through MCP. Text `show` prints the saved decision and activity preview.
+
+`history_gap` means some intervening revisions have no retained observations. Its absence
+does not establish a complete event archive: pruning can remove part of a revision and
+polling cannot reconstruct unseen transitions. A `decision_at_review` value of `false`
+explicitly identifies a latest local decision edited after acknowledgement; no local
+decision-history table or historical note snapshot is implied.
+
 Read and analysis commands support `--format text|json`; text is the default. JSON is a
 single object. Item lists have `total` and `items`, comments have `total`, coverage, and
 `comments`, and activity lists have `total` and `changes`. Each item includes its revision,

@@ -362,6 +362,20 @@ earlier inspection. Full user-facing contracts are in [CLI workflows](cli.md).
 
 ### Dashboard architecture
 
+Review follow-up uses the existing processing checkpoint, latest triage row, and source
+observations. Item list queries add a correlated SQLite aggregate of distinct activity
+kinds and retained revision coverage; pagination/counts remain SQL-backed without an
+extra query per card. The latest saved disposition is exposed separately from effective
+inbox/snooze rules. Review-relative baselines take precedence over a saved decision's
+revision, and later local edits are explicitly distinguished from decisions at review.
+
+Details add a 20-entry described activity preview with a total. HTTP follow-up pagination
+reuses `CatalogQueries.changes` with lower/upper revision bounds, keeping subsequent pages
+within the source revision inspected. `policies.describe_change` formats bounded plain-text
+excerpts and observed head/check/review transitions; old-head signals remain unknown.
+Missing retained revisions are surfaced conservatively. Reads do not fetch GitHub or
+advance processing. No schema change or local-decision audit history is introduced.
+
 The dashboard writes decisions through `PUT /api/items/{item_id}/triage`, using the same
 `TriageService` as the CLI. Payloads validate dispositions, note length, and timezone-aware
 snooze deadlines. Writes require a custom request header and reject cross-site browser

@@ -23,6 +23,7 @@ from gh_maintainer.queries import CatalogQueries
 from gh_maintainer.report import markdown
 from gh_maintainer.repositories import TriageService
 from gh_maintainer.schemas import (
+    ActivityPage,
     Category,
     CommentPage,
     Contract,
@@ -282,6 +283,24 @@ def create_app(
             return await CatalogQueries(connection).comments(item_id, limit, offset)
         except ValueError:
             raise HTTPException(404, "Unknown item") from None
+
+    @app.get("/api/items/{item_id}/follow-up")
+    async def follow_up(
+        item_id: str,
+        connection: Annotated[AsyncSession, Depends(session)],
+        revision: int = Query(ge=1),
+        limit: int = Query(20, ge=1, le=500),
+        offset: int = Query(0, ge=0),
+        through_revision: int | None = Query(None, ge=1),
+    ) -> ActivityPage:
+        try:
+            return await CatalogQueries(connection).follow_up(
+                item_id, revision, limit, offset, through_revision
+            )
+        except ValueError as error:
+            raise HTTPException(
+                404 if str(error).startswith("Unknown item") else 422, str(error)
+            ) from None
 
     @app.api_route("/api/items/{item_id}/triage", methods=["PUT", "POST"])
     async def triage(

@@ -172,6 +172,34 @@ PRs, closes issues, sends messages, or changes GitHub labels.
 Markdown is sanitized before display. Renderer assets are bundled with the app, so
 rendering works offline without a CDN or a frontend build step.
 
+### Review returning items
+
+Board cards show brief reasons such as **New code**, **Author replied**, and **Checks
+changed** when activity has been observed since the last completed review. Open an item
+for **Since your last review**: the saved decision and note sit beside dated changes,
+comment excerpts, head transitions and check/review-state transitions, with GitHub links.
+**Load more activity** pages through retained evidence without discarding triage edits;
+failed activity loads can be retried independently.
+
+Completing a review advances the shared checkpoint, so later activity becomes the next
+comparison window. If only a revision-bound decision exists, the view instead says
+**Since your saved decision**. Without either baseline it reports that no comparison
+checkpoint exists. Expired snoozes get a **Snooze ended** reason, including when there
+is no new source activity.
+
+The saved decision is the latest retained local decision, with its original disposition
+and timestamp. A locally done item may therefore show **Done** beside a current **Inbox**
+form value. Decisions edited after the review are explicitly labeled **Latest saved
+decision**; the application does not invent a historical copy of an overwritten note.
+
+Only retained observations after the baseline and through the inspected revision appear.
+The preview includes 20 entries, with separate pagination for older entries. Missing
+source revisions and unavailable retained details are explicit; they are not reported as
+"no changes." Polling can miss activity between syncs, and pruning can remove individual
+events even when every revision has some retained evidence. Check source coverage and
+timestamps alongside this view. Unknown or old-head check signals are never shown as
+new passing/failing evidence.
+
 ### Work board
 
 Open **Work board** for Inbox, Planned, Waiting, Snoozed, and Done columns. The board

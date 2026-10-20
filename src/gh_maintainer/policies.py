@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 
 from gh_maintainer.schemas import (
+    ActivityEntry,
     Assessment,
     Category,
     Disposition,
@@ -12,6 +13,7 @@ from gh_maintainer.schemas import (
     ItemView,
     JsonObject,
     Kind,
+    ObservationView,
     Priority,
     RepositoryStatus,
     SignalsPayload,
@@ -21,6 +23,123 @@ from gh_maintainer.schemas import (
 
 STALE_DAYS = 30
 SECONDS_PER_DAY = 86400
+ACTIVITY_EXCERPT_LENGTH = 240
+
+
+def snapshot_value(data: JsonObject | None, *path: str | int) -> object:
+    value: object = data
+    for key in path:
+        if isinstance(value, dict) and isinstance(key, str):
+            value = value.get(key)
+        elif (
+            isinstance(value, list)
+            and isinstance(key, int)
+            and -len(value) <= key < len(value)
+        ):
+            value = value[key]
+        else:
+            return None
+    return value
+
+
+def observed_checks(snapshot: JsonObject | None) -> str:
+    head = snapshot_value(snapshot, "pr", "head", "sha")
+    oid = snapshot_value(snapshot, "signals", "commits", "nodes", -1, "commit", "oid")
+    state = snapshot_value(
+        snapshot,
+        "signals",
+        "commits",
+        "nodes",
+        -1,
+        "commit",
+        "statusCheckRollup",
+        "state",
+    )
+    return state if isinstance(state, str) and (not oid or oid == head) else "UNKNOWN"
+
+
+def describe_change(change: ObservationView, item: ItemSnapshot) -> ActivityEntry:
+    before, after = change.before_json, change.after_json
+    label = {
+        "pushed": "New code pushed",
+        "commented": "New comment",
+        "comment_edited": "Comment edited",
+        "reviewed": "Review updated",
+        "comment_unavailable": "Comment no longer visible",
+        "closed": "Closed on GitHub",
+        "merged": "Merged on GitHub",
+        "reopened": "Reopened on GitHub",
+        "available": "Visible again",
+        "unavailable": "No longer visible",
+        "indexed": "First indexed",
+    }.get(change.kind, "Item updated")
+    detail, url = "", item.url
+    if change.kind in {
+        "commented",
+        "comment_edited",
+        "reviewed",
+        "comment_unavailable",
+    }:
+        author = after.get("author")
+        if (
+            change.kind == "commented"
+            and isinstance(author, str)
+            and author == snapshot_value(item.raw, "user", "login")
+        ):
+            label = "Author replied"
+        body = after.get("body")
+        excerpt = " ".join(body.split()) if isinstance(body, str) else ""
+        excerpt = excerpt[:ACTIVITY_EXCERPT_LENGTH] + (
+            "…" if len(excerpt) > ACTIVITY_EXCERPT_LENGTH else ""
+        )
+        detail = f"{author or 'Unknown author'}: {excerpt}"
+        if isinstance(after.get("url"), str):
+            url = str(after["url"])
+    elif change.kind == "pushed":
+        old, new = (
+            snapshot_value(before, "pr", "head", "sha"),
+            snapshot_value(after, "pr", "head", "sha"),
+        )
+        detail = (
+            f"Head changed {str(old or 'unknown')[:12]} → {str(new or 'unknown')[:12]}"
+        )
+    elif change.kind == "signals_changed":
+        old, new = observed_checks(before), observed_checks(after)
+        parts = []
+        if old != new:
+            label = (
+                "Checks now failing"
+                if new in {"FAILURE", "ERROR"}
+                else "Checks changed"
+            )
+            parts.append(f"Checks: {old.lower()} → {new.lower()}")
+        for key, name in (("reviewDecision", "Review"), ("mergeable", "Mergeability")):
+            previous, current = (
+                snapshot_value(before, "signals", key),
+                snapshot_value(after, "signals", key),
+            )
+            if previous != current:
+                parts.append(
+                    f"{name}: {previous or 'unknown'} → {current or 'unknown'}"
+                )
+        label = label if parts and old != new else "PR status changed"
+        detail = "; ".join(parts) or "PR signals were updated."
+        url = f"{item.url}/checks" if item.kind == Kind.PR else item.url
+    elif change.kind == "updated":
+        if snapshot_value(before, "raw", "body") != snapshot_value(
+            after, "raw", "body"
+        ):
+            label = "Description edited"
+        elif snapshot_value(before, "title") != snapshot_value(after, "title"):
+            label = "Title edited"
+    return ActivityEntry(
+        id=change.id,
+        observed_at=change.observed_at,
+        kind=change.kind,
+        label=label,
+        detail=detail,
+        url=url,
+    )
 
 
 def infer_category(item: ItemSnapshot) -> Category:
