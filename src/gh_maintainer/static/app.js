@@ -11,6 +11,7 @@ let activeListQuery = null;
 let boardSignature = "";
 let boardOffsets = {};
 let boardMoving = false;
+let boardDragId = null;
 const boardLimit = 10;
 const dispositions = {
     inbox: "Inbox",
@@ -388,6 +389,7 @@ function updateFilterControls() {
     );
 }
 async function loadItems() {
+    clearBoardDrag();
     const currentGeneration = ++generation;
     updateFilterControls();
     results.classList.remove("repo-grid", "kanban-board");
@@ -525,6 +527,15 @@ async function loadBoard(query, token) {
                 el("span", data.total.toLocaleString(), "count"),
             );
             column.append(heading);
+            column.append(
+                el(
+                    "p",
+                    lane === "snoozed"
+                        ? "Drop to choose a snooze date"
+                        : "Drop to move here",
+                    "kanban-drop-hint",
+                ),
+            );
             const cards = el("div", undefined, "kanban-cards");
             cards.append(...data.items.map(renderBoardCard));
             if (!data.items.length)
@@ -559,26 +570,47 @@ async function loadBoard(query, token) {
             );
             column.append(navigation);
             column.addEventListener("dragover", (event) => {
-                if (
-                    boardMoving ||
-                    !event.dataTransfer.types.includes("text/plain")
-                )
+                const dragged = pageItems.find(
+                    (item) => item.id === boardDragId,
+                );
+                if (boardMoving || !dragged || dragged.disposition === lane)
                     return;
                 event.preventDefault();
                 event.dataTransfer.dropEffect = "move";
+                for (const target of results.querySelectorAll(
+                    ".is-drop-target",
+                ))
+                    if (target !== column)
+                        target.classList.remove("is-drop-target");
+                column.classList.add("is-drop-target");
+            });
+            column.addEventListener("dragleave", (event) => {
+                if (
+                    event.relatedTarget instanceof Node &&
+                    column.contains(event.relatedTarget)
+                )
+                    return;
+                column.classList.remove("is-drop-target");
             });
             column.addEventListener("drop", (event) => {
                 event.preventDefault();
                 const item = pageItems.find(
-                    (candidate) =>
-                        candidate.id ===
-                        event.dataTransfer.getData("text/plain"),
+                    (candidate) => candidate.id === boardDragId,
                 );
+                clearBoardDrag();
                 if (item) moveBoardCard(item, lane, column);
             });
             return column;
         }),
     );
+}
+function clearBoardDrag() {
+    boardDragId = null;
+    results.classList.remove("is-dragging");
+    for (const node of results.querySelectorAll(
+        ".is-drag-source, .is-drop-target",
+    ))
+        node.classList.remove("is-drag-source", "is-drop-target");
 }
 function renderBoardCard(item) {
     const card = el("article", undefined, "kanban-card");
@@ -589,8 +621,17 @@ function renderBoardCard(item) {
             return event.preventDefault();
         event.dataTransfer.setData("text/plain", item.id);
         event.dataTransfer.effectAllowed = "move";
+        boardDragId = item.id;
+        card.classList.add("is-drag-source");
+        results.classList.add("is-dragging");
     });
-    card.append(el("p", `${item.repo} #${item.number}`, "eyebrow"));
+    card.addEventListener("dragend", clearBoardDrag);
+    const heading = el("div", undefined, "kanban-card-heading");
+    const grip = el("span", "⠿", "kanban-grip");
+    grip.title = "Drag to another column";
+    grip.setAttribute("aria-hidden", "true");
+    heading.append(el("p", `${item.repo} #${item.number}`, "eyebrow"), grip);
+    card.append(heading);
     const title = button("", "kanban-title", () => showDetail(item.id));
     title.append(markdown(item.title, item.url, { inline: true }));
     card.append(title);

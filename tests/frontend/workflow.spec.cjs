@@ -262,10 +262,55 @@ test("Kanban moves cards, preserves decisions, filters, and opens snooze setup",
         itemTitle,
     );
     if (!isMobile) {
+        await card.hover();
+        await expect(card).toHaveCSS("cursor", "grab");
+        await expect(card).not.toHaveCSS("transform", "none");
+        await expect(card.locator(".kanban-grip")).toBeVisible();
+        const target = page.locator('[data-lane="waiting"]');
+        const transfer = await page.evaluateHandle(() => new DataTransfer());
+        await card.dispatchEvent("dragstart", { dataTransfer: transfer });
+        await expect(card).toHaveClass(/is-drag-source/);
+        await expect(page.locator("#results")).toHaveClass(/is-dragging/);
+        await page
+            .locator('[data-lane="planned"]')
+            .dispatchEvent("dragover", { dataTransfer: transfer });
+        await expect(page.locator(".is-drop-target")).toHaveCount(0);
+        await target.dispatchEvent("dragover", { dataTransfer: transfer });
+        await expect(target).toHaveClass(/is-drop-target/);
+        await expect(target.getByText("Drop to move here")).toBeVisible();
+        await expect(target.getByText("Drop to move here")).toBeInViewport();
+        await target.dispatchEvent("dragleave", {
+            relatedTarget: await target.locator("h3").elementHandle(),
+        });
+        await expect(target).toHaveClass(/is-drop-target/);
+        await target.dispatchEvent("dragleave");
+        await expect(target).not.toHaveClass(/is-drop-target/);
+        const snoozed = page.locator('[data-lane="snoozed"]');
+        await snoozed.dispatchEvent("dragover", { dataTransfer: transfer });
+        await expect(
+            snoozed.getByText("Drop to choose a snooze date"),
+        ).toBeVisible();
+        await card.dispatchEvent("dragend", { dataTransfer: transfer });
+        await expect(
+            page.locator(".is-drop-target, .is-drag-source"),
+        ).toHaveCount(0);
+        await expect(page.locator("#results")).not.toHaveClass(/is-dragging/);
+        await target.dispatchEvent("drop", { dataTransfer: transfer });
+        await expect(page.locator('[data-lane="planned"]')).toContainText(
+            itemTitle,
+        );
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await card.hover();
+        await expect(card).toHaveCSS("transform", "none");
+        await page.emulateMedia({ reducedMotion: "no-preference" });
         await card.dragTo(page.locator('[data-lane="waiting"]'));
         await expect(page.locator('[data-lane="waiting"]')).toContainText(
             itemTitle,
         );
+        await expect(
+            page.locator(".is-drop-target, .is-drag-source"),
+        ).toHaveCount(0);
+        await expect(page.locator("#results")).not.toHaveClass(/is-dragging/);
     }
     const saved = (await (await request.get(`/api/items/${itemId}`)).json())
         .item;

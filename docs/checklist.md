@@ -16,6 +16,13 @@ Split partial work into separate tasks instead of marking an entire milestone co
 - [x] Verify five effective Kanban lanes, independent SQL pagination, shared filters,
   persistent local moves, deadline-based snoozes, source guards and responsive layouts.
 - [x] Run focused/full Python and browser checks, lint/format/types, packaging and strict docs.
+- [x] Validate board hover/grip affordances, active-drag/drop-target feedback, cancellation
+  cleanup and reduced-motion behavior in `tests/frontend/workflow.spec.cjs`.
+
+Drag-feedback follow-up: all 34 desktop/mobile browser checks passed, including visible
+destination hints, leaving/nested hover targets, cancelled drags, actual moves and
+reduced-motion settings. Hover and drag screenshots were inspected. Changed frontend
+formatting, strict MkDocs and `git diff --check` passed; no Python behavior changed.
 
 Code: `web.py`, `repositories.py`, `cli.py`, `mcp.py`, and `static/`.
 Evidence: `tests/test_dashboard_workflow.py`, `tests/test_cli.py`, `tests/test_mcp.py`,

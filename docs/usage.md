@@ -182,6 +182,10 @@ apply across columns. The board scrolls horizontally on narrow screens.
 
 Open a card to inspect the same item workspace. Drag it into a column or use its accessible
 disposition selector to save a local move, preserving its note, priority and category.
+Cards show a grip and grab cursor, with a subtle lift on pointer hover. While dragging,
+the source card dims and the destination column highlights with a drop hint; Snoozed
+explains that a date will be requested. Feedback clears on leaving a column, dropping,
+or cancelling the drag. Reduced-motion preferences disable the lift animation.
 Moving to Snoozed opens the item workspace to choose a future deadline. Moves pass the
 displayed source revision and reject stale cards; they do not acknowledge processing or
 change GitHub. Expired snoozes and done items with later activity use the same effective
