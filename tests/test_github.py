@@ -366,7 +366,21 @@ async def test_http_source_syncs_incrementally(database) -> None:
             payload = fake.items
         elif path.endswith("/comments") or path.endswith("/reviews"):
             payload = []
+        elif path.endswith("/commits"):
+            payload = [
+                {
+                    "sha": fake.head_sha,
+                    "html_url": f"https://github.com/owner/project/commit/{fake.head_sha}",
+                    "commit": {
+                        "message": "Update app",
+                        "author": {"name": "Author", "date": AT},
+                        "committer": {"name": "Author", "date": AT},
+                    },
+                }
+            ]
         elif "/pulls/" in path:
+            if request.headers["accept"] == "application/vnd.github.diff":
+                return httpx.Response(200, text="diff --git a/app b/app\n")
             payload = await fake.pull(repo, int(path.rsplit("/", 1)[-1]))
         elif path == "/graphql":
             if "RepositoryActivity" in json.loads(request.content)["query"]:
@@ -398,7 +412,7 @@ async def test_http_source_syncs_incrementally(database) -> None:
 
     adapter = source(transport=httpx.MockTransport(respond))
     try:
-        assert (await SyncService(database, adapter).run()).source_calls == 11
+        assert (await SyncService(database, adapter).run()).source_calls == 17
         adapter.calls = 0
         result = await SyncService(database, adapter).run()
         assert result.status == "complete"

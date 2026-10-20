@@ -34,6 +34,8 @@ from gh_maintainer.schemas import (
     Kind,
     Overview,
     ProcessingView,
+    PullCommitPage,
+    PullFiles,
     repository_name,
 )
 from gh_maintainer.skillpack import install_skills, skill_directory
@@ -123,6 +125,22 @@ def register_commands(server: MCPServer[None], db: Database, config: Config) -> 
         """Read repository inventory, activity snapshots, counts and sync coverage."""
         async with db.sessions() as session:
             return await CatalogQueries(session).overview()
+
+    @tool(annotations=READ_ONLY)
+    async def files(item_id: str) -> PullFiles:
+        """Read the latest indexed PR unified diff and its head/base freshness."""
+        async with db.sessions() as session:
+            return await CatalogQueries(session).files(item_id)
+
+    @tool(annotations=READ_ONLY)
+    async def commits(
+        item_id: str,
+        limit: Annotated[int, Field(ge=1, le=500)] = 100,
+        offset: Annotated[int, Field(ge=0)] = 0,
+    ) -> PullCommitPage:
+        """Read current PR commit membership in source order with freshness."""
+        async with db.sessions() as session:
+            return await CatalogQueries(session).commits(item_id, limit, offset)
 
     @tool(annotations=READ_ONLY)
     async def comments(

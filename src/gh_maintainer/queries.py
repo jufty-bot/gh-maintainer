@@ -17,6 +17,8 @@ from gh_maintainer.models import (
     Observation,
     Owner,
     Processing,
+    PullCode,
+    PullCommitRecord,
     Ranking,
     Repository,
     Summary,
@@ -54,6 +56,10 @@ from gh_maintainer.schemas import (
     ObservationView,
     Overview,
     Portfolio,
+    PullCommit,
+    PullCommitPage,
+    PullFiles,
+    PullPayload,
     RepositoryView,
     RunView,
 )
@@ -781,6 +787,65 @@ class CatalogQueries:
             comments=[
                 CommentSnapshot.model_validate(row, from_attributes=True)
                 for row in records
+            ],
+        )
+
+    async def files(self, reference: str, include_diff: bool = True) -> PullFiles:
+        item = await resolve_item(self.session, reference)
+        if item.kind != Kind.PR:
+            raise ValueError("Code views require a pull request.")
+        repo = await self.session.get(Repository, item.repo_id)
+        code = (
+            await self.session.execute(
+                select(
+                    PullCode.head_sha,
+                    PullCode.base_sha,
+                    PullCode.fetched_at,
+                    PullCode.diff if include_diff else literal(None).label("diff"),
+                ).where(PullCode.item_id == item.id)
+            )
+        ).one_or_none()
+        if code is None:
+            return PullFiles(coverage_error="PR code has not been synced. Run sync.")
+        pull = PullPayload.model_validate(item.pr)
+        mismatch = (code.head_sha, code.base_sha) != (pull.head.sha, pull.base.sha)
+        signal_head = func.json_extract(Item.signals, "$.commits.nodes[0].commit.oid")
+        observed_head = await self.session.scalar(
+            select(signal_head).where(Item.id == item.id)
+        )
+        mismatch = mismatch or bool(observed_head and observed_head != code.head_sha)
+        error = repo.error if repo else "Repository unavailable."
+        if mismatch:
+            error = "PR code differs from the latest indexed head/base. Run sync."
+        if not item.available or not repo or not repo.present:
+            error = error or "PR or repository is unavailable."
+        return PullFiles(
+            head_sha=code.head_sha,
+            base_sha=code.base_sha,
+            fetched_at=code.fetched_at,
+            stale=bool(error),
+            coverage_error=error,
+            diff=code.diff if include_diff and not mismatch else None,
+        )
+
+    async def commits(
+        self, reference: str, limit: int = 100, offset: int = 0
+    ) -> PullCommitPage:
+        ItemFilters(limit=limit, offset=offset)
+        files = await self.files(reference, include_diff=False)
+        item = await resolve_item(self.session, reference)
+        query = select(PullCommitRecord).where(PullCommitRecord.item_id == item.id)
+        total = await self.session.scalar(
+            select(func.count()).select_from(query.subquery())
+        )
+        rows = await self.session.scalars(
+            query.order_by(PullCommitRecord.position).limit(limit).offset(offset)
+        )
+        return PullCommitPage(
+            total=total or 0,
+            files=files,
+            commits=[
+                PullCommit.model_validate(row, from_attributes=True) for row in rows
             ],
         )
 

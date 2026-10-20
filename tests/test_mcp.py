@@ -178,6 +178,7 @@ async def test_tool_discovery_and_cli_coverage(client: MCPClient) -> None:
         "mcp",
     } <= set(discovered)
     assert discovered["list_items"].annotations.read_only_hint
+
     assert discovered["prune"].annotations.destructive_hint
     assert discovered["report"].annotations.destructive_hint
     assert discovered["sync"].annotations.open_world_hint
@@ -185,6 +186,25 @@ async def test_tool_discovery_and_cli_coverage(client: MCPClient) -> None:
     assert discovered["list_items"].output_schema
     for command in ("sync", "watch", "report", "triage", "demo", "migrate", "prune"):
         assert command in discovered
+
+
+async def test_pr_files_and_commits_share_indexed_contracts(client: MCPClient) -> None:
+    await client.call_tool("demo")
+    files = await client.call_tool("files", {"item_id": "example/orbit#42"})
+    assert not files.is_error
+    assert files.structured_content["head_sha"] == "demo-head-1-42"
+    assert "diff --git" in files.structured_content["diff"]
+    commits = await client.call_tool(
+        "commits",
+        {
+            "item_id": "example/orbit#42",
+            "limit": 1,
+        },
+    )
+    assert not commits.is_error and commits.structured_content["total"] == 1
+    assert commits.structured_content["files"]["diff"] is None
+    assert commits.structured_content["commits"][0]["sha"] == "demo-head-1-42"
+    assert (await client.call_tool("files", {"item_id": "example/orbit#39"})).is_error
 
 
 async def test_reports_and_local_decisions_match_cli(

@@ -36,6 +36,8 @@ from gh_maintainer.schemas import (
     Kind,
     Overview,
     Priority,
+    PullCommitPage,
+    PullFiles,
     State,
     SyncResult,
     TriageUpdate,
@@ -271,6 +273,31 @@ def create_app(
         if detail is None:
             raise HTTPException(404, "Unknown item")
         return detail
+
+    @app.get("/api/items/{item_id}/files")
+    async def files(
+        item_id: str, connection: Annotated[AsyncSession, Depends(session)]
+    ) -> PullFiles:
+        try:
+            return await CatalogQueries(connection).files(item_id)
+        except ValueError as error:
+            raise HTTPException(
+                404 if str(error).startswith("Unknown item") else 422, str(error)
+            ) from None
+
+    @app.get("/api/items/{item_id}/commits")
+    async def commits(
+        item_id: str,
+        connection: Annotated[AsyncSession, Depends(session)],
+        limit: int = Query(100, ge=1, le=500),
+        offset: int = Query(0, ge=0),
+    ) -> PullCommitPage:
+        try:
+            return await CatalogQueries(connection).commits(item_id, limit, offset)
+        except ValueError as error:
+            raise HTTPException(
+                404 if str(error).startswith("Unknown item") else 422, str(error)
+            ) from None
 
     @app.get("/api/items/{item_id}/comments")
     async def comments(

@@ -6,6 +6,9 @@ MCP HTTP endpoint together.
 Both transports register identical tools and share database initialization, migrations,
 watcher cleanup, revision guards, policy validation, and sync leases.
 
+The read-only `files` and `commits` tools expose [indexed PR code](cli.md#pr-files-and-commits),
+including head/base identity, fetch time and explicit freshness. They share the CLI contracts.
+
 ## Start and connect
 
 ```bash

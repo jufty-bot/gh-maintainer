@@ -270,6 +270,8 @@ def register_commands() -> None:
         "issues": "List indexed issues (open by default).",
         "show": "Show an item's body, coverage, analysis, and triage.",
         "comments": "Read an item's conversation, inline comments, and reviews.",
+        "files": "Read the latest indexed PR git diff and freshness.",
+        "commits": "List the commits currently belonging to a PR.",
         "status": "List PRs in all states with signals and processing status.",
         "changes": "List observed activity since processing, or retained history.",
         "repos": "Show indexed repositories and synchronization coverage.",
@@ -375,7 +377,7 @@ def register_commands() -> None:
                     help="Output format; JSON is a single object.",
                 )
             )
-        if name in {"prs", "issues", "status", "comments", "changes"}:
+        if name in {"prs", "issues", "status", "comments", "commits", "changes"}:
             params += [
                 click.Option(
                     ["--limit"],
@@ -462,6 +464,8 @@ def register_commands() -> None:
             ]
         if name in {
             "show",
+            "files",
+            "commits",
             "comments",
             "classify",
             "summarize",
@@ -763,6 +767,34 @@ async def read_command(database: Database, args: SimpleNamespace) -> None:
                         "use changes to paginate."
                     )
             display(detail, "\n".join(lines), args)
+        elif args.command == "files":
+            files = await query.files(args.item_id)
+            display(
+                files,
+                f"Head: {files.head_sha or 'unknown'}; "
+                f"base: {files.base_sha or 'unknown'}; "
+                f"fetched: {files.fetched_at or 'never'}; stale: {files.stale}\n"
+                f"{files.coverage_error or ''}\n"
+                f"{files.diff if files.diff is not None else 'Diff unavailable.'}",
+                args,
+            )
+        elif args.command == "commits":
+            commits = await query.commits(args.item_id, args.limit, args.offset)
+            lines = [
+                f"Head: {commits.files.head_sha or 'unknown'}; "
+                f"stale: {commits.files.stale}; "
+                f"coverage error: {commits.files.coverage_error or 'none'}"
+            ]
+            lines.extend(
+                f"{commit.sha} {commit.message}\n{commit.author or 'unknown'} "
+                f"{commit.committed_at} {commit.url}"
+                for commit in commits.commits
+            )
+            lines.append(
+                f"{len(commits.commits)} of {commits.total} commits "
+                f"(offset {args.offset})."
+            )
+            display(commits, "\n".join(lines), args)
         elif args.command == "comments":
             comment_page = await query.comments(
                 args.item_id, args.limit, args.offset, args.include_unavailable
@@ -961,6 +993,8 @@ async def run(args: SimpleNamespace) -> int:
             "issues",
             "status",
             "show",
+            "files",
+            "commits",
             "comments",
             "changes",
             "repos",

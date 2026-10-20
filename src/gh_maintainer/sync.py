@@ -28,6 +28,7 @@ from gh_maintainer.schemas import (
     CommentSnapshot,
     ItemSnapshot,
     Kind,
+    PullCodeSnapshot,
     PullPayload,
     RepositoryPayload,
     RepositorySnapshot,
@@ -55,6 +56,7 @@ class RepositoryBatch:
     full: bool
     comments_full: bool
     log: FilteringBoundLogger
+    code: dict[str, PullCodeSnapshot]
     signals_error: str | None = None
 
 
@@ -112,6 +114,8 @@ class SyncService:
                 repo.id, set(rows), include_prs=not full
             )
         }
+        code_refs = await self.catalog.code_refs(repo.id) if not full else {}
+        code: dict[str, PullCodeSnapshot] = {}
         for item_id, item in rows.items():
             old = existing.get(item_id)
             if old:
@@ -124,7 +128,11 @@ class SyncService:
                 )
         if not full:
             for item_id, item in existing.items():
-                if item.kind == Kind.PR and item.state == State.OPEN and item.available:
+                if (
+                    item.kind == Kind.PR
+                    and item.available
+                    and (item.state == State.OPEN or item.id not in code_refs)
+                ):
                     rows.setdefault(item_id, item)
         comments_full = full or previous.comments_synced_at is None
         comments_since = (
@@ -196,6 +204,7 @@ class SyncService:
                 and State.OPEN not in (old.state, item.state)
                 and source_content(old.raw) == source_content(item.raw)
                 and old.pr is not None
+                and item.id in code_refs
             ):
                 raw = old.pr
             else:
@@ -204,6 +213,8 @@ class SyncService:
             log.debug("Pull request refreshed", number=item.number)
             await self._progress(f"{repo.name}: refreshed pull request #{item.number}")
             rows[item.id] = item.with_pull(raw)
+            if full or code_refs.get(item.id) != (pull.head.sha, pull.base.sha):
+                code[item.id] = await self.source.pull_code(repo, item.number, raw)
             if rows[item.id].state == State.OPEN:
                 open_prs[item.id] = pull.node_id
 
@@ -224,6 +235,7 @@ class SyncService:
             bool(full),
             comments_full,
             log,
+            code,
         )
 
     async def _signals(self, repositories: list[RepositoryBatch]) -> None:
@@ -271,6 +283,7 @@ class SyncService:
             comments=batch.comments,
             comments_full=batch.comments_full,
             review_numbers=batch.review_numbers,
+            code=batch.code,
         )
         batch.log.info(
             "Repository sync finished",

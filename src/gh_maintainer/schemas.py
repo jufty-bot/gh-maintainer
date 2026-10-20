@@ -176,6 +176,69 @@ class PullPayload(BaseModel):
     merged_at: AwareDatetime | None = None
     draft: bool = False
     head: Head = Field(default_factory=Head)
+    base: Head = Field(default_factory=Head)
+    commits: int | None = Field(default=None, ge=0)
+
+
+class CommitIdentityPayload(BaseModel):
+    name: str | None = None
+    date: AwareDatetime
+
+
+class CommitContentPayload(BaseModel):
+    message: str
+    author: CommitIdentityPayload
+    committer: CommitIdentityPayload
+
+
+class PullCommitPayload(BaseModel):
+    sha: str
+    html_url: str
+    commit: CommitContentPayload
+
+
+class PullCommit(Contract):
+    sha: str = Field(min_length=1)
+    message: str
+    author: str | None
+    committed_at: AwareDatetime
+    url: str = Field(pattern=r"^https://github\.com/")
+    raw: JsonObject
+
+    @classmethod
+    def from_github(cls, raw: JsonObject) -> PullCommit:
+        payload = PullCommitPayload.model_validate(raw)
+        return cls(
+            sha=payload.sha,
+            message=payload.commit.message,
+            author=payload.commit.author.name,
+            committed_at=payload.commit.committer.date,
+            url=payload.html_url,
+            raw=raw,
+        )
+
+
+class PullCodeSnapshot(Contract):
+    head_sha: str = Field(min_length=1)
+    base_sha: str = Field(min_length=1)
+    diff: str
+    fetched_at: AwareDatetime
+    commits: list[PullCommit]
+
+
+class PullFiles(Contract):
+    head_sha: str | None = None
+    base_sha: str | None = None
+    fetched_at: AwareDatetime | None = None
+    stale: bool = True
+    coverage_error: str | None = None
+    diff: str | None = None
+
+
+class PullCommitPage(Contract):
+    total: int
+    files: PullFiles
+    commits: list[PullCommit]
 
 
 class CheckRollup(BaseModel):

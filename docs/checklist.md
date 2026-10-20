@@ -7,6 +7,38 @@ implemented; further provider/host coverage and scale extensions remain. Checked
 and validation evidence when closing a task.
 Split partial work into separate tasks instead of marking an entire milestone complete.
 
+## PR files and commits
+
+- [x] Package migration `0007` for one current PR diff and ordered commit membership,
+  preserving source observations and local decisions on upgrade.
+- [x] Fetch paginated commits and a unified diff outside transactions; validate counts,
+  identities and a post-fetch head/base recheck. Reuse unchanged head/base snapshots,
+  backfill missing historical code, and replace force-pushed membership atomically.
+- [x] Retain prior source/code/checkpoints on failure; expose missing, stale and mismatched
+  code with SHA/time provenance, hiding a diff that differs from the indexed head/base.
+- [x] Expose offline `files` and paginated `commits` contracts through CLI, HTTP and MCP.
+- [x] Add PR Conversation / Files Changed / Commits views with escaped additions/removals,
+  full commit messages, GitHub commit links, pagination and retry states; seed demo code.
+- [x] Render split/unified diffs with a locally bundled diff2html base viewer: aligned
+  old/new line numbers, word changes, file navigation, synchronized scrolling, raw fallback,
+  desktop/mobile defaults and light/dark palettes. Generated HTML passes through DOMPurify.
+
+Evidence: `tests/test_pr_code.py` covers pagination, racing head/base/count, failed pages,
+incomplete lists, idempotent polls, force pushes, base changes, failure retention/recovery,
+missing historical code, offline CLI/HTTP reads and persistence guards. Legacy migration
+preservation is covered in `tests/test_migrations.py`. The eight desktop/mobile cases in
+`tests/frontend/pr-code.spec.cjs` passed, including layout switching, multi-hunk line numbers,
+new/deleted/renamed/binary files, synchronized scrolling, themes, escaped malicious content
+and retry. Desktop light/dark and mobile screenshots were inspected.
+Validation: all 391 Python tests passed on Python 3.14 for the source contracts. The viewer
+update reran 23 focused Python tests and all 48 desktop/mobile Playwright checks. Ruff
+lint/format, application mypy, strict MkDocs, source/wheel builds, installed-wheel smoke
+(including legacy migration), and `git diff --check` passed. Browser checks used locally
+available Chromium libraries through `LD_LIBRARY_PATH` and a local font configuration.
+Scope and limitations: [roadmap](roadmap.md), [D22](decisions.md#d22-one-current-pr-diff-and-ordered-commit-membership)
+and [public contracts](cli.md#pr-files-and-commits). Freshness is sync-bound; upstream
+commit-list/diff limits remain explicit, with no per-commit diff archive.
+
 ## Review follow-up
 
 - [x] Validate review/decision baselines, saved disposition/note, later local edits,

@@ -134,7 +134,7 @@ async def test_adopt_legacy_preserves_every_value_and_is_idempotent(
             }
             assert connection.execute(
                 "SELECT version_num FROM alembic_version"
-            ).fetchone() == ("0006",)
+            ).fetchone() == ("0007",)
             triage_columns = {
                 row[1] for row in connection.execute("PRAGMA table_info(triage)")
             }

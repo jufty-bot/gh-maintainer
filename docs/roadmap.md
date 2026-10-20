@@ -30,6 +30,7 @@ New contributors should start with [project context](project-context.md) and
 | CLI configuration | Implemented: Pydantic-validated JSON/YAML defaults, shared `repositories`, and generated JSON Schema | Explicit CLI arguments take precedence; see [configuration](configuration.md) |
 | MCP access | Implemented: official `mcp` SDK, stdio by default, and HTTP alongside dashboard/REST in the same FastAPI app; queries, guarded analysis/processing, policy/context, background watching, CLI operation defaults, contract checks, and sync progress/cancellation | Single HTTP worker for watcher control; stop the server before CLI database deletion; see [MCP](mcp.md) |
 | Efficient querying through the CLI | Implemented: Click commands with descriptive help, validated options, repositories, PRs/issues, details, comments, status, author/date/priority/category/triaged filters, SQL pagination, and JSON | Keep public contracts stable as skills are added |
+| PR files and commits | Implemented: one latest synced unified diff and ordered current commit membership; CLI, HTTP, MCP and dashboard tabs with split/unified layouts, line numbers, word changes and file navigation | Sync-bound freshness; upstream commit listing/diff limits; no per-commit diff archive; see [contracts](cli.md#pr-files-and-commits) |
 | Dashboard context | Implemented: sanitized Markdown with reference autolinking; linked PR/issue navigation; paginated, threaded comments with line context; repository stars/forks | Reads the local index; sync determines coverage and freshness |
 | Dashboard appearance | Implemented: Lucide Git branch branding and warm light/dark palettes; system preference with a saved manual theme | Presentation only; browser storage is optional |
 | Dashboard setup and sync | Implemented: server credential detection, repository selection, background sync, stage progress, partial errors, cancellation and retry | Server credentials required for sync; selections/tasks are process-local; see [Usage](usage.md) |
@@ -44,8 +45,9 @@ New contributors should start with [project context](project-context.md) and
 | Distribution | [0.2.0 released](releases.md): wheel/source, skill bundle and verified checksums; installed-artifact and main CI gates | No PyPI publication or automatic agent runner |
 
 The current tables are `metadata`, `owners`, `repo_owners`, `repos`, `items`, `comments`,
-`changes`, `triage`, `runs`, `processing`, `summaries`, `classifications`, and `rankings`,
-plus Alembic's schema version table. The baseline is usable entirely through the CLI;
+`changes`, `triage`, `runs`, `processing`, `summaries`, `classifications`, `rankings`,
+`pr_code`, and `pr_commits`, plus Alembic's schema version table.
+The baseline is usable entirely through the CLI;
 the dashboard and reports also consume the index. See [CLI workflows](cli.md).
 
 ## Portfolio sync efficiency
