@@ -248,12 +248,18 @@ def register_tools(
         priority: Priority | None = None,
         category: Category | None = None,
         policy: str | None = None,
+        finish_review: bool = False,
+        actor: str = "manual",
     ) -> str:
         """Save a local decision using an item's issue node ID; GitHub is unchanged.
 
         Snoozing requires a future ISO timestamp including a timezone in until.
+        finish_review requires the inspected revision and atomically acknowledges
+        it alongside triage, with complete coverage and both policy permissions.
         """
         await guard_policy(db, item_id, policy, "triage", disposition=disposition.value)
+        if finish_review:
+            await guard_policy(db, item_id, policy, "mark-processed")
         await TriageService(db).decide(
             item_id,
             disposition,
@@ -262,8 +268,10 @@ def register_tools(
             revision=revision,
             priority=priority,
             category=category,
+            finish_review=finish_review,
+            actor=actor,
         )
-        return "Local triage decision saved."
+        return "Review finished." if finish_review else "Local triage decision saved."
 
     @tool(annotations=LOCAL_WRITE)
     async def demo() -> str:

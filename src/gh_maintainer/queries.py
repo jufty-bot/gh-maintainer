@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from sqlalchemy import Select, String, and_, case, cast, func, literal, or_, select
@@ -22,7 +23,12 @@ from gh_maintainer.models import (
     SyncRun,
     TriageDecision,
 )
-from gh_maintainer.policies import STALE_DAYS, extract_linked_issues, present_item
+from gh_maintainer.policies import (
+    STALE_DAYS,
+    describe_change,
+    extract_linked_issues,
+    present_item,
+)
 from gh_maintainer.repositories import (
     item_snapshot,
     repo_snapshot,
@@ -31,11 +37,13 @@ from gh_maintainer.repositories import (
 )
 from gh_maintainer.schemas import (
     AccountSnapshot,
+    ActivityPage,
     AnalysisView,
     ChangePage,
     CommentPage,
     CommentSnapshot,
     Counts,
+    FollowUpSummary,
     ItemDetail,
     ItemFilters,
     ItemFocus,
@@ -322,8 +330,67 @@ class CatalogQueries:
             Summary,
             Classification,
             Ranking,
+            str,
         ]
     ]:
+        baseline = func.coalesce(Processing.revision, TriageDecision.source_revision)
+        checks = []
+        for payload in (Observation.before_json, Observation.after_json):
+            extract = func.json_extract
+            oid = extract(payload, "$.signals.commits.nodes[#-1].commit.oid")
+            checks.append(
+                case(
+                    (
+                        and_(
+                            oid.is_not(None),
+                            oid.is_distinct_from(extract(payload, "$.pr.head.sha")),
+                        ),
+                        "UNKNOWN",
+                    ),
+                    else_=func.coalesce(
+                        extract(
+                            payload,
+                            "$.signals.commits.nodes[#-1].commit.statusCheckRollup.state",
+                        ),
+                        "UNKNOWN",
+                    ),
+                )
+            )
+        kind = case(
+            (
+                and_(
+                    Observation.kind == "commented",
+                    func.json_extract(Observation.after_json, "$.author")
+                    == func.json_extract(Item.raw, "$.user.login"),
+                ),
+                "author_replied",
+            ),
+            (
+                and_(
+                    Observation.kind == "signals_changed",
+                    checks[0].is_distinct_from(checks[1]),
+                ),
+                "checks_changed",
+            ),
+            else_=Observation.kind,
+        )
+        activity = (
+            select(
+                func.json_object(
+                    "kinds",
+                    func.group_concat(func.distinct(kind)),
+                    "revisions",
+                    func.count(func.distinct(Observation.revision)),
+                )
+            )
+            .where(
+                Observation.item_id == Item.id,
+                Observation.revision > baseline,
+                Observation.revision <= Item.revision,
+            )
+            .correlate(Item, Processing, TriageDecision)
+            .scalar_subquery()
+        )
         return (
             select(
                 Item,
@@ -333,6 +400,7 @@ class CatalogQueries:
                 Summary,
                 Classification,
                 Ranking,
+                activity,
             )
             .join(Repository, Repository.id == Item.repo_id)
             .outerjoin(TriageDecision, TriageDecision.item_id == Item.id)
@@ -351,6 +419,7 @@ class CatalogQueries:
         summary: Summary | None,
         classification: Classification | None,
         ranking: Ranking | None,
+        activity: str,
     ) -> ItemView:
         view = present_item(
             item_snapshot(item), repo_snapshot(repo), triage_snapshot(triage), self.at
@@ -370,6 +439,32 @@ class CatalogQueries:
                         or repo.comments_synced_at is None
                     }
                 )
+        saved = triage_snapshot(triage) if triage else None
+        baseline = (
+            processed.revision
+            if processed
+            else (saved.source_revision if saved else None)
+        )
+        since = (
+            processed.checked_at if processed else (saved.updated_at if saved else None)
+        )
+        stats = json.loads(activity)
+        follow_up = (
+            FollowUpSummary(
+                baseline="review" if processed else "decision",
+                since_revision=baseline,
+                since_at=since,
+                kinds=sorted((stats["kinds"] or "").split(","))
+                if stats["kinds"]
+                else [],
+                history_gap=stats["revisions"] < item.revision - baseline,
+                decision_at_review=(saved.updated_at <= processed.checked_at)
+                if saved and saved.updated_at and processed
+                else None,
+            )
+            if baseline is not None and since is not None
+            else None
+        )
         return view.model_copy(
             update={
                 **analysis,
@@ -382,6 +477,8 @@ class CatalogQueries:
                 "processed_by": processed.actor if processed else None,
                 "checked_at": processed.checked_at if processed else None,
                 "comments_synced_at": repo.comments_synced_at,
+                "saved_decision": saved,
+                "follow_up": follow_up,
             }
         )
 
@@ -637,7 +734,12 @@ class CatalogQueries:
                 item_view = item_view.model_copy(
                     update={"linked_prs": sorted(linked_prs)}
                 )
-        return ItemDetail(item=item_view, changes=changes)
+        follow_up = (
+            await self.follow_up(item_id, item_view.follow_up.since_revision)
+            if item_view.follow_up
+            else None
+        )
+        return ItemDetail(item=item_view, changes=changes, follow_up_changes=follow_up)
 
     async def portfolio(self) -> Portfolio:
         overview = await self.overview()
@@ -689,6 +791,8 @@ class CatalogQueries:
         since_check: bool = False,
         limit: int = 100,
         offset: int = 0,
+        after_revision: int | None = None,
+        through_revision: int | None = None,
     ) -> ChangePage:
         ItemFilters(limit=limit, offset=offset)
         statement = select(Observation).outerjoin(
@@ -699,6 +803,16 @@ class CatalogQueries:
             statement = statement.where(Observation.item_id == item.id)
         if since:
             statement = statement.where(Observation.observed_at > since)
+        if after_revision is not None:
+            if after_revision < 1 or since or since_check:
+                raise ValueError(
+                    "Use a positive revision without other change windows."
+                )
+            statement = statement.where(Observation.revision > after_revision)
+        if through_revision is not None:
+            if through_revision < (after_revision or 1):
+                raise ValueError("Invalid revision window.")
+            statement = statement.where(Observation.revision <= through_revision)
         if since_check:
             statement = statement.where(
                 or_(
@@ -717,6 +831,31 @@ class CatalogQueries:
             changes=[
                 ObservationView.model_validate(row, from_attributes=True)
                 for row in records
+            ],
+        )
+
+    async def follow_up(
+        self,
+        reference: str,
+        revision: int,
+        limit: int = 20,
+        offset: int = 0,
+        through_revision: int | None = None,
+    ) -> ActivityPage:
+        item = await resolve_item(self.session, reference)
+        page = await self.changes(
+            reference,
+            after_revision=revision,
+            limit=limit,
+            offset=offset,
+            through_revision=through_revision
+            if through_revision is not None
+            else item.revision,
+        )
+        return ActivityPage(
+            total=page.total,
+            entries=[
+                describe_change(change, item_snapshot(item)) for change in page.changes
             ],
         )
 

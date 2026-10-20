@@ -243,6 +243,8 @@ class SkillsOptions(OutputOptions):
 
 
 class TriageOptions(WriteOptions):
+    finish_review: bool = False
+    actor: str = "manual"
     item_id: str | None = Field(default=None, description="GitHub issue node ID.")
     disposition: Literal["inbox", "planned", "waiting", "snoozed", "done"] | None = (
         "planned"

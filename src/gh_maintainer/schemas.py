@@ -470,6 +470,9 @@ class TriageUpdate(Contract):
     priority: Priority | None = None
     category: Category | None = None
     snoozed_until: AwareDatetime | None = None
+    revision: int | None = Field(default=None, ge=1)
+    finish_review: bool = False
+    actor: str = Field(default="dashboard", min_length=1)
 
 
 class Assessment(Contract):
@@ -483,6 +486,15 @@ class Assessment(Contract):
     reasons: list[str]
     score: int
     actionable: bool
+
+
+class FollowUpSummary(Contract):
+    baseline: Literal["review", "decision"]
+    since_revision: int
+    since_at: AwareDatetime
+    kinds: list[str] = Field(default_factory=list)
+    history_gap: bool = False
+    decision_at_review: bool | None = None
 
 
 class ItemView(ItemSnapshot, Assessment):
@@ -504,6 +516,8 @@ class ItemView(ItemSnapshot, Assessment):
     processed_by: str | None = None
     checked_at: AwareDatetime | None = None
     comments_synced_at: AwareDatetime | None = None
+    saved_decision: TriageSnapshot | None = None
+    follow_up: FollowUpSummary | None = None
     summary: AnalysisView | None = None
     classification: AnalysisView | None = None
     ranking: AnalysisView | None = None
@@ -596,9 +610,24 @@ class ProcessingView(Contract):
     actor: str = Field(min_length=1)
 
 
+class ActivityEntry(Contract):
+    id: int
+    observed_at: AwareDatetime
+    kind: str
+    label: str
+    detail: str
+    url: str
+
+
+class ActivityPage(Contract):
+    total: int
+    entries: list[ActivityEntry]
+
+
 class ItemDetail(Contract):
     item: ItemView
     changes: list[ObservationView]
+    follow_up_changes: ActivityPage | None = None
 
 
 class SyncResult(Contract):

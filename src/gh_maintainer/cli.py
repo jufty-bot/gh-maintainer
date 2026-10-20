@@ -218,6 +218,8 @@ def execute(ctx: click.Context, **options: object) -> None:
             raise click.UsageError("--repo and --owner cannot be combined.", ctx)
     if ctx.info_name == "changes" and options.get("since") and options.get("all"):
         raise click.UsageError("--since and --all cannot be combined.", ctx)
+    if options.get("finish_review") and options.get("revision") is None:
+        raise click.UsageError("--finish-review requires --revision.", ctx)
     if options.pop("unprocessed", False):
         if options.get("processing"):
             raise click.UsageError(
@@ -532,6 +534,14 @@ def register_commands() -> None:
             ]
         if name == "triage":
             params += [
+                click.Option(
+                    ["--finish-review"],
+                    is_flag=True,
+                    help="Save triage and acknowledge --revision atomically.",
+                ),
+                click.Option(
+                    ["--actor"], default="manual", help="Who reviewed the item."
+                ),
                 click.Argument(
                     ["disposition"],
                     required=False,
@@ -723,6 +733,35 @@ async def read_command(database: Database, args: SimpleNamespace) -> None:
                 lines += [f"Linked pull requests: {pr_refs}"]
             if item.note:
                 lines += ["", f"Triage note: {item.note}"]
+            if item.saved_decision:
+                saved = item.saved_decision
+                lines += [
+                    f"Saved decision: {saved.disposition.value} ({saved.updated_at})"
+                ]
+                if item.follow_up and item.follow_up.decision_at_review is False:
+                    lines.append("Decision was updated after the last review.")
+            if item.follow_up:
+                follow = item.follow_up
+                baseline = (
+                    "last review" if follow.baseline == "review" else "saved decision"
+                )
+                lines += [
+                    "",
+                    f"Since {baseline} (revision {follow.since_revision}):",
+                ]
+                if follow.history_gap:
+                    lines.append("Some source revisions have no retained observations.")
+                if detail.follow_up_changes:
+                    for entry in detail.follow_up_changes.entries:
+                        lines.append(
+                            f"{entry.observed_at}: {entry.label} — "
+                            f"{entry.detail} {entry.url}"
+                        )
+                    lines.append(
+                        f"Showing {len(detail.follow_up_changes.entries)} of "
+                        f"{detail.follow_up_changes.total} retained observations; "
+                        "use changes to paginate."
+                    )
             display(detail, "\n".join(lines), args)
         elif args.command == "comments":
             comment_page = await query.comments(
@@ -894,6 +933,8 @@ async def run(args: SimpleNamespace) -> int:
                 score=getattr(args, "score", None),
                 disposition=getattr(args, "disposition", None),
             )
+            if getattr(args, "finish_review", False):
+                check_policy(selected.policy, "mark-processed")
         if args.command in {"sync", "watch"}:
             concurrency = getattr(args, "concurrency", DEFAULT_CONCURRENCY)
             source = AsyncGitHubSource(
@@ -968,6 +1009,8 @@ async def run(args: SimpleNamespace) -> int:
                 category=category,
                 until=args.until,
                 revision=args.revision,
+                finish_review=args.finish_review,
+                actor=args.actor,
             )
             if args.format == "json":
                 async with database.sessions() as session:
@@ -977,7 +1020,11 @@ async def run(args: SimpleNamespace) -> int:
                         ).model_dump_json(indent=2)
                     )
             else:
-                output("Local triage decision saved.")
+                output(
+                    "Review finished."
+                    if args.finish_review
+                    else "Local triage decision saved."
+                )
         elif args.command == "report":
             async with database.sessions() as session:
                 data = await CatalogQueries(session).portfolio()

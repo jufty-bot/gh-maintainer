@@ -40,6 +40,11 @@ offline after sync.
 Use `--config maintainer.yaml` to load JSON/YAML command defaults and a shared
 `repositories` list. See [configuration files](configuration.md) for precedence and JSON Schema.
 
+Run `uv run gh-maintainer serve` to open the dashboard at `http://127.0.0.1:8765`.
+**Set up repositories** and **Sync now** guide credential checks, repository selection,
+and sync progress. Review work as a list or **Work board**; **Finish review & next**
+saves your local decision and acknowledges the inspected revision together.
+
 Use `classify`, `summarize`, `rank`, and `triage` to save decisions, then `mark-processed`
 to acknowledge an inspected revision. `changes` shows observed pushes, comments, and
 state changes since that checkpoint. All these commands support JSON output.

@@ -32,7 +32,26 @@ Both transports use the SDK's `MCPServer` and identical tool schemas. `web.py` r
 `/mcp` to the MCP HTTP ASGI app after dashboard/REST routes, running the SDK session
 manager alongside the shared runtime's database lifecycle. Stdio reserves stdout for protocol traffic
 and sends logs to stderr. Shutdown cancels the watcher, waits for source/lease cleanup,
-then disposes its owned database. No GitHub credential is resolved until a sync runs.
+then disposes its owned database. Local index operations need no credential. Dashboard
+setup can check for a server credential without returning it; live sync resolves it on
+the server when requested.
+
+The dashboard's `web.py` sync controller owns one cancellable task over the existing
+`MaintenanceTools.sync` service. REST polling reports bounded current progress and the
+structured complete/partial result, with no new persisted job tables. Selection starts
+from CLI configuration, remains in the server session, and resets on restart. Browser
+disconnects leave the task running; app shutdown cancels and drains it before closing
+the database. Same-origin guards protect sync/cancel and dashboard triage writes.
+Database leases fence competing CLI, dashboard, and MCP sync writers.
+
+Kanban is another presentation of SQL-backed `ItemFilters(disposition=...)`, with a
+separate paginated query for each of five columns. Effective done/snooze rules are shared
+with existing views. Card moves and review completion pass the displayed revision.
+`TriageService.decide(finish_review=True)` requires an inspected revision and writes
+triage and processing in the same transaction, sharing coverage validation with
+`AnalysisService.mark_processed`. Ordinary moves/triage never acknowledge processing.
+CLI `triage --finish-review` and MCP expose the same operation; supplied policy must
+permit both writes. No schema change is required.
 
 `mcp_contracts.py` applies the selected CLI command defaults to SDK signatures and
 nested request models, keeping tool validation and discovery in agreement. Explicit
@@ -342,6 +361,20 @@ The revision guard is optional in the CLI and should be supplied by skills using
 earlier inspection. Full user-facing contracts are in [CLI workflows](cli.md).
 
 ### Dashboard architecture
+
+Review follow-up uses the existing processing checkpoint, latest triage row, and source
+observations. Item list queries add a correlated SQLite aggregate of distinct activity
+kinds and retained revision coverage; pagination/counts remain SQL-backed without an
+extra query per card. The latest saved disposition is exposed separately from effective
+inbox/snooze rules. Review-relative baselines take precedence over a saved decision's
+revision, and later local edits are explicitly distinguished from decisions at review.
+
+Details add a 20-entry described activity preview with a total. HTTP follow-up pagination
+reuses `CatalogQueries.changes` with lower/upper revision bounds, keeping subsequent pages
+within the source revision inspected. `policies.describe_change` formats bounded plain-text
+excerpts and observed head/check/review transitions; old-head signals remain unknown.
+Missing retained revisions are surfaced conservatively. Reads do not fetch GitHub or
+advance processing. No schema change or local-decision audit history is introduced.
 
 The dashboard writes decisions through `PUT /api/items/{item_id}/triage`, using the same
 `TriageService` as the CLI. Payloads validate dispositions, note length, and timezone-aware

@@ -2,6 +2,17 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const results = $("#results");
 const limit = 25;
+let dashboardSync = null;
+let syncPoll;
+let syncOptions = {};
+let syncSubmitting = false;
+let credentialAvailable = false;
+let activeListQuery = null;
+let boardSignature = "";
+let boardOffsets = {};
+let boardMoving = false;
+let boardDragId = null;
+const boardLimit = 10;
 const dispositions = {
     inbox: "Inbox",
     planned: "Planned",
@@ -10,6 +21,11 @@ const dispositions = {
     done: "Done",
 };
 const views = {
+    board: [
+        "Work board",
+        "Work at a glance",
+        "Move local decisions forward. Open a card to read the context and finish a review.",
+    ],
     queue: [
         "Maintenance queue",
         "Your next moves",
@@ -129,7 +145,9 @@ async function api(path, options) {
             else if (Array.isArray(body.detail))
                 message = body.detail.map((error) => error.msg).join(". ");
         } catch {}
-        throw new Error(message);
+        const error = new Error(message);
+        error.status = response.status;
+        throw error;
     }
     return response.json();
 }
@@ -171,7 +189,9 @@ async function loadOverview() {
     $("#sync-status").classList.toggle("warn", warning);
     $("#sync-status").textContent = run
         ? `${warning ? "◐" : "●"} Last sync ${formatDate(run.finished_at || run.started_at)} · ${run.status}${incomplete ? ` · ${incomplete} repositories incomplete` : ""} · Refresh reads the local index`
-        : "No sync yet. Run gh-maintainer sync, or seed a demo index to explore.";
+        : "No sync yet. Choose Set up repositories to get started.";
+    $("#setup-banner").hidden = overview.counts.repositories > 0;
+    if (dashboardSync) renderSyncStatus(dashboardSync);
     const selected = $("#repo").value;
     $("#repo").replaceChildren(
         new Option("All repositories", ""),
@@ -212,11 +232,12 @@ function renderItem(item) {
     for (const label of item.labels.slice(0, 2))
         meta.append(badge(label, "label"));
     if (item.category)
-        meta.append(el("span", item.category.replace(/_/g, " "), "category-tag"));
+        meta.append(
+            el("span", item.category.replace(/_/g, " "), "category-tag"),
+        );
     if (item.priority)
         meta.append(el("span", item.priority, `priority-tag ${item.priority}`));
-    if (item.triaged)
-        meta.append(el("span", "Triaged", "triaged-tag"));
+    if (item.triaged) meta.append(el("span", "Triaged", "triaged-tag"));
     center.append(meta);
     if (item.note) center.append(el("p", item.note, "item-note"));
     const side = el("div", undefined, "item-side");
@@ -354,15 +375,24 @@ function updateFilterControls() {
         $("#search").value ||
         $("#repo").value ||
         focus ||
-        $("#state").value !== (view === "all" ? "" : "open") ||
+        $("#state").value !== (["all", "board"].includes(view) ? "" : "open") ||
         $("#sort").value !== "priority" ||
+        [
+            "#category",
+            "#priority",
+            "#triaged",
+            "#author",
+            "#since",
+            "#until",
+        ].some((selector) => $(selector)?.value) ||
         (view === "triage" && disposition !== "inbox")
     );
 }
 async function loadItems() {
+    clearBoardDrag();
     const currentGeneration = ++generation;
     updateFilterControls();
-    results.classList.remove("repo-grid");
+    results.classList.remove("repo-grid", "kanban-board");
     if (view === "repos" && overview) {
         renderRepos();
         results.setAttribute("aria-busy", "false");
@@ -402,9 +432,16 @@ async function loadItems() {
     if ($("#priority")?.value) query.set("priority", $("#priority").value);
     if ($("#triaged")?.value) query.set("triaged", $("#triaged").value);
     if ($("#author")?.value) query.set("author", $("#author").value);
-    if ($("#since")?.value) query.set("since", $("#since").value + "T00:00:00Z");
-    if ($("#until")?.value) query.set("until", $("#until").value + "T23:59:59Z");
+    if ($("#since")?.value)
+        query.set("since", $("#since").value + "T00:00:00Z");
+    if ($("#until")?.value)
+        query.set("until", $("#until").value + "T23:59:59Z");
+    activeListQuery = new URLSearchParams(query);
     try {
+        if (view === "board") {
+            await loadBoard(query, currentGeneration);
+            return;
+        }
         const data = await api(`/api/items?${query}`);
         if (currentGeneration !== generation) return;
         // A local decision or a sync can remove the last item on a later page.
@@ -443,29 +480,264 @@ async function loadItems() {
             results.setAttribute("aria-busy", "false");
     }
 }
+async function loadBoard(query, token) {
+    query.delete("offset");
+    query.set("limit", boardLimit);
+    const signature = query.toString();
+    if (signature !== boardSignature) {
+        boardSignature = signature;
+        boardOffsets = {};
+    }
+    async function lanePage(lane) {
+        const selection = new URLSearchParams(query);
+        selection.set("disposition", lane);
+        selection.set("offset", boardOffsets[lane] || 0);
+        const data = await api(`/api/items?${selection}`);
+        if (token !== generation) return data;
+        if (boardOffsets[lane] && boardOffsets[lane] >= data.total) {
+            boardOffsets[lane] = Math.max(
+                0,
+                Math.ceil(data.total / boardLimit) * boardLimit - boardLimit,
+            );
+            return lanePage(lane);
+        }
+        return data;
+    }
+    const lanes = Object.keys(dispositions);
+    const pages = await Promise.all(lanes.map(lanePage));
+    if (token !== generation) return;
+    pageItems = pages.flatMap((data) => data.items);
+    total = pages.reduce((sum, data) => sum + data.total, 0);
+    $("#total").textContent = total.toLocaleString();
+    $(".pagination").hidden = true;
+    results.classList.add("kanban-board");
+    results.replaceChildren(
+        ...lanes.map((lane, index) => {
+            const data = pages[index];
+            const column = el(
+                "section",
+                undefined,
+                `kanban-column lane-${lane}`,
+            );
+            column.dataset.lane = lane;
+            column.setAttribute("aria-label", `${dispositions[lane]} column`);
+            const heading = el("div", undefined, "kanban-heading");
+            heading.append(
+                el("h3", dispositions[lane]),
+                el("span", data.total.toLocaleString(), "count"),
+            );
+            column.append(heading);
+            column.append(
+                el(
+                    "p",
+                    lane === "snoozed"
+                        ? "Drop to choose a snooze date"
+                        : "Drop to move here",
+                    "kanban-drop-hint",
+                ),
+            );
+            const cards = el("div", undefined, "kanban-cards");
+            cards.append(...data.items.map(renderBoardCard));
+            if (!data.items.length)
+                cards.append(el("p", "No matching items", "help-text"));
+            column.append(cards);
+            const start = boardOffsets[lane] || 0;
+            const navigation = el("div", undefined, "kanban-pagination");
+            const previous = button("←", "button secondary", () => {
+                boardOffsets[lane] = Math.max(0, start - boardLimit);
+                loadItems();
+            });
+            previous.setAttribute(
+                "aria-label",
+                `Previous ${dispositions[lane]} cards`,
+            );
+            previous.disabled = start === 0;
+            const next = button("→", "button secondary", () => {
+                boardOffsets[lane] = start + boardLimit;
+                loadItems();
+            });
+            next.setAttribute("aria-label", `Next ${dispositions[lane]} cards`);
+            next.disabled = start + data.items.length >= data.total;
+            navigation.append(
+                previous,
+                el(
+                    "span",
+                    data.total
+                        ? `${start + 1}–${start + data.items.length} of ${data.total}`
+                        : "0 items",
+                ),
+                next,
+            );
+            column.append(navigation);
+            column.addEventListener("dragover", (event) => {
+                const dragged = pageItems.find(
+                    (item) => item.id === boardDragId,
+                );
+                if (boardMoving || !dragged || dragged.disposition === lane)
+                    return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                for (const target of results.querySelectorAll(
+                    ".is-drop-target",
+                ))
+                    if (target !== column)
+                        target.classList.remove("is-drop-target");
+                column.classList.add("is-drop-target");
+            });
+            column.addEventListener("dragleave", (event) => {
+                if (
+                    event.relatedTarget instanceof Node &&
+                    column.contains(event.relatedTarget)
+                )
+                    return;
+                column.classList.remove("is-drop-target");
+            });
+            column.addEventListener("drop", (event) => {
+                event.preventDefault();
+                const item = pageItems.find(
+                    (candidate) => candidate.id === boardDragId,
+                );
+                clearBoardDrag();
+                if (item) moveBoardCard(item, lane, column);
+            });
+            return column;
+        }),
+    );
+}
+function clearBoardDrag() {
+    boardDragId = null;
+    results.classList.remove("is-dragging");
+    for (const node of results.querySelectorAll(
+        ".is-drag-source, .is-drop-target",
+    ))
+        node.classList.remove("is-drag-source", "is-drop-target");
+}
+function renderBoardCard(item) {
+    const card = el("article", undefined, "kanban-card");
+    card.dataset.itemId = item.id;
+    card.draggable = true;
+    card.addEventListener("dragstart", (event) => {
+        if (boardMoving || event.target.closest("select"))
+            return event.preventDefault();
+        event.dataTransfer.setData("text/plain", item.id);
+        event.dataTransfer.effectAllowed = "move";
+        boardDragId = item.id;
+        card.classList.add("is-drag-source");
+        results.classList.add("is-dragging");
+    });
+    card.addEventListener("dragend", clearBoardDrag);
+    const heading = el("div", undefined, "kanban-card-heading");
+    const grip = el("span", "⠿", "kanban-grip");
+    grip.title = "Drag to another column";
+    grip.setAttribute("aria-hidden", "true");
+    heading.append(el("p", `${item.repo} #${item.number}`, "eyebrow"), grip);
+    card.append(heading);
+    const title = button("", "kanban-title", () => showDetail(item.id));
+    title.append(markdown(item.title, item.url, { inline: true }));
+    card.append(title);
+    const meta = el("div", undefined, "detail-reasons");
+    meta.append(
+        badge(item.kind === "pr" ? "PR" : "Issue", item.kind),
+        badge(item.state, item.state),
+    );
+    if (item.priority) meta.append(badge(item.priority, "warning"));
+    meta.append(badge(item.category.replaceAll("_", " ")));
+    card.append(meta);
+    const activity = el("div", undefined, "follow-up-badges");
+    for (const label of followUpLabels(item).slice(0, 3))
+        activity.append(badge(label, "warning"));
+    card.append(activity);
+    if (item.note) card.append(markdown(item.note, item.url));
+    card.append(
+        el(
+            "p",
+            item.processing_state === "processed"
+                ? "Reviewed"
+                : item.processing_state === "changed"
+                  ? "Changed since review"
+                  : "Needs review",
+            "help-text",
+        ),
+    );
+    const move = el("select");
+    move.setAttribute("aria-label", `Move ${item.repo}#${item.number} to`);
+    for (const [value, label] of Object.entries(dispositions))
+        move.append(new Option(label, value));
+    move.value = item.disposition;
+    move.addEventListener("change", () =>
+        moveBoardCard(item, move.value, card),
+    );
+    card.append(move);
+    return card;
+}
+async function moveBoardCard(item, lane, container) {
+    if (boardMoving || lane === item.disposition) return;
+    if (lane === "snoozed") {
+        const select = container.querySelector("select");
+        if (select) select.value = item.disposition;
+        await showDetail(item.id);
+        if (detailId !== item.id || !$("#triage-disposition")) return;
+        $("#triage-disposition").value = lane;
+        $("#triage-disposition").dispatchEvent(
+            new Event("change", { bubbles: true }),
+        );
+        $("#triage-until").focus();
+        return;
+    }
+    boardMoving = true;
+    const controls = [...results.querySelectorAll("select")];
+    controls.forEach((control) => (control.disabled = true));
+    container.querySelector(".form-error")?.remove();
+    try {
+        await api(`/api/items/${encodeURIComponent(item.id)}/triage`, {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Maintainer-Request": "1",
+            },
+            body: JSON.stringify({
+                disposition: lane,
+                note: item.note || "",
+                priority: item.priority,
+                category: item.category,
+                revision: item.revision,
+            }),
+        });
+        notify(`Moved to ${dispositions[lane]}. Local decision saved.`);
+        await refresh();
+    } catch (error) {
+        const message = el("p", error.message, "form-error");
+        message.setAttribute("role", "alert");
+        container.append(message);
+        const select = container.querySelector("select");
+        if (select) select.value = item.disposition;
+    } finally {
+        controls.forEach((control) => (control.disabled = false));
+        boardMoving = false;
+    }
+}
 function autolinkReferences(container, sourceUrl) {
     if (!sourceUrl) return;
-    const repoMatch = sourceUrl.match(/https?:\/\/github\.com\/([^/]+)\/([^/#?]+)/);
-    const currentRepo = repoMatch ? `${repoMatch[1]}/${repoMatch[2]}` : null;
-    const refRegex = /(?:([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)?#(\d+)|@([a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?))/g;
-
-    const walker = document.createTreeWalker(
-        container,
-        NodeFilter.SHOW_TEXT,
-        {
-            acceptNode(node) {
-                let parent = node.parentElement;
-                while (parent && parent !== container) {
-                    const tag = parent.tagName.toLowerCase();
-                    if (["a", "code", "pre", "script", "style"].includes(tag)) {
-                        return NodeFilter.FILTER_REJECT;
-                    }
-                    parent = parent.parentElement;
-                }
-                return NodeFilter.FILTER_ACCEPT;
-            },
-        },
+    const repoMatch = sourceUrl.match(
+        /https?:\/\/github\.com\/([^/]+)\/([^/#?]+)/,
     );
+    const currentRepo = repoMatch ? `${repoMatch[1]}/${repoMatch[2]}` : null;
+    const refRegex =
+        /(?:([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)?#(\d+)|@([a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?))/g;
+
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+            let parent = node.parentElement;
+            while (parent && parent !== container) {
+                const tag = parent.tagName.toLowerCase();
+                if (["a", "code", "pre", "script", "style"].includes(tag)) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                parent = parent.parentElement;
+            }
+            return NodeFilter.FILTER_ACCEPT;
+        },
+    });
 
     const textNodes = [];
     while (walker.nextNode()) {
@@ -539,7 +811,9 @@ function autolinkReferences(container, sourceUrl) {
 
         if (nodesToInsert.length > 0) {
             if (lastIndex < text.length) {
-                nodesToInsert.push(document.createTextNode(text.slice(lastIndex)));
+                nodesToInsert.push(
+                    document.createTextNode(text.slice(lastIndex)),
+                );
             }
             const parent = textNode.parentNode;
             for (const node of nodesToInsert) {
@@ -639,7 +913,7 @@ function markdown(body, sourceUrl, { inline = false, links = true } = {}) {
     }
     return container;
 }
-function renderDiscussion(item) {
+function renderDiscussion(item, onCoverage = () => {}) {
     const section = el("section", undefined, "discussion");
     section.append(
         el("h3", item.kind === "pr" ? "Comments and reviews" : "Comments"),
@@ -652,6 +926,7 @@ function renderDiscussion(item) {
     let offset = 0;
     const threadMap = new Map();
     async function load() {
+        onCoverage(false);
         controls.replaceChildren();
         status.textContent = "Loading comments…";
         try {
@@ -740,7 +1015,9 @@ function renderDiscussion(item) {
                 if (inReplyTo) {
                     const parentThread =
                         threadMap.get(String(inReplyTo)) ||
-                        entries.querySelector(`[data-thread-id="${inReplyTo}"]`) ||
+                        entries.querySelector(
+                            `[data-thread-id="${inReplyTo}"]`,
+                        ) ||
                         entries
                             .querySelector(`[data-comment-id="${inReplyTo}"]`)
                             ?.closest(".comment-thread");
@@ -774,6 +1051,11 @@ function renderDiscussion(item) {
                 }
             }
             offset += data.comments.length;
+            onCoverage(
+                !data.coverage_error &&
+                    !!data.comments_synced_at &&
+                    offset >= data.total,
+            );
             if (!data.total && data.comments_synced_at)
                 entries.append(
                     el("p", "No comments or reviews yet.", "help-text"),
@@ -804,7 +1086,192 @@ function updateDetailNavigation() {
     $("#next-item").disabled =
         saving || index < 0 || index >= pageItems.length - 1;
 }
-function renderDetail({ item, changes }) {
+function followUpLabels(item) {
+    const kinds = item.follow_up?.kinds || [];
+    const labels = Object.entries({
+        pushed: "New code",
+        author_replied: "Author replied",
+        commented: "New comments",
+        checks_changed: "Checks changed",
+        reviewed: "Review updated",
+        comment_edited: "Comments edited",
+        signals_changed: "PR status changed",
+        reopened: "Reopened",
+        closed: "Closed",
+        merged: "Merged",
+        unavailable: "Visibility changed",
+        available: "Visible again",
+        comment_unavailable: "Conversation visibility changed",
+        updated: "Item edited",
+    })
+        .filter(([kind]) => kinds.includes(kind))
+        .map(([, label]) => label);
+    if (
+        item.follow_up &&
+        item.revision > item.follow_up.since_revision &&
+        !labels.length
+    )
+        labels.push("New activity");
+    if (
+        item.saved_decision?.disposition === "snoozed" &&
+        item.disposition === "inbox"
+    )
+        labels.unshift("Snooze ended");
+    return labels;
+}
+function renderFollowUp(item, firstPage) {
+    const section = el("section", undefined, "follow-up");
+    const follow = item.follow_up;
+    section.append(
+        el(
+            "h3",
+            follow?.baseline === "review"
+                ? "Since your last review"
+                : follow
+                  ? "Since your saved decision"
+                  : "Review history",
+        ),
+    );
+    if (follow)
+        section.append(
+            el(
+                "p",
+                `${follow.baseline === "review" ? "Reviewed" : "Decision saved"} ${formatDate(follow.since_at)} · revision ${follow.since_revision}${item.processed_by && follow.baseline === "review" ? ` · ${item.processed_by}` : ""}`,
+                "help-text",
+            ),
+        );
+    const reasons = el("div", undefined, "follow-up-badges");
+    for (const label of followUpLabels(item))
+        reasons.append(badge(label, "warning"));
+    section.append(reasons);
+    const columns = el("div", undefined, "follow-up-layout");
+    const decision = el("div", undefined, "saved-decision");
+    decision.append(
+        el(
+            "h4",
+            follow?.decision_at_review === false
+                ? "Latest saved decision"
+                : follow?.decision_at_review
+                  ? "Decision at last review"
+                  : "Saved decision",
+        ),
+    );
+    const saved = item.saved_decision;
+    if (saved) {
+        const status = el("div", undefined, "detail-reasons");
+        status.append(
+            badge(dispositions[saved.disposition] || saved.disposition),
+        );
+        if (saved.priority) status.append(badge(saved.priority));
+        decision.append(
+            status,
+            el("p", `Saved ${formatDate(saved.updated_at)}`, "help-text"),
+        );
+        if (saved.note) decision.append(markdown(saved.note, item.url));
+        else decision.append(el("p", "No note was saved.", "help-text"));
+        if (follow?.decision_at_review === false)
+            decision.append(
+                el(
+                    "p",
+                    "This decision was edited after your last review.",
+                    "help-text",
+                ),
+            );
+        if (saved.disposition === "snoozed" && item.disposition === "inbox")
+            decision.append(
+                el(
+                    "p",
+                    `Snooze ended ${formatDate(saved.snoozed_until)}.`,
+                    "signal-warning",
+                ),
+            );
+    } else
+        decision.append(
+            el("p", "No saved decision is available.", "help-text"),
+        );
+    const activity = el("div", undefined, "follow-up-activity");
+    const entries = el("div", undefined, "follow-up-entries");
+    const controls = el("div");
+    const status = el("p", undefined, "help-text");
+    let offset = 0;
+    function appendPage(page) {
+        for (const entry of page.entries) {
+            const row = el("article", undefined, "follow-up-entry");
+            row.append(
+                el("h4", entry.label),
+                el("time", formatDate(entry.observed_at)),
+            );
+            if (entry.detail) row.append(el("p", entry.detail));
+            row.append(safeLink(entry.url, "View on GitHub ↗"));
+            entries.append(row);
+        }
+        offset += page.entries.length;
+        status.textContent = page.total
+            ? `Showing ${offset} of ${page.total} retained observations.`
+            : item.revision > follow.since_revision
+              ? "New activity was observed, but its details are no longer retained."
+              : "No new source activity observed since this checkpoint.";
+        controls.replaceChildren();
+        if (offset < page.total)
+            controls.append(
+                button("Load more activity", "button secondary", load),
+            );
+    }
+    async function load() {
+        controls.replaceChildren(el("span", "Loading activity…", "help-text"));
+        try {
+            const query = new URLSearchParams({
+                revision: follow.since_revision,
+                through_revision: item.revision,
+                limit: 20,
+                offset,
+            });
+            const page = await api(
+                `/api/items/${encodeURIComponent(item.id)}/follow-up?${query}`,
+            );
+            if (section.isConnected) appendPage(page);
+        } catch (error) {
+            if (!section.isConnected) return;
+            const failure = el(
+                "p",
+                `Could not load activity: ${error.message}`,
+                "form-error",
+            );
+            failure.setAttribute("role", "alert");
+            controls.replaceChildren(
+                failure,
+                button("Retry activity", "button secondary", load),
+            );
+        }
+    }
+    if (follow) {
+        if (follow.history_gap)
+            activity.append(
+                el(
+                    "p",
+                    "Some source revisions have no retained observations. Earlier history may have been pruned.",
+                    "signal-warning",
+                ),
+            );
+        appendPage(firstPage || { total: 0, entries: [] });
+    } else
+        status.textContent =
+            "No completed review or decision checkpoint yet. Finish a review to compare later activity.";
+    activity.append(
+        entries,
+        status,
+        controls,
+        el(
+            "p",
+            "Only retained changes observed during sync are shown. Activity between polls may be missing.",
+            "help-text",
+        ),
+    );
+    columns.append(decision, activity);
+    section.append(columns);
+    return section;
+}
+function renderDetail({ item, changes, follow_up_changes }) {
     const content = $("#detail-content");
     dirty = false;
     const heading = el("div", undefined, "detail-heading");
@@ -843,6 +1310,7 @@ function renderDetail({ item, changes }) {
                 "signal-warning",
             ),
         );
+    main.append(renderFollowUp(item, follow_up_changes));
     if (item.reasons.length) {
         const reasons = el("div", undefined, "detail-reasons");
         for (const reason of item.reasons)
@@ -852,7 +1320,12 @@ function renderDetail({ item, changes }) {
     const linkedIssues = [...(item.linked_issues || [])];
     const linkedPrs = [...(item.linked_prs || [])];
 
-    if (item.kind === "pr" && !linkedIssues.length && item.raw && item.raw.body) {
+    if (
+        item.kind === "pr" &&
+        !linkedIssues.length &&
+        item.raw &&
+        item.raw.body
+    ) {
         const pattern =
             /\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+(?:https?:\/\/github\.com\/[^\/\s]+\/[^\/\s]+\/issues\/|(?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#)(\d+)\b/gi;
         let match;
@@ -878,7 +1351,9 @@ function renderDetail({ item, changes }) {
                     const pattern =
                         /\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+(?:https?:\/\/github\.com\/[^\/\s]+\/[^\/\s]+\/issues\/|(?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#)(\d+)\b/gi;
                     let match;
-                    while ((match = pattern.exec(candidate.raw.body)) !== null) {
+                    while (
+                        (match = pattern.exec(candidate.raw.body)) !== null
+                    ) {
                         if (
                             Number(match[1]) === item.number &&
                             !linkedPrs.includes(candidate.number)
@@ -909,7 +1384,10 @@ function renderDetail({ item, changes }) {
                 if (found) {
                     renderDetail({ item: found, changes: [] });
                 } else {
-                    const base = item.url.replace(/\/(pull|issues)\/\d+.*$/, "");
+                    const base = item.url.replace(
+                        /\/(pull|issues)\/\d+.*$/,
+                        "",
+                    );
                     window.open(
                         `${base}/issues/${num}`,
                         "_blank",
@@ -938,7 +1416,10 @@ function renderDetail({ item, changes }) {
                 if (found) {
                     renderDetail({ item: found, changes: [] });
                 } else {
-                    const base = item.url.replace(/\/(pull|issues)\/\d+.*$/, "");
+                    const base = item.url.replace(
+                        /\/(pull|issues)\/\d+.*$/,
+                        "",
+                    );
                     window.open(
                         `${base}/pull/${num}`,
                         "_blank",
@@ -978,7 +1459,14 @@ function renderDetail({ item, changes }) {
     tabs.append(preview, source);
     body.append(markdown(item.raw.body, item.url));
     description.append(tabs, body);
-    main.append(description, renderDiscussion(item));
+    let conversationReady = false;
+    main.append(
+        description,
+        renderDiscussion(item, (ready) => {
+            conversationReady = ready;
+            updateFinish();
+        }),
+    );
     const observations = el("details", undefined, "observations");
     observations.append(
         el("summary", `Local observations (${changes.length})`),
@@ -1105,6 +1593,75 @@ function renderDetail({ item, changes }) {
     const currentIndex = pageItems.findIndex((row) => row.id === item.id);
     const nextId = currentIndex >= 0 ? pageItems[currentIndex + 1]?.id : null;
     saveNext.disabled = !nextId;
+    const finish = el("button", "Finish review & next →", "button primary");
+    finish.type = "submit";
+    const reviewHelp = el("p", undefined, "help-text");
+    const processing = el(
+        "p",
+        item.processing_state === "processed"
+            ? `Reviewed revision ${item.processed_revision} · ${item.processed_by} · ${formatDate(item.checked_at)}`
+            : item.processing_state === "changed"
+              ? "New activity since the last review."
+              : "This item has not been reviewed yet.",
+        "help-text",
+    );
+    function updateFinish() {
+        const covered =
+            item.available &&
+            item.present &&
+            !item.repo_error &&
+            !!item.comments_synced_at;
+        finish.disabled = saving || !covered || !conversationReady;
+        reviewHelp.textContent = !covered
+            ? "Sync complete item and conversation coverage before finishing. You can still save a decision."
+            : !conversationReady
+              ? "Load all comments and reviews before finishing this review."
+              : "Finish saves your decision and acknowledges this inspected revision together. GitHub stays unchanged.";
+    }
+    const reload = button(
+        "Reload source, keep edits",
+        "button secondary",
+        async () => {
+            const edits = {
+                disposition: status.value,
+                priority: priority.value,
+                category: category.value,
+                note: note.value,
+                until: until.value,
+            };
+            const token = detailGeneration;
+            reload.disabled = true;
+            try {
+                const refreshed = await api(
+                    `/api/items/${encodeURIComponent(item.id)}`,
+                );
+                if (token !== detailGeneration || !$("#detail").open) return;
+                renderDetail(refreshed);
+                for (const [key, selector] of Object.entries({
+                    disposition: "#triage-disposition",
+                    priority: "#triage-priority",
+                    category: "#triage-category",
+                    note: "#triage-note",
+                    until: "#triage-until",
+                })) {
+                    $(selector).value = edits[key];
+                    $(selector).dispatchEvent(
+                        new Event(key === "note" ? "input" : "change", {
+                            bubbles: true,
+                        }),
+                    );
+                }
+                notify(
+                    "Source reloaded; your edits were kept. Review the refreshed content before finishing.",
+                );
+            } catch (failure) {
+                error.textContent = failure.message;
+                reload.disabled = false;
+            }
+        },
+    );
+    reload.type = "button";
+    reload.hidden = true;
     form.append(
         statusLabel,
         status,
@@ -1119,7 +1676,12 @@ function renderDetail({ item, changes }) {
         error,
         save,
         saveNext,
+        processing,
+        finish,
+        reviewHelp,
+        reload,
     );
+    updateFinish();
     form.addEventListener("input", () => {
         dirty = true;
     });
@@ -1129,7 +1691,10 @@ function renderDetail({ item, changes }) {
     form.addEventListener("submit", async (event) => {
         event.preventDefault();
         if (saving) return;
-        const advance = event.submitter === saveNext;
+        const finishing = event.submitter === finish;
+        if (finishing && finish.disabled) return;
+        const advance = event.submitter === saveNext || finishing;
+        let advanceId = nextId;
         const savedGeneration = detailGeneration;
         error.hidden = true;
         let deadline = null;
@@ -1154,6 +1719,19 @@ function renderDetail({ item, changes }) {
         for (const control of form.elements) control.disabled = true;
         save.textContent = "Saving…";
         try {
+            // Freeze the next candidate before this write can shrink a filtered page.
+            if (
+                finishing &&
+                !advanceId &&
+                view !== "board" &&
+                activeListQuery &&
+                offset + pageItems.length < total
+            ) {
+                const nextQuery = new URLSearchParams(activeListQuery);
+                nextQuery.set("offset", offset + pageItems.length);
+                nextQuery.set("limit", 1);
+                advanceId = (await api(`/api/items?${nextQuery}`)).items[0]?.id;
+            }
             const detail = await api(
                 `/api/items/${encodeURIComponent(item.id)}/triage`,
                 {
@@ -1168,6 +1746,9 @@ function renderDetail({ item, changes }) {
                         priority: priority.value || null,
                         category: category.value || null,
                         snoozed_until: deadline,
+                        revision: item.revision,
+                        finish_review: finishing,
+                        actor: "dashboard",
                     }),
                 },
             );
@@ -1175,12 +1756,32 @@ function renderDetail({ item, changes }) {
             saving = false;
             $("#close-detail").disabled = false;
             renderDetail(detail);
-            notify("Decision saved to your local workspace.");
+            notify(
+                finishing
+                    ? "Review finished. Decision and inspected revision saved."
+                    : "Decision saved to your local workspace.",
+            );
             await refresh();
             if (savedGeneration !== detailGeneration || !$("#detail").open)
                 return;
             if (dirty || saving) return;
-            if (advance && nextId) showDetail(nextId);
+            if (advance && advanceId) {
+                if (
+                    view !== "board" &&
+                    !pageItems.some((row) => row.id === advanceId)
+                ) {
+                    offset += limit;
+                    await loadItems();
+                    if (
+                        savedGeneration !== detailGeneration ||
+                        !$("#detail").open ||
+                        dirty ||
+                        saving
+                    )
+                        return;
+                }
+                showDetail(advanceId);
+            } else if (finishing) $("#detail").close();
             else updateDetailNavigation();
         } catch (failure) {
             error.textContent = failure.message;
@@ -1188,6 +1789,9 @@ function renderDetail({ item, changes }) {
             saving = false;
             $("#close-detail").disabled = false;
             for (const control of form.elements) control.disabled = false;
+            saveNext.disabled = !nextId;
+            reload.hidden = failure.status !== 409;
+            updateFinish();
             saveNext.disabled = !nextId;
             save.textContent = "Save decision";
             updateDetailNavigation();
@@ -1281,7 +1885,7 @@ function setView(nextView) {
     $("#search").value = "";
     $("#repo").value = "";
     $("#sort").value = "priority";
-    $("#state").value = view === "all" ? "" : "open";
+    $("#state").value = ["all", "board"].includes(view) ? "" : "open";
     for (const node of $$(".sidebar [data-view]")) {
         node.classList.toggle("active", node.dataset.view === view);
         if (node.dataset.view === view)
@@ -1307,7 +1911,7 @@ function resetFilters() {
     clearTimeout(searchTimer);
     $("#search").value = "";
     $("#repo").value = "";
-    $("#state").value = view === "all" ? "" : "open";
+    $("#state").value = ["all", "board"].includes(view) ? "" : "open";
     $("#sort").value = "priority";
     if ($("#category")) $("#category").value = "";
     if ($("#priority")) $("#priority").value = "";
@@ -1338,6 +1942,160 @@ async function refresh() {
         $("#refresh").disabled = false;
     }
 }
+function syncSelectionFields() {
+    $("#sync-owner-field").hidden = $("#sync-selection").value !== "owner";
+    $("#sync-repos-field").hidden = $("#sync-selection").value !== "repos";
+    $("#sync-owner").required = !$("#sync-owner-field").hidden;
+    $("#sync-repos").required = !$("#sync-repos-field").hidden;
+}
+function renderSyncStatus(status) {
+    dashboardSync = status;
+    const running = status.state === "running";
+    for (const control of $("#sync-form").elements) control.disabled = running;
+    $("#sync-start").disabled = running || !credentialAvailable;
+    $("#sync-start").textContent = ["failed", "partial", "cancelled"].includes(
+        status.state,
+    )
+        ? "Retry sync"
+        : "Start sync";
+    $("#sync-cancel").hidden = !running;
+    $("#sync-cancel").disabled = false;
+    $("#sync-open").textContent = running ? "Syncing…" : "Sync now";
+    $("#sync-progress").textContent =
+        `${status.message}${status.stages ? ` · ${status.stages} stages observed` : ""}`;
+    $("#sync-errors").replaceChildren(
+        ...(status.result?.errors || []).map((error) => el("li", error)),
+    );
+    if (running)
+        $("#sync-status").textContent = `Syncing GitHub · ${status.message}`;
+    else if (["failed", "partial", "cancelled"].includes(status.state)) {
+        $("#sync-status").textContent =
+            `${status.message} Open Sync now for details and retry.`;
+        $("#sync-status").classList.add("warn");
+    }
+}
+function scheduleSyncPoll() {
+    clearTimeout(syncPoll);
+    if (dashboardSync?.state === "running")
+        syncPoll = setTimeout(pollSync, 1000);
+}
+async function pollSync() {
+    try {
+        const status = await api("/api/sync");
+        const wasRunning = dashboardSync?.state === "running";
+        renderSyncStatus(status);
+        if (wasRunning && status.state !== "running") {
+            await refresh();
+            renderSyncStatus(status);
+            notify(
+                status.state === "complete"
+                    ? "GitHub sync completed. Your index is up to date."
+                    : status.message,
+            );
+        }
+    } catch (error) {
+        $("#sync-progress").textContent =
+            `Could not read sync progress: ${error.message} Reconnecting…`;
+    }
+    scheduleSyncPoll();
+}
+async function loadSetup(applySelection = false) {
+    $("#auth-check").disabled = true;
+    try {
+        const data = await api("/api/setup");
+        credentialAvailable = data.credential_available;
+        $("#credential-status").textContent = data.message;
+        $("#credential-status").classList.toggle(
+            "signal-warning",
+            !credentialAvailable,
+        );
+        if (applySelection) {
+            syncOptions = data.sync.options;
+            $("#sync-selection").value = syncOptions.repo?.length
+                ? "repos"
+                : syncOptions.owner
+                  ? "owner"
+                  : "mine";
+            $("#sync-owner").value = syncOptions.owner || "";
+            $("#sync-repos").value = (syncOptions.repo || []).join("\n");
+            $("#sync-full").checked = syncOptions.full;
+            syncSelectionFields();
+        }
+        renderSyncStatus(data.sync);
+        scheduleSyncPoll();
+    } catch (error) {
+        $("#credential-status").textContent =
+            `Could not check authentication: ${error.message}`;
+        $("#sync-start").disabled = true;
+    } finally {
+        $("#auth-check").disabled = false;
+    }
+}
+function openSync() {
+    if (!$("#sync-dialog").open) $("#sync-dialog").showModal();
+    loadSetup();
+}
+$("#sync-open").addEventListener("click", openSync);
+$("#setup-open").addEventListener("click", openSync);
+$("#sync-close").addEventListener("click", () => $("#sync-dialog").close());
+$("#auth-check").addEventListener("click", () => loadSetup());
+$("#sync-selection").addEventListener("change", syncSelectionFields);
+$("#sync-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (syncSubmitting || dashboardSync?.state === "running") return;
+    $("#sync-error").hidden = true;
+    const mode = $("#sync-selection").value;
+    const options = {
+        ...syncOptions,
+        owner: mode === "owner" ? $("#sync-owner").value.trim() : null,
+        repo:
+            mode === "repos"
+                ? $("#sync-repos")
+                      .value.split(/[\n,]+/)
+                      .map((name) => name.trim())
+                      .filter(Boolean)
+                : null,
+        full: $("#sync-full").checked,
+    };
+    syncSubmitting = true;
+    $("#sync-start").disabled = true;
+    try {
+        const status = await api("/api/sync", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Maintainer-Request": "1",
+            },
+            body: JSON.stringify(options),
+        });
+        syncOptions = status.options;
+        renderSyncStatus(status);
+        scheduleSyncPoll();
+    } catch (error) {
+        $("#sync-error").textContent = error.message;
+        $("#sync-error").hidden = false;
+        $("#sync-start").disabled = !credentialAvailable;
+    } finally {
+        syncSubmitting = false;
+    }
+});
+$("#sync-cancel").addEventListener("click", async () => {
+    $("#sync-cancel").disabled = true;
+    try {
+        renderSyncStatus(
+            await api("/api/sync/cancel", {
+                method: "POST",
+                headers: { "X-Maintainer-Request": "1" },
+            }),
+        );
+        await refresh();
+        renderSyncStatus(dashboardSync);
+    } catch (error) {
+        $("#sync-error").textContent = error.message;
+        $("#sync-error").hidden = false;
+        $("#sync-cancel").disabled = false;
+    }
+});
 for (const node of $$("[data-view]"))
     node.addEventListener("click", () => setView(node.dataset.view));
 for (const node of $$("[data-focus]"))
@@ -1434,7 +2192,7 @@ document.addEventListener("keydown", (event) => {
         )
     )
         return;
-    if (event.key === "/" && !$("#detail").open) {
+    if (event.key === "/" && !$("#detail").open && !$("#sync-dialog").open) {
         event.preventDefault();
         $("#search").focus();
     }
@@ -1450,3 +2208,4 @@ window.addEventListener("beforeunload", (event) => {
     }
 });
 refresh();
+loadSetup(true);

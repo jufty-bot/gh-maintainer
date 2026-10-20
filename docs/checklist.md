@@ -7,6 +7,60 @@ implemented; further provider/host coverage and scale extensions remain. Checked
 and validation evidence when closing a task.
 Split partial work into separate tasks instead of marking an entire milestone complete.
 
+## Review follow-up
+
+- [x] Validate review/decision baselines, saved disposition/note, later local edits,
+  source-only activity, check provenance, bounded excerpts and retention gaps.
+- [x] Validate SQL-backed board summaries and paginated evidence beyond the legacy
+  50-event preview, keeping pages within the inspected source revision.
+- [x] Validate desktop/mobile badges, previous-decision context, evidence links,
+  pagination/retry, untrusted content and preservation of unsaved edits.
+- [x] Run full Python/frontend suites, lint/format/types, strict docs and packaging.
+
+Code: `queries.py`, `policies.py`, `schemas.py`, `web.py`, `cli.py`, and `static/`.
+Evidence: `tests/test_follow_up.py`, `tests/frontend/follow-up.spec.cjs`, existing SQL
+pagination/CLI/MCP contracts, and the synthetic repeated-review browser fixture.
+See [scope](roadmap.md#current-implementation), [workflow](usage.md#review-returning-items)
+and [D21](decisions.md#d21-explain-returning-items-from-existing-review-and-observation-state).
+Validation: all 379 Python tests passed on Python 3.14 and all 40 desktop/mobile
+Playwright checks passed. Ruff lint/format, mypy, changed frontend formatting, strict
+MkDocs, package builds and `git diff --check` passed. Light desktop and dark mobile
+screenshots of the repeated-review view were inspected. Token-free source fakes and
+temporary SQLite indexes cover new comments, head/check changes, unknown signals,
+later decision edits, retained history gaps, revision-bounded pagination and processing
+reset. No live GitHub fetch, model invocation or schema migration was added or tested.
+
+## Dashboard workflow and Kanban
+
+- [x] Verify credential detection without exposing tokens, configured selection, first-sync
+  setup, stage polling, partial errors/retry, cancellation, and shutdown cleanup.
+- [x] Verify atomic triage/processing through REST, CLI and MCP, inspected-revision and
+  coverage guards, rollback on failed writes, both policy permissions, and preserved edits.
+- [x] Verify five effective Kanban lanes, independent SQL pagination, shared filters,
+  persistent local moves, deadline-based snoozes, source guards and responsive layouts.
+- [x] Run focused/full Python and browser checks, lint/format/types, packaging and strict docs.
+- [x] Validate board hover/grip affordances, active-drag/drop-target feedback, cancellation
+  cleanup and reduced-motion behavior in `tests/frontend/workflow.spec.cjs`.
+
+Drag-feedback follow-up: all 34 desktop/mobile browser checks passed, including visible
+destination hints, leaving/nested hover targets, cancelled drags, actual moves and
+reduced-motion settings. Hover and drag screenshots were inspected. Changed frontend
+formatting, strict MkDocs and `git diff --check` passed; no Python behavior changed.
+
+Code: `web.py`, `repositories.py`, `cli.py`, `mcp.py`, and `static/`.
+Evidence: `tests/test_dashboard_workflow.py`, `tests/test_cli.py`, `tests/test_mcp.py`,
+`tests/frontend/workflow.spec.cjs`. See [workflow contracts](usage.md),
+[roadmap status](roadmap.md#current-implementation) and [D20](decisions.md#d20-dashboard-setup-atomic-review-completion-and-shared-kanban-state).
+Validation: all 373 Python tests passed on Python 3.14, including rollback and a source
+sync racing the review transaction. All 34 Playwright checks passed on desktop/mobile,
+including cross-page/final-item completion, drag/drop, stale moves, and lane pagination.
+Ruff lint/format, mypy, Prettier on changed frontend files, `uv build`, strict MkDocs and
+`git diff --check` passed. Desktop/mobile board and setup screenshots were inspected;
+filters wrap without losing their visible labels. Sync uses token-free source fakes,
+and browser checks use a disposable demo index and mocked sync responses; no live GitHub
+sync was performed. Other Python versions and a credentialed browser-sync pilot remain
+outside this change's author-run validation.
+
 ## MCP transports and maintenance tools
 
 - [x] Add `mcp --transport http|stdio` with shared tool registration, startup migrations,

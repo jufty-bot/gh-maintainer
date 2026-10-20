@@ -21,6 +21,19 @@ incremental; repository discovery runs every time. The default database is
 `maintainer.sqlite` in the platform user data directory chosen by `platformdirs`
 (for example, `~/.local/share/gh-maintainer/maintainer.sqlite` on Linux, respecting
 `XDG_DATA_HOME`). `--db PATH` or `GH_MAINTAINER_DB` selects another index.
+
+You can also start with just `uv run gh-maintainer serve`. An empty dashboard offers
+**Set up repositories**; **Sync now** opens the same setup at any time. The setup checks
+whether the server has a credential, explains how to authenticate on that server, and
+lets you choose your repositories, an owner/organization, or explicit names across owners.
+Credentials are never sent to the browser. Credential detection is not a permission check;
+the sync verifies actual access and reports failures. Start an incremental sync or request
+full reconciliation, inspect live stage messages and per-repository errors, cancel, or retry.
+Closing the setup leaves the sync running; reopening the page resumes progress polling.
+Only one dashboard sync runs per server process, and shutdown cancels it with source/lease
+cleanup. Other sync processes are still fenced by the database lease. Use one HTTP worker.
+Setup starts with the configured sync defaults, including `repositories`; selections are
+retained for that server session. Use `--config` to retain defaults across server restarts.
 Run `gh-maintainer db path` to see the absolute path without creating a file.
 See [database management](cli.md#manage-the-database) for deletion and existing indexes.
 The dashboard formats titles, descriptions, repository descriptions and note previews as
@@ -80,8 +93,8 @@ progress, full or incremental mode, item/comment counts, elapsed time, and failu
 Logs use text output, including when redirected or viewed through Docker. The final sync
 result remains JSON on stdout for scripts.
 
-The dashboard reads your local index. **Refresh** rereads SQLite; use `sync` or `watch`
-to fetch new GitHub data. No credentials are needed to serve an already populated index.
+The dashboard reads your local index. **Refresh** rereads SQLite; **Sync now**, CLI `sync`,
+or `watch` fetches GitHub data. No credentials are needed to serve an already populated index.
 
 To explore without GitHub access:
 
@@ -141,6 +154,12 @@ PRs, closes issues, sends messages, or changes GitHub labels.
 - **Save & next** records your decision and opens the next item on the current page.
   The triage inbox has separate lanes for inbox, planned, waiting, snoozed, and done.
   Snoozed and done items leave the maintenance queue; planned and waiting items remain.
+- **Finish review & next** saves the decision and acknowledges the displayed source revision
+  in one transaction. Load all conversation pages before finishing. Missing coverage disables
+  completion; a source change rejects the entire save. Your edits remain available, and
+  **Reload source, keep edits** refreshes the evidence for another review. The last item can
+  still be finished; completion advances to the next candidate or closes the details.
+  **Save decision** and **Save & next** remain available without acknowledging processing.
 - Search titles, labels, repository names, and item numbers. Filter by repository,
   attention level, author, date range (`since`/`until`), priority, category, or
   triaged status, and sort by priority, recent updates, or oldest updates.
@@ -153,9 +172,66 @@ PRs, closes issues, sends messages, or changes GitHub labels.
 Markdown is sanitized before display. Renderer assets are bundled with the app, so
 rendering works offline without a CDN or a frontend build step.
 
+### Review returning items
+
+Board cards show brief reasons such as **New code**, **Author replied**, and **Checks
+changed** when activity has been observed since the last completed review. Open an item
+for **Since your last review**: the saved decision and note sit beside dated changes,
+comment excerpts, head transitions and check/review-state transitions, with GitHub links.
+**Load more activity** pages through retained evidence without discarding triage edits;
+failed activity loads can be retried independently.
+
+Completing a review advances the shared checkpoint, so later activity becomes the next
+comparison window. If only a revision-bound decision exists, the view instead says
+**Since your saved decision**. Without either baseline it reports that no comparison
+checkpoint exists. Expired snoozes get a **Snooze ended** reason, including when there
+is no new source activity.
+
+The saved decision is the latest retained local decision, with its original disposition
+and timestamp. A locally done item may therefore show **Done** beside a current **Inbox**
+form value. Decisions edited after the review are explicitly labeled **Latest saved
+decision**; the application does not invent a historical copy of an overwritten note.
+
+Only retained observations after the baseline and through the inspected revision appear.
+The preview includes 20 entries, with separate pagination for older entries. Missing
+source revisions and unavailable retained details are explicit; they are not reported as
+"no changes." Polling can miss activity between syncs, and pruning can remove individual
+events even when every revision has some retained evidence. Check source coverage and
+timestamps alongside this view. Unknown or old-head check signals are never shown as
+new passing/failing evidence.
+
+### Work board
+
+Open **Work board** for Inbox, Planned, Waiting, Snoozed, and Done columns. The board
+includes all GitHub states by default, so closed/merged follow-up is visible. Each column
+shows its matching total and has independent SQL pagination (10 cards per page). Search,
+repository, source-state, attention, category, priority, author, date and triage filters
+apply across columns. The board scrolls horizontally on narrow screens.
+
+Open a card to inspect the same item workspace. Drag it into a column or use its accessible
+disposition selector to save a local move, preserving its note, priority and category.
+Cards show a grip and grab cursor, with a subtle lift on pointer hover. While dragging,
+the source card dims and the destination column highlights with a drop hint; Snoozed
+explains that a date will be requested. Feedback clears on leaving a column, dropping,
+or cancelling the drag. Reduced-motion preferences disable the lift animation.
+Moving to Snoozed opens the item workspace to choose a future deadline. Moves pass the
+displayed source revision and reject stale cards; they do not acknowledge processing or
+change GitHub. Expired snoozes and done items with later activity use the same effective
+inbox rules as CLI queries. Refresh the index view to see newly observed changes.
+
+The dashboard REST contracts include `GET /api/setup` (credential availability and current
+selection), `POST /api/sync` (202 with status), `GET /api/sync` (state, latest message,
+stage count and result), and `POST /api/sync/cancel`. Mutating sync requests require
+`X-Maintainer-Request: 1` and reject cross-site browser requests. Progress counts stages;
+it does not estimate a completion percentage. A partial sync retains its structured errors
+for retry. These routes use the same maintenance sync service as CLI/MCP.
+
 The local triage API is `/api/items/{item_id}/triage` (accepting `PUT` or `POST`), with a JSON body
 containing `disposition`, `note`, optional `priority`, optional `category`, and optional timezone-aware
-`snoozed_until`. It requires the `X-Maintainer-Request: 1` header on PUT and rejects cross-site browser requests.
+`snoozed_until`. Optional `revision` rejects stale writes with HTTP 409. `finish_review: true`
+requires `revision` and atomically saves triage plus processing with `actor` (default
+`dashboard`); incomplete coverage returns 422 without saving either. It requires the
+`X-Maintainer-Request: 1` header on PUT and rejects cross-site browser requests.
 The dashboard still needs the local or authenticated private deployment described below.
 
 ## What the index contains
@@ -290,6 +366,9 @@ docker compose up -d --build
 The dashboard binds to **127.0.0.1:8765** on the host. A separate worker syncs every
 15 minutes and both share a named SQLite volume. Only the worker receives a GitHub
 credential. Use `docker compose logs -f worker` to inspect synchronization.
+The default dashboard container has no credential, so browser-triggered sync is unavailable
+there; CLI/worker polling continues normally. To use browser sync, run the server in an
+environment with GitHub authentication available.
 The dashboard has no user authentication; keep it local or put it behind an authenticated
 private proxy. SQLite files and exports may contain private repository data. Back up using
 SQLite's backup API or stop both processes before copying the volume.

@@ -50,6 +50,10 @@
                     ><span>Triage inbox</span
                     ><span id="inbox-count" class="nav-count"></span>
                 </button>
+                <button data-view="board">
+                    <span class="nav-icon" aria-hidden="true">▥</span
+                    ><span>Work board</span>
+                </button>
                 <div class="nav-divider"></div>
                 <button data-view="repos">
                     <span class="nav-icon" aria-hidden="true">▦</span
@@ -97,6 +101,9 @@
             <header>
                 <span id="owner">Your workspace</span>
                 <div class="header-actions">
+                    <button id="sync-open" class="button primary">
+                        Sync now
+                    </button>
                     <button
                         id="theme-toggle"
                         class="icon-button"
@@ -126,6 +133,18 @@
                 </div>
                 <button id="start-triage" class="button primary">
                     Start triaging <span aria-hidden="true">→</span>
+                </button>
+            </section>
+            <section id="setup-banner" class="setup-banner" hidden>
+                <div>
+                    <h2>Connect your repositories</h2>
+                    <p>
+                        Check authentication, choose what to index, and start
+                        your first sync.
+                    </p>
+                </div>
+                <button id="setup-open" class="button primary">
+                    Set up repositories
                 </button>
             </section>
             <section class="metrics" aria-label="Portfolio summary">
@@ -231,10 +250,14 @@
                     <select id="category" aria-label="Category">
                         <option value="">All categories</option>
                         <option value="feature_request">Feature Request</option>
-                        <option value="feature_contribution">Feature Contribution</option>
+                        <option value="feature_contribution">
+                            Feature Contribution
+                        </option>
                         <option value="bug_report">Bug Report</option>
                         <option value="bug_fix">Bug Fix</option>
-                        <option value="dependency_upgrade">Dependency Upgrade</option>
+                        <option value="dependency_upgrade">
+                            Dependency Upgrade
+                        </option>
                         <option value="documentation">Documentation</option>
                         <option value="maintenance">Maintenance</option>
                         <option value="ci">CI/Automation</option>
@@ -254,9 +277,48 @@
                         <option value="true">Triaged</option>
                         <option value="false">Untriaged</option>
                     </select>
-                    <input id="author" type="text" placeholder="Author..." style="max-width:130px;padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text);font-size:11px;" />
-                    <input id="since" type="date" title="Updated on/after" style="max-width:130px;padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text);font-size:11px;" />
-                    <input id="until" type="date" title="Updated on/before" style="max-width:130px;padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text);font-size:11px;" />
+                    <input
+                        id="author"
+                        type="text"
+                        placeholder="Author..."
+                        style="
+                            max-width: 130px;
+                            padding: 6px;
+                            border: 1px solid var(--line);
+                            border-radius: 6px;
+                            background: var(--panel);
+                            color: var(--text);
+                            font-size: 11px;
+                        "
+                    />
+                    <input
+                        id="since"
+                        type="date"
+                        title="Updated on/after"
+                        style="
+                            max-width: 130px;
+                            padding: 6px;
+                            border: 1px solid var(--line);
+                            border-radius: 6px;
+                            background: var(--panel);
+                            color: var(--text);
+                            font-size: 11px;
+                        "
+                    />
+                    <input
+                        id="until"
+                        type="date"
+                        title="Updated on/before"
+                        style="
+                            max-width: 130px;
+                            padding: 6px;
+                            border: 1px solid var(--line);
+                            border-radius: 6px;
+                            background: var(--panel);
+                            color: var(--text);
+                            font-size: 11px;
+                        "
+                    />
                 </div>
                 <div class="focus-bar" id="focus-bar">
                     <div
@@ -299,6 +361,99 @@
                 ><span id="generated"></span>
             </footer>
         </main>
+        <dialog id="sync-dialog" aria-labelledby="sync-title">
+            <div class="dialog-toolbar">
+                <span>REPOSITORY SETUP</span
+                ><button
+                    id="sync-close"
+                    class="icon-button"
+                    aria-label="Close sync setup"
+                >
+                    ✕
+                </button>
+            </div>
+            <div class="sync-content">
+                <h2 id="sync-title">Setup & sync</h2>
+                <p id="credential-status" role="status">
+                    Checking server authentication…
+                </p>
+                <p class="help-text">
+                    Credentials stay on the server. Authenticate there with
+                    <code>gh auth login</code> or configure
+                    <code>GH_TOKEN</code> / <code>GITHUB_TOKEN</code>.
+                </p>
+                <button id="auth-check" class="button secondary" type="button">
+                    Check authentication again
+                </button>
+                <form id="sync-form">
+                    <label for="sync-selection">Repositories to sync</label>
+                    <select id="sync-selection">
+                        <option value="mine">My repositories</option>
+                        <option value="owner">Owner or organization</option>
+                        <option value="repos">Selected repositories</option>
+                    </select>
+                    <div id="sync-owner-field" hidden>
+                        <label for="sync-owner">Owner or organization</label
+                        ><input
+                            id="sync-owner"
+                            autocomplete="off"
+                            placeholder="your-organization"
+                        />
+                    </div>
+                    <div id="sync-repos-field" hidden>
+                        <label for="sync-repos">Repository names</label
+                        ><textarea
+                            id="sync-repos"
+                            rows="4"
+                            placeholder="owner/project&#10;another/project"
+                        ></textarea>
+                        <p class="help-text">
+                            One owner/repository per line, or separate names
+                            with commas. Private repositories must be accessible
+                            to the server credential.
+                        </p>
+                    </div>
+                    <p class="help-text">
+                        An owner's inventory is limited to credential
+                        visibility; another user's inventory is public-only.
+                        Select accessible private repositories explicitly.
+                    </p>
+                    <label class="checkbox-label"
+                        ><input type="checkbox" id="sync-full" /> Reconcile full
+                        history</label
+                    >
+                    <p class="help-text">
+                        The first sync backfills history. Later syncs are
+                        incremental. Full reconciliation also checks retained
+                        availability.
+                    </p>
+                    <div
+                        id="sync-error"
+                        class="form-error"
+                        role="alert"
+                        hidden
+                    ></div>
+                    <div class="sync-actions">
+                        <button
+                            id="sync-start"
+                            class="button primary"
+                            type="submit"
+                        >
+                            Start sync</button
+                        ><button
+                            id="sync-cancel"
+                            class="button secondary"
+                            type="button"
+                            hidden
+                        >
+                            Cancel sync
+                        </button>
+                    </div>
+                </form>
+                <div id="sync-progress" role="status" aria-live="polite"></div>
+                <ul id="sync-errors"></ul>
+            </div>
+        </dialog>
         <dialog id="detail" aria-labelledby="detail-title">
             <div class="dialog-toolbar">
                 <span>ITEM WORKSPACE</span>

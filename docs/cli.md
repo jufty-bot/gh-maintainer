@@ -101,6 +101,7 @@ gh-maintainer classify OWNER/REPO#42 bug urgent --producer agent/v1 --revision 3
 gh-maintainer summarize OWNER/REPO#42 'Fixes a crash during startup' --revision 3
 gh-maintainer rank OWNER/REPO#42 90 --reason 'Affects new installations' --revision 3
 gh-maintainer triage OWNER/REPO#42 planned --priority high --category bug_report --note 'Reproduce before review' --revision 3
+gh-maintainer triage OWNER/REPO#42 planned --note 'Reviewed; reproduce next' --revision 3 --finish-review --actor maintainer
 gh-maintainer prs --classification bug --sort rank --format json
 ```
 
@@ -126,6 +127,12 @@ revision. `triage` also accepts references and this revision guard; existing dis
 snoozes, and notes keep their meaning. Locally done items return to the inbox on new source
 activity, including comments or pushes that do not advance the parent issue timestamp.
 
+`triage --finish-review --revision N` saves the decision and processing checkpoint in
+one transaction. It requires the revision actually inspected and complete item/comment
+coverage; a rejected or failed write saves neither. `--actor` identifies the reviewer
+(default `manual`). When `--policy` is supplied, both `triage` and `mark-processed`
+permissions are required. Ordinary triage continues to save a decision without processing.
+
 ## Find unprocessed items and new activity
 
 ```bash
@@ -137,9 +144,11 @@ gh-maintainer prs --state all --processing changed
 gh-maintainer changes --format json
 ```
 
-Reading an item, saving analysis, and triaging it do not mark it processed. Use
+Reading an item, saving analysis, and ordinary triage do not mark it processed. Use
 `mark-processed` after inspecting the item and its conversation. It requires successful
 item/comment coverage and saves a shared per-item checkpoint with the actor and time.
+Alternatively, use `triage --finish-review --revision N` to save the decision together
+with that acknowledgement, as the dashboard's **Finish review & next** action does.
 New observed source activity advances the item revision and makes it pending again.
 Embedded account profile changes and PR head/base repository statistics update retained raw
 data without advancing that revision. Content, identities, refs, review states and signals
@@ -161,6 +170,26 @@ between polls cannot be reconstructed. Migrated historical events retain their o
 snapshots and have no assigned revision; they remain available through `--all` / `--since`.
 
 ## Output and pagination
+
+Item JSON includes `saved_decision` (the latest stored disposition/note/timestamp) and
+`follow_up`, an optional summary with `baseline` (`review` or `decision`), `since_revision`,
+`since_at`, normalized activity `kinds`, `history_gap`, and `decision_at_review`.
+Summary kinds include `pushed`, `author_replied`, and `checks_changed`; observation history
+retains its existing source kinds. Lists aggregate these reasons in SQLite without
+fetching conversations or issuing per-item queries.
+
+`show` adds `follow_up_changes`, containing a total and the first 20 described entries
+(`id`, `observed_at`, source `kind`, `label`, bounded plain-text `detail`, and `url`).
+Use `changes ITEM` to paginate raw retained evidence through the existing CLI contract.
+HTTP clients can request `/api/items/ID/follow-up?revision=N&through_revision=M&limit=20&offset=0`
+to keep described pages within the inspected revision. The same `show` fields are
+available through MCP. Text `show` prints the saved decision and activity preview.
+
+`history_gap` means some intervening revisions have no retained observations. Its absence
+does not establish a complete event archive: pruning can remove part of a revision and
+polling cannot reconstruct unseen transitions. A `decision_at_review` value of `false`
+explicitly identifies a latest local decision edited after acknowledgement; no local
+decision-history table or historical note snapshot is implied.
 
 Read and analysis commands support `--format text|json`; text is the default. JSON is a
 single object. Item lists have `total` and `items`, comments have `total`, coverage, and

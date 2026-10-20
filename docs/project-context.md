@@ -26,7 +26,8 @@ of the index. They are useful, but completing agent workflows takes priority ove
 | Ingestion | Open/closed issues, open/closed/merged PRs, comments, inline review comments, review bodies; repository last commit/release/PR/issue snapshots | Activity coverage is independent; polling cannot reconstruct everything between syncs or provide full commit/release history |
 | Queries | Inventory, item details, comments, PR status, activity; SQL filters/pagination and JSON | Technical context is fetched live on demand, separately from indexed conversations |
 | Local analysis | Summaries, classification labels, ranks, and triage notes | Callers supply the content; there is no model invocation or built-in taxonomy |
-| Continuity | Source revisions, stale analysis, processing checkpoints, changes since processing | Acknowledgement is shared per item, not tracked independently per agent |
+| Continuity | Source revisions, stale analysis, processing checkpoints, board change reasons and review-relative evidence beside saved decisions | Acknowledgement is shared per item; decisions retain only their latest value and history reflects retained observations |
+| Dashboard workflow | Guided server credential checks/selection, cancellable sync with progress, five-column Kanban, and atomic finish-review | Local decisions; sync needs server credentials and uses a single HTTP worker |
 | GitHub integration | async HTTPX sync and authenticated `gh api` technical-context reads | The command is `gh-maintainer`, not an installed `gh` extension; no GitHub write commands |
 | Agent skills | Six bundled skills, self-contained references, offline fixtures and recorded evaluations | Detailed evaluated scope and remaining provider/host limits are recorded per release |
 
@@ -51,6 +52,8 @@ the separate identity for code content.
 records the current revision, actor, and time after inspection. New observed activity
 makes that item pending again, including closed/merged items if the query includes them.
 An agent should pass the revision it actually inspected when writing or acknowledging.
+`triage --finish-review --revision N` and the dashboard's **Finish review & next** save
+the decision and acknowledgement together, rejecting incomplete coverage or a source race.
 
 **Stale and incomplete mean different things.** An analysis result is stale if its source
 revision differs or item/conversation coverage is incomplete. Repository activity summaries
