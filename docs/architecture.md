@@ -136,6 +136,8 @@ the roles; it does not replace those definitions.
 | `repo_owners`     | Repository ID → owner ID                              | Current membership for scoped inventory reconciliation                                                             |
 | `repos`           | Stable repository ID                                  | Raw metadata, presence, archive flag, item/comment/signal checkpoints, reconciliation time, and latest error; latest repository activity with independent observation time/error |
 | `items`           | Issue node ID; unique repository ID + number          | Normalized issue/PR identity and state, raw issue/PR payloads, signal snapshot/time, availability, source revision |
+| `pr_code`         | One row per PR item ID                                | Latest unified diff, head/base SHAs and fetch time; replaced without diff history |
+| `pr_commits`      | PR item ID + commit SHA; unique position per PR        | Current ordered commit membership, message, author, date, URL and raw evidence |
 | `comments`        | Comment/review node ID; parent repository ID + number | Conversation/inline/review content, author, timestamps, raw reply/line context, availability                       |
 | `changes`         | Increasing local observation ID; item ID              | Event kind, local revision when known, observation time, before/after source snapshots                             |
 | `triage`          | One row per item                                      | Disposition, note, snooze deadline, decision time, and inspected revision                                          |
@@ -159,6 +161,38 @@ Legacy observations have no inferred revision. Pending review timestamps can be 
 JSON columns store parsed source documents. Normalized dates use `UTCDateTime`, which
 persists canonical UTC text for compatibility with the original SQLite schema and returns
 aware datetimes. Source URLs and display names can change without becoming identities.
+
+### PR code snapshots
+
+Migration `0007` adds `pr_code` and `pr_commits` without changing existing source,
+analysis, processing or observation rows. `PullCodeSnapshot` validates staged evidence;
+the HTTPX adapter fetches paginated commits and the PR's diff representation, verifies
+commit count/uniqueness and rechecks head/base/count afterward. Network work stays outside
+transactions. The repository's fenced commit replaces its affected code and commit lists
+alongside items/comments/checkpoints; failures retain the previous snapshot and checkpoints.
+Diff text is stored only here, never copied into observations or per-commit records.
+
+Open PRs refresh when head/base changes, unknown historical code is backfilled on the next
+sync, and full reconciliation refreshes all available PR code. Unchanged incremental polls
+reuse their snapshots. `files`/`commits` SQL queries supply CLI, HTTP and MCP contracts;
+commit pagination runs in SQLite and excludes diff content. Missing/failed/unavailable
+coverage is explicit, and head/base mismatches suppress the old diff. Code freshness
+does not extend item processing semantics. The dashboard escapes all diff/commit text
+and uses GitHub links for individual commit inspection. Its locally bundled diff2html base
+viewer formats split/unified patches, matches changed lines and synchronizes scrolling;
+DOMPurify sanitizes generated HTML before insertion. Raw patches remain accessible.
+The layout choice lasts until page reload; the CLI/storage contract remains unified diff text.
+Per-file Viewed checks use browser local storage keyed by stable PR item ID, with one latest
+head/base identity and a set of viewed paths. A different successfully observed head or base
+replaces that set, resetting every file even if its patch is unchanged. Failed/stale reads
+do not overwrite saved marks, and stale code disables marking. Independent collapse state
+stays in memory; checked files start collapsed on reload. Blocked storage falls back to
+in-memory checks. These presentation aids neither update SQLite/local triage nor acknowledge
+processing. The underlying diff2html controls are replaced with native, labelled checkbox
+and expand buttons using `aria-expanded` and `aria-controls`.
+See
+[contracts and upstream limits](cli.md#pr-files-and-commits) and
+[D22](decisions.md#d22-one-current-pr-diff-and-ordered-commit-membership).
 
 ### Repository activity snapshots
 

@@ -482,3 +482,44 @@ revisions and unavailable details remain explicit. Check summaries distinguish u
 and mismatched-head signals. No model invocation, new source fetch, migration or historical
 decision snapshot is added. See [follow-up contracts](cli.md#output-and-pagination)
 and [validation](checklist.md#review-follow-up).
+
+## D22. One current PR diff and ordered commit membership
+
+**Decision:** Sync stores one unified diff per PR at a verified head/base pair and the
+ordered commits currently belonging to that PR. A changed head/base or full reconciliation
+replaces this snapshot atomically with the repository source/checkpoints. CLI, HTTP, MCP
+and dashboard code views share the offline query contracts. Individual commit links open
+GitHub; full messages and metadata remain available locally.
+
+**Why:** Reviewing current changes needs a coherent diff and commit membership. Keeping
+every historical diff or building a local Git object store is unnecessary for this workflow.
+Both head and base affect the diff, and force pushes can remove commits from membership.
+
+**Tradeoff:** Opening a view reads the latest successful sync, with its SHA and time;
+it does not guarantee live GitHub freshness. Failed/racing fetches preserve prior records
+and checkpoints, report partial sync and mark code stale. Mismatches hide the old diff.
+Upstream limits, including the 250-commit REST cap and large diff failures, remain explicit
+coverage errors. No per-commit diff history, detached commit archive or new processing
+checkpoint is introduced. Existing live context remains separately available.
+
+The dashboard uses locally vendored diff2html (base UI bundle) for split/unified layouts,
+line matching, word changes, file navigation and synchronized scrolling. DOMPurify sanitizes
+its generated HTML. Reusing this renderer avoids maintaining a custom git-diff parser;
+the base bundle avoids pulling in a syntax-highlighting package. Desktop defaults to split
+and narrow screens to unified, with explicit layout controls and original raw patch access.
+Assets and licenses ship with the Python package; rendering requires no CDN or Node.js.
+
+File Viewed checks are browser-local review aids, stored as one latest head/base and path
+set per stable PR item ID. A new successfully synced head or base clears every mark,
+including files with unchanged patches. This conservative reset prevents old checks from
+implying review of a newer commit. Failed/stale reads preserve saved marks and cannot be
+marked viewed. Checks collapse files, with an independent accessible expand control.
+Browser storage supplies reload continuity without introducing a second item-processing
+contract or schema; blocked storage retains checks only in memory. Checks are not shared
+across browsers and never acknowledge processing, finish review, or change GitHub.
+
+Evidence: `github.py:pull_code`, `CatalogRepository.commit_repo`, migration `0007`,
+`CatalogQueries.files/commits`, `tests/test_pr_code.py` and `tests/frontend/pr-code.spec.cjs`.
+See [architecture](architecture.md#pr-code-snapshots),
+[CLI contracts](cli.md#pr-files-and-commits) and the
+[checklist](checklist.md#pr-files-and-commits).

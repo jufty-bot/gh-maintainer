@@ -34,6 +34,8 @@ from gh_maintainer.schemas import (
     Kind,
     Overview,
     ProcessingView,
+    PullCommitPage,
+    PullFiles,
     repository_name,
 )
 from gh_maintainer.skillpack import install_skills, skill_directory
@@ -123,6 +125,32 @@ def register_commands(server: MCPServer[None], db: Database, config: Config) -> 
         """Read repository inventory, activity snapshots, counts and sync coverage."""
         async with db.sessions() as session:
             return await CatalogQueries(session).overview()
+
+    @tool(annotations=READ_ONLY)
+    async def files(item_id: str) -> PullFiles:
+        """Read Files Changed: the full indexed PR git diff, head/base and freshness.
+
+        Accepts OWNER/REPO#NUMBER or issue node ID. Read diff for the unified patch;
+        diff=null means unavailable. Inspect stale and coverage_error before review.
+        Sync discovers new commits; this read uses the same snapshot as the dashboard.
+        """
+        async with db.sessions() as session:
+            return await CatalogQueries(session).files(item_id)
+
+    @tool(annotations=READ_ONLY)
+    async def commits(
+        item_id: str,
+        limit: Annotated[int, Field(ge=1, le=500)] = 100,
+        offset: Annotated[int, Field(ge=0)] = 0,
+    ) -> PullCommitPage:
+        """Read Commits: the current ordered PR commit list with SQL pagination.
+
+        Accepts OWNER/REPO#NUMBER or issue node ID. Includes full messages, authors,
+        dates and GitHub links. files contains head/base/fetch time and freshness;
+        use the files tool for the PR diff. Sync refreshes this offline snapshot.
+        """
+        async with db.sessions() as session:
+            return await CatalogQueries(session).commits(item_id, limit, offset)
 
     @tool(annotations=READ_ONLY)
     async def comments(

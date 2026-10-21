@@ -213,6 +213,10 @@ class CommentsOptions(PageOptions):
     include_unavailable: bool = False
 
 
+class CommitsOptions(PageOptions):
+    item_id: str | None = None
+
+
 class ChangesOptions(PageOptions):
     item_id: str | None = None
     since: str | None = None
@@ -295,6 +299,8 @@ class Config(Options):
     issues: ListOptions = Field(default_factory=ListOptions)
     status: StatusOptions = Field(default_factory=StatusOptions)
     show: ItemOptions = Field(default_factory=ItemOptions)
+    files: ItemOptions = Field(default_factory=ItemOptions)
+    commits: CommitsOptions = Field(default_factory=CommitsOptions)
     comments: CommentsOptions = Field(default_factory=CommentsOptions)
     changes: ChangesOptions = Field(default_factory=ChangesOptions)
     repos: OutputOptions = Field(default_factory=OutputOptions)

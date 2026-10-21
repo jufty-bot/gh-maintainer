@@ -23,6 +23,8 @@ from gh_maintainer.models import (
     Observation,
     Owner,
     Processing,
+    PullCode,
+    PullCommitRecord,
     Ranking,
     Repository,
     RepositoryOwner,
@@ -42,6 +44,8 @@ from gh_maintainer.schemas import (
     Kind,
     Priority,
     ProcessingView,
+    PullCodeSnapshot,
+    PullPayload,
     RepositoryActivity,
     RepositoryPayload,
     RepositorySnapshot,
@@ -348,7 +352,12 @@ class CatalogRepository:
                     query.where(
                         Item.kind == Kind.PR,
                         Item.available.is_(True),
-                        Item.state == State.OPEN,
+                        or_(
+                            Item.state == State.OPEN,
+                            ~select(PullCode.item_id)
+                            .where(PullCode.item_id == Item.id)
+                            .exists(),
+                        ),
                     )
                 )
             )
@@ -371,6 +380,15 @@ class CatalogRepository:
         async with self.database.sessions() as session:
             records = await self._items(session, repo_id, ids, include_prs)
             return [item_snapshot(record) for record in records.values()]
+
+    async def code_refs(self, repo_id: str) -> dict[str, tuple[str, str]]:
+        async with self.database.sessions() as session:
+            rows = await session.execute(
+                select(PullCode.item_id, PullCode.head_sha, PullCode.base_sha)
+                .join(Item, Item.id == PullCode.item_id)
+                .where(Item.repo_id == repo_id)
+            )
+            return {item_id: (head, base) for item_id, head, base in rows}
 
     @staticmethod
     async def _parents(
@@ -471,6 +489,7 @@ class CatalogRepository:
         comments: list[CommentSnapshot] | None = None,
         comments_full: bool = False,
         review_numbers: set[int] | None = None,
+        code: dict[str, PullCodeSnapshot] | None = None,
     ) -> None:
         async with self.database.sessions.begin() as session:
             if lease:
@@ -525,6 +544,29 @@ class CatalogRepository:
                         )
             # Parent rows must exist before inserting comments with their composite FK.
             await session.flush()
+            for item_id, snapshot_code in (code or {}).items():
+                parent = records.get(item_id)
+                if parent is None or parent.kind != Kind.PR:
+                    raise ValueError("PR code has no matching parent.")
+                pull = PullPayload.model_validate(parent.pr)
+                if (pull.head.sha, pull.base.sha) != (
+                    snapshot_code.head_sha,
+                    snapshot_code.base_sha,
+                ):
+                    raise ValueError("PR code does not match the indexed commits.")
+                values = snapshot_code.model_dump(exclude={"commits"})
+                await session.merge(PullCode(item_id=item_id, **values))
+                await session.execute(
+                    delete(PullCommitRecord).where(PullCommitRecord.item_id == item_id)
+                )
+                session.add_all(
+                    [
+                        PullCommitRecord(
+                            item_id=item_id, position=position, **commit.model_dump()
+                        )
+                        for position, commit in enumerate(snapshot_code.commits)
+                    ]
+                )
             if comments is not None:
                 query = select(Comment).where(Comment.repo_id == repo_id)
                 existing_comments: dict[str, Comment] = {}

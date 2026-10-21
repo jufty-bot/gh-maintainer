@@ -1271,6 +1271,335 @@ function renderFollowUp(item, firstPage) {
     section.append(columns);
     return section;
 }
+let preferredDiffLayout = null;
+const viewedDiffFiles = new Map();
+function diffFileState(item, code) {
+    const key = `maintainer-viewed-files:${item.id}`;
+    const writable = Boolean(code.head_sha && code.base_sha && !code.stale);
+    const matches = (state) =>
+        state?.head === code.head_sha && state?.base === code.base_sha;
+    let state = writable ? viewedDiffFiles.get(key) : null;
+    if (!state || !matches(state)) {
+        let viewed = [];
+        if (writable) {
+            try {
+                const saved = JSON.parse(localStorage.getItem(key));
+                if (matches(saved) && Array.isArray(saved.viewed))
+                    viewed = saved.viewed.filter(
+                        (path) => typeof path === "string",
+                    );
+            } catch {}
+        }
+        state = {
+            head: code.head_sha,
+            base: code.base_sha,
+            viewed: new Set(viewed),
+            collapsed: new Set(viewed),
+        };
+        if (writable) viewedDiffFiles.set(key, state);
+    }
+    function save() {
+        if (!writable) return;
+        try {
+            localStorage.setItem(
+                key,
+                JSON.stringify({
+                    head: state.head,
+                    base: state.base,
+                    viewed: [...state.viewed],
+                }),
+            );
+        } catch {}
+    }
+    // Replace the previous snapshot even if no files have been marked on the new head.
+    save();
+    return { state, save, writable };
+}
+function renderDiff(patch, item, code) {
+    const { state, save, writable } = diffFileState(item, code);
+    const viewer = el("section", undefined, "diff-viewer");
+    viewer.setAttribute("aria-label", "Changed files diff");
+    const toolbar = el("div", undefined, "diff-toolbar");
+    const choices = el("div", undefined, "diff-layout-controls");
+    choices.setAttribute("role", "group");
+    choices.setAttribute("aria-label", "Diff layout");
+    const output = el("div", undefined, "git-diff");
+    const labels = el("div", undefined, "diff-side-labels");
+    labels.append(el("span", "Base · before"), el("span", "Head · after"));
+    const layouts = [
+        ["side-by-side", "Side by side"],
+        ["line-by-line", "Unified"],
+        ["raw", "Raw diff"],
+    ];
+    const buttons = layouts.map(([layout, label]) =>
+        button(label, "", () => {
+            preferredDiffLayout = layout;
+            draw(layout);
+        }),
+    );
+    function raw() {
+        output.replaceChildren(el("pre", patch, "git-diff-raw"));
+    }
+    function draw(layout) {
+        buttons.forEach((control, index) => {
+            const selected = layouts[index][0] === layout;
+            control.classList.toggle("active", selected);
+            control.setAttribute("aria-pressed", String(selected));
+        });
+        labels.hidden = layout !== "side-by-side";
+        if (layout === "raw") {
+            raw();
+            return;
+        }
+        try {
+            const renderer = new Diff2HtmlUI(output, patch, {
+                outputFormat: layout,
+                drawFileList: true,
+                matching: "lines",
+                highlight: false,
+                colorScheme: "light",
+            });
+            output.replaceChildren(
+                DOMPurify.sanitize(renderer.diffHtml, {
+                    USE_PROFILES: { html: true, svg: true },
+                    RETURN_DOM_FRAGMENT: true,
+                }),
+            );
+            // Supply native, accessible controls with snapshot-bound browser persistence.
+            output
+                .querySelectorAll(".d2h-file-switch, .d2h-file-collapse")
+                .forEach((node) => node.remove());
+            if (!output.querySelector(".d2h-file-wrapper")) {
+                labels.hidden = true;
+                raw();
+                return;
+            }
+            renderer.synchronisedScroll();
+            output.querySelectorAll(".d2h-file-wrapper").forEach((file) => {
+                const header = file.querySelector(".d2h-file-header");
+                const content = file.querySelector(
+                    ".d2h-file-diff, .d2h-files-diff",
+                );
+                const path = header.querySelector(".d2h-file-name").textContent;
+                const toggle = button("▾", "diff-file-toggle", () => {
+                    if (state.collapsed.has(path)) state.collapsed.delete(path);
+                    else state.collapsed.add(path);
+                    update();
+                });
+                content.id = `${file.id}-contents`;
+                toggle.setAttribute("aria-controls", content.id);
+                const label = el("label", undefined, "diff-file-viewed");
+                const check = el("input");
+                check.type = "checkbox";
+                check.setAttribute("aria-label", `Viewed: ${path}`);
+                check.disabled = !writable;
+                label.title = writable
+                    ? "Mark this file as viewed for the current PR commits"
+                    : "Sync current PR code before marking files as viewed";
+                label.append(check, el("span", "Viewed"));
+                check.addEventListener("change", () => {
+                    if (check.checked) {
+                        state.viewed.add(path);
+                        state.collapsed.add(path);
+                    } else {
+                        state.viewed.delete(path);
+                        state.collapsed.delete(path);
+                    }
+                    save();
+                    update();
+                });
+                function update() {
+                    const collapsed = state.collapsed.has(path);
+                    check.checked = state.viewed.has(path);
+                    content.hidden = collapsed;
+                    file.classList.toggle("diff-file-is-viewed", check.checked);
+                    toggle.setAttribute("aria-expanded", String(!collapsed));
+                    toggle.setAttribute(
+                        "aria-label",
+                        `${collapsed ? "Expand" : "Collapse"} ${path}`,
+                    );
+                    toggle.title = `${collapsed ? "Expand" : "Collapse"} ${path}`;
+                }
+                header.prepend(toggle);
+                header.append(label);
+                update();
+            });
+            output.querySelectorAll(".d2h-file-name[href]").forEach((link) => {
+                link.addEventListener("click", (event) => {
+                    event.preventDefault();
+                    const target = output.querySelector(
+                        link.getAttribute("href"),
+                    );
+                    target?.scrollIntoView({ block: "nearest" });
+                });
+            });
+        } catch {
+            labels.hidden = true;
+            raw();
+        }
+    }
+    choices.append(...buttons);
+    toolbar.append(el("span", "Diff view", "help-text"), choices);
+    viewer.append(toolbar, labels, output);
+    draw(
+        preferredDiffLayout ||
+            (matchMedia("(max-width: 700px)").matches
+                ? "line-by-line"
+                : "side-by-side"),
+    );
+    return viewer;
+}
+function renderPullCode(item, conversation) {
+    const section = el("section", undefined, "pr-code");
+    const tabs = el("div", undefined, "description-tabs");
+    tabs.setAttribute("aria-label", "Pull request views");
+    const panel = el("div");
+    let generation = 0;
+    const views = ["Conversation", "Files Changed", "Commits"];
+    const controls = views.map((view) => button(view, "", () => show(view)));
+    function freshness(data) {
+        panel.append(
+            el(
+                "p",
+                data.head_sha
+                    ? `Head ${data.head_sha.slice(0, 12)} · Base ${data.base_sha.slice(0, 12)} · Fetched ${formatDate(data.fetched_at)}`
+                    : "PR code has not been synced.",
+                "help-text",
+            ),
+        );
+        if (data.stale)
+            panel.append(
+                el(
+                    "p",
+                    `Stale or incomplete: ${data.coverage_error || "Run sync to refresh."}`,
+                    "error",
+                ),
+            );
+        panel.append(
+            el(
+                "p",
+                "Latest successful sync. Sync again to check for new commits on GitHub.",
+                "help-text",
+            ),
+        );
+    }
+    async function show(view) {
+        const token = ++generation;
+        controls.forEach((control, index) => {
+            control.classList.toggle("active", views[index] === view);
+            control.setAttribute("aria-pressed", String(views[index] === view));
+        });
+        conversation.hidden = view !== "Conversation";
+        panel.hidden = view === "Conversation";
+        panel.replaceChildren();
+        if (view === "Conversation") return;
+        panel.append(el("p", "Loading…", "help-text"));
+        const current = () => token === generation && section.isConnected;
+        const endpoint = `/api/items/${encodeURIComponent(item.id)}`;
+        try {
+            const data = await api(
+                `${endpoint}/${view === "Commits" ? "commits?limit=100" : "files"}`,
+            );
+            if (!current()) return;
+            panel.replaceChildren();
+            freshness(view === "Commits" ? data.files : data);
+            if (view === "Files Changed") {
+                if (data.diff === null)
+                    panel.append(
+                        el(
+                            "p",
+                            "Diff unavailable. Run sync to fetch the latest PR code.",
+                            "help-text",
+                        ),
+                    );
+                else if (!data.diff)
+                    panel.append(
+                        el("p", "No file changes in this PR.", "help-text"),
+                    );
+                else {
+                    panel.append(renderDiff(data.diff, item, data));
+                }
+            } else {
+                const list = el("ol", undefined, "pr-commits");
+                panel.append(list);
+                let offset = 0;
+                function appendPage(page) {
+                    for (const commit of page.commits) {
+                        const entry = el("li");
+                        entry.append(
+                            safeLink(
+                                commit.url,
+                                `${commit.sha.slice(0, 7)} ${commit.message.split("\n")[0]}`,
+                            ),
+                        );
+                        entry.append(
+                            el(
+                                "p",
+                                `${commit.author || "Unknown author"} · ${formatDate(commit.committed_at)}`,
+                                "help-text",
+                            ),
+                        );
+                        if (commit.message.includes("\n")) {
+                            const details = el("details");
+                            details.append(
+                                el("summary", "Commit message"),
+                                el("pre", commit.message, "markdown-source"),
+                            );
+                            entry.append(details);
+                        }
+                        list.append(entry);
+                    }
+                    offset += page.commits.length;
+                    more.hidden = offset >= page.total;
+                }
+                const more = button("Load more commits", "", async () => {
+                    more.disabled = true;
+                    try {
+                        const page = await api(
+                            `${endpoint}/commits?limit=100&offset=${offset}`,
+                        );
+                        if (!current()) return;
+                        if (
+                            page.files.head_sha !== data.files.head_sha ||
+                            page.files.base_sha !== data.files.base_sha
+                        ) {
+                            await show("Commits");
+                            return;
+                        }
+                        appendPage(page);
+                    } catch (error) {
+                        if (current())
+                            panel.append(el("p", error.message, "error"));
+                    } finally {
+                        more.disabled = false;
+                    }
+                });
+                panel.append(more);
+                appendPage(data);
+                if (!data.total)
+                    panel.append(
+                        el(
+                            "p",
+                            data.files.fetched_at
+                                ? "No commits in this PR."
+                                : "Commit list unavailable. Run sync.",
+                            "help-text",
+                        ),
+                    );
+            }
+        } catch (error) {
+            if (!current()) return;
+            panel.replaceChildren(
+                el("p", error.message, "error"),
+                button("Retry", "", () => show(view)),
+            );
+        }
+    }
+    tabs.append(...controls);
+    section.append(tabs, conversation, panel);
+    show("Conversation");
+    return section;
+}
 function renderDetail({ item, changes, follow_up_changes }) {
     const content = $("#detail-content");
     dirty = false;
@@ -1460,12 +1789,16 @@ function renderDetail({ item, changes, follow_up_changes }) {
     body.append(markdown(item.raw.body, item.url));
     description.append(tabs, body);
     let conversationReady = false;
-    main.append(
+    const conversation = el("div");
+    conversation.append(
         description,
         renderDiscussion(item, (ready) => {
             conversationReady = ready;
             updateFinish();
         }),
+    );
+    main.append(
+        item.kind === "pr" ? renderPullCode(item, conversation) : conversation,
     );
     const observations = el("details", undefined, "observations");
     observations.append(

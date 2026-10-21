@@ -194,6 +194,47 @@
       "title": "CommentsOptions",
       "type": "object"
     },
+    "CommitsOptions": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "default": "text",
+          "enum": [
+            "text",
+            "json"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "limit": {
+          "default": 100,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Offset",
+          "type": "integer"
+        },
+        "item_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Item Id"
+        }
+      },
+      "title": "CommitsOptions",
+      "type": "object"
+    },
     "ContextOptions": {
       "additionalProperties": false,
       "properties": {
@@ -1439,6 +1480,12 @@
     },
     "show": {
       "$ref": "#/$defs/ItemOptions"
+    },
+    "files": {
+      "$ref": "#/$defs/ItemOptions"
+    },
+    "commits": {
+      "$ref": "#/$defs/CommitsOptions"
     },
     "comments": {
       "$ref": "#/$defs/CommentsOptions"

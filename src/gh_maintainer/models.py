@@ -105,6 +105,28 @@ class Item(Base):
     revision: Mapped[int] = mapped_column(default=1, server_default="1")
 
 
+class PullCode(Base):
+    __tablename__ = "pr_code"
+    item_id: Mapped[str] = mapped_column(ForeignKey("items.id"), primary_key=True)
+    head_sha: Mapped[str]
+    base_sha: Mapped[str]
+    diff: Mapped[str]
+    fetched_at: Mapped[datetime] = mapped_column(UTCDateTime)
+
+
+class PullCommitRecord(Base):
+    __tablename__ = "pr_commits"
+    __table_args__ = (UniqueConstraint("item_id", "position"),)
+    item_id: Mapped[str] = mapped_column(ForeignKey("items.id"), primary_key=True)
+    sha: Mapped[str] = mapped_column(primary_key=True)
+    position: Mapped[int]
+    message: Mapped[str]
+    author: Mapped[str | None]
+    committed_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    url: Mapped[str]
+    raw: Mapped[JsonObject] = mapped_column(JSON)
+
+
 class Comment(Base):
     __tablename__ = "comments"
     __table_args__ = (

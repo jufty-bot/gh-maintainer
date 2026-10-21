@@ -18,12 +18,15 @@ import httpx
 from aiolimiter import AsyncLimiter
 from pydantic import TypeAdapter
 
+from gh_maintainer.clock import now
 from gh_maintainer.schemas import (
     AccountSnapshot,
     CommentSnapshot,
     Commit,
     ItemSnapshot,
     JsonObject,
+    PullCodeSnapshot,
+    PullCommit,
     PullPayload,
     RepositoryActivity,
     RepositorySnapshot,
@@ -100,6 +103,9 @@ class GitHubSource(Protocol):
         self, repo: RepositorySnapshot, since: datetime | None
     ) -> AsyncIterator[list[ItemSnapshot]]: ...
     async def pull(self, repo: RepositorySnapshot, number: int) -> JsonObject: ...
+    async def pull_code(
+        self, repo: RepositorySnapshot, number: int, raw: JsonObject
+    ) -> PullCodeSnapshot: ...
     async def signals(self, ids: list[str]) -> dict[str, JsonObject]: ...
     async def repository_activity(
         self, repos: list[RepositorySnapshot]
@@ -297,6 +303,7 @@ class AsyncGitHubSource:
         *,
         params: dict[str, str | int] | None = None,
         body: JsonObject | None = None,
+        accept: str | None = None,
     ) -> httpx.Response:
         url = self._safe_url(API_URL.join(path))
         resource = "graphql" if url.path == "/graphql" else "core"
@@ -308,7 +315,11 @@ class AsyncGitHubSource:
                 self.calls += 1
                 try:
                     response = await self.client.request(
-                        method, url, params=params, json=body
+                        method,
+                        url,
+                        params=params,
+                        json=body,
+                        headers={"Accept": accept} if accept else None,
                     )
                 except (httpx.HTTPError, OSError):
                     if attempt >= MAX_RETRIES:
@@ -441,6 +452,42 @@ class AsyncGitHubSource:
         raw = JSON_OBJECT.validate_python(self._json(response))
         PullPayload.model_validate(raw)
         return raw
+
+    async def pull_code(
+        self, repo: RepositorySnapshot, number: int, raw: JsonObject
+    ) -> PullCodeSnapshot:
+        pull = PullPayload.model_validate(raw)
+        if not pull.head.sha or not pull.base.sha or pull.commits is None:
+            raise GitHubError("PR code identity or commit count is missing.")
+        path = f"/repos/{quote(repo.name, safe='/')}/pulls/{number}"
+        commits: list[PullCommit] = []
+        async for page in self._pages(f"{path}/commits", {"per_page": 100}):
+            commits.extend(PullCommit.from_github(entry) for entry in page)
+        # GitHub caps this endpoint at 250 commits; never accept a truncated list.
+        if len(commits) != pull.commits or len({c.sha for c in commits}) != len(
+            commits
+        ):
+            raise GitHubError("PR commit listing is incomplete.")
+        response = await self._request(
+            "GET", path, accept="application/vnd.github.diff"
+        )
+        diff = response.text
+        if diff and not diff.startswith("diff --git "):
+            raise GitHubError("GitHub returned an invalid PR diff.")
+        after = PullPayload.model_validate(await self.pull(repo, number))
+        if (after.head.sha, after.base.sha, after.commits) != (
+            pull.head.sha,
+            pull.base.sha,
+            pull.commits,
+        ):
+            raise GitHubError("PR changed while fetching code; sync again.")
+        return PullCodeSnapshot(
+            head_sha=pull.head.sha,
+            base_sha=pull.base.sha,
+            diff=diff,
+            commits=commits,
+            fetched_at=now(),
+        )
 
     async def issue(self, repo: RepositorySnapshot, number: int) -> ItemSnapshot:
         response = await self._request(

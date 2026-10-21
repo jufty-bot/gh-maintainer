@@ -46,7 +46,7 @@ async def test_sync_logs_modes_counts_and_run_context(database: Database) -> Non
     assert len(completed) == 2
     assert completed[0]["run_id"] != completed[1]["run_id"]
     assert completed[0]["synced"] == 1
-    assert completed[0]["source_calls"] == 10
+    assert completed[0]["source_calls"] == 12
     assert completed[0]["status"] == "complete"
     assert completed[0]["duration_seconds"] >= 0
 

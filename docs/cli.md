@@ -60,6 +60,52 @@ It reports when comments were last synced and any repository coverage error. Rec
 longer visible after reconciliation are retained; use `--include-unavailable` to see them.
 GraphQL review-thread resolution state is not currently indexed.
 
+### PR files and commits
+
+```bash
+gh-maintainer files OWNER/REPO#42
+gh-maintainer files OWNER/REPO#42 --format json
+gh-maintainer commits OWNER/REPO#42
+gh-maintainer commits OWNER/REPO#42 --limit 100 --offset 0 --format json
+```
+
+These are offline index queries; `context --section files` remains a separate live read.
+`files` returns the latest synced unified git diff for the entire PR. Only one diff is
+stored per PR, replaced when its head or base SHA changes; there is no per-commit diff archive.
+JSON includes `head_sha`, `base_sha`, `fetched_at`, `stale`, `coverage_error`, and `diff`.
+`diff: null` means unavailable or mismatched with the indexed head/base; an empty string
+means a successfully fetched empty diff. Binary changes retain GitHub's binary diff notices.
+
+`commits` returns `total`, `files` (the same freshness fields without diff content), and
+`commits` in GitHub's source order. Each commit includes SHA, full message, author name,
+committer timestamp (`committed_at`), GitHub URL, and raw payload. SQLite applies
+`--limit` (1–500, default 100) and `--offset`. Force pushes replace current membership;
+removed commits and historical diff versions are not separately archived.
+Both commands' text output includes head/base identity, fetch time and freshness, with
+the patch or full commit messages and links. JSON results match the dashboard's REST
+responses and the `files`/`commits` MCP tools over HTTP and stdio; see
+[MCP calls](mcp.md#read-pr-diffs-and-commits) for concrete arguments. Browser-local Viewed
+checkboxes are presentation state; reading through any interface does not acknowledge work.
+
+Both commands reject issues and unknown references. Missing coverage returns a structured
+result with `stale: true`; reads still exit 0, so callers must inspect freshness.
+Sync refreshes open PR metadata on every run, fetches code for new/changed head/base pairs,
+backfills missing historical PR code after upgrade, and refreshes all PR code on full
+reconciliation. Code is checked against head/base and commit count again after fetching.
+A failed page, incomplete commit list, invalid diff, or concurrent source change retains
+the previous repository snapshot/checkpoints and reports a partial sync. Previous code
+remains explicitly stale. An indexed head mismatch hides the old diff.
+
+Freshness describes the latest observed sync, with no automatic age expiry. Run `sync`
+to discover later commits; opening a code tab does not fetch GitHub. The current
+[GitHub commits endpoint](https://docs.github.com/en/rest/pulls/pulls#list-commits-on-a-pull-request)
+caps listings at 250 commits. Count mismatches, including larger PRs, report incomplete
+coverage instead of storing a truncated list. GitHub may also refuse very large diffs.
+Reading code never acknowledges processing or authorizes executing source content.
+
+REST exposes the same contracts at `GET /api/items/{item_id}/files` and
+`GET /api/items/{item_id}/commits?limit=100&offset=0`; MCP exposes `files` and `commits`.
+
 ### Repository activity
 
 `gh-maintainer repos --format json` includes `activity` for each repository:

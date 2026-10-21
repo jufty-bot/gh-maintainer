@@ -17,6 +17,8 @@ from gh_maintainer.schemas import (
     ItemSnapshot,
     JsonObject,
     Kind,
+    PullCodeSnapshot,
+    PullCommit,
     RepositoryActivity,
     RepositoryCommit,
     RepositoryItem,
@@ -199,7 +201,15 @@ async def seed_demo(database: Database) -> None:
                             comment_kind,
                         )
                     )
-                pr = {"node_id": f"PR_{repo_id}_{number}", "draft": False}
+                pr = {
+                    "node_id": f"PR_{repo_id}_{number}",
+                    "draft": False,
+                    "state": "closed" if number == MERGED_PR else "open",
+                    "updated_at": updated,
+                    "head": {"sha": f"demo-head-{repo_id}-{number}"},
+                    "base": {"sha": f"demo-base-{repo_id}"},
+                    "commits": 1,
+                }
                 signals = {
                     "id": f"PR_{repo_id}_{number}",
                     "reviewDecision": review,
@@ -215,7 +225,36 @@ async def seed_demo(database: Database) -> None:
                     row = row.model_copy(update={"state": State.MERGED})
             rows.append(row)
         await catalog.commit_repo(
-            str(repo["id"]), rows, at, True, None, comments=comments
+            str(repo["id"]),
+            rows,
+            at,
+            True,
+            None,
+            comments=comments,
+            code={
+                row.id: PullCodeSnapshot(
+                    head_sha=f"demo-head-{repo['id']}-{row.number}",
+                    base_sha=f"demo-base-{repo['id']}",
+                    fetched_at=at,
+                    diff=(
+                        "diff --git a/src/client.py b/src/client.py\n"
+                        "--- a/src/client.py\n+++ b/src/client.py\n"
+                        "@@ -1 +1 @@\n-timeout = 10\n+timeout = 30\n"
+                    ),
+                    commits=[
+                        PullCommit(
+                            sha=f"demo-head-{repo['id']}-{row.number}",
+                            message=f"{row.title}\n\nSynthetic demo commit.",
+                            author="contributor",
+                            committed_at=row.updated_at,
+                            url=f"{repo['html_url']}/commit/demo-head-{repo['id']}-{row.number}",
+                            raw={"synthetic": True},
+                        )
+                    ],
+                )
+                for row in rows
+                if row.kind == Kind.PR
+            },
         )
         latest_items = {}
         for kind in (Kind.PR, Kind.ISSUE):

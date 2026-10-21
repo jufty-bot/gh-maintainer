@@ -6,6 +6,9 @@ MCP HTTP endpoint together.
 Both transports register identical tools and share database initialization, migrations,
 watcher cleanup, revision guards, policy validation, and sync leases.
 
+The read-only `files` and `commits` tools expose [indexed PR code](cli.md#pr-files-and-commits),
+including head/base identity, fetch time and explicit freshness. They share the CLI contracts.
+
 ## Start and connect
 
 ```bash
@@ -77,6 +80,8 @@ Live context uses the existing authenticated `gh` integration.
 | `triage` | `triage` | `item_id`, `disposition="planned"`, `note`, optional `until`, `revision`, `priority`, `category`, `policy`. `finish_review=false`; when true, requires `revision` and atomically acknowledges it with `actor="manual"`. Snoozes require a future ISO timestamp including timezone. |
 | `prs`, `issues`, `status` | Same names | Optional `options` object with the CLI's filters and pagination. PRs/issues default to open; status includes all PR states. |
 | `show`, `repos`, `comments`, `changes` | Same names | Structured query results. Comments and changes accept `limit`/`offset`. Changes default to activity since processing; `all` and `since` are mutually exclusive. |
+| `files ITEM` | `files` | `item_id`; returns the complete latest indexed PR git diff in `diff`, with `head_sha`, `base_sha`, `fetched_at`, `stale` and `coverage_error`. This is the dashboard's Files Changed data. |
+| `commits ITEM` | `commits` | `item_id`, `limit=100`, `offset=0`; returns `total`, ordered `commits` with full messages/authors/dates/GitHub URLs, and `files` freshness metadata. This is the dashboard's Commits data. |
 | `classify`, `summarize`, `rank` | Same names | Save supplied `labels`, `text`, or finite `score`, with `producer`, `reason`, optional `revision` and `policy`. Summary text is literal; supply multiline text directly instead of the CLI's stdin `-` convention. |
 | `mark-processed` | `mark_processed` | `item_id`, optional `revision`, `actor`, `policy`. Requires complete item/comment coverage. |
 | `policy` | `policy` | `repo`, `file`, `initialize=false`. Initialization creates a starter file and refuses overwrite. |
@@ -92,6 +97,33 @@ Item references accept issue node IDs or `OWNER/REPO#NUMBER`, including PRs.
 `queue`, `limit`, `offset`). Use `prs`/`issues`/`status` with an `options` object for the
 CLI's full filtering contract, including author/date/priority/category/processing.
 Lists paginate in SQL, with `limit` 1–500 and nonnegative `offset`.
+
+### Read PR diffs and commits
+
+Call these read-only tools with the same PR reference accepted by the CLI:
+
+```json
+{"name": "files", "arguments": {"item_id": "OWNER/REPO#42"}}
+```
+
+```json
+{"name": "commits", "arguments": {"item_id": "OWNER/REPO#42", "limit": 100, "offset": 0}}
+```
+
+Both stdio and HTTP return the same structured data as
+`gh-maintainer files ITEM --format json` and `gh-maintainer commits ITEM --format json`.
+`files.diff` contains
+the full unified git diff, ready to inspect; commit results contain the same links and
+full messages available in the dashboard. Advance `offset` until `total` commits have
+been read. Commit results omit diff content; call `files` to read the patch.
+
+These queries read SQLite offline and never acknowledge processing. Run `sync` to discover
+new commits. Missing/stale snapshots return structured results with `stale=true` and a
+`coverage_error`, so inspect freshness even when `isError=false`. `diff=null` means missing
+or mismatched code; an empty string is a successfully fetched empty diff. Issues and unknown
+references return tool errors. See [PR code contracts and limits](cli.md#pr-files-and-commits).
+
+### Shared query and write behavior
 
 Structured JSON replaces CLI `--format text|json` for query and analysis tools;
 `report` retains its Markdown/JSON choice. Reading, analysis, and triage do not mark an

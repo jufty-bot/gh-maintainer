@@ -9,6 +9,9 @@ from gh_maintainer.schemas import (
     CommentSnapshot,
     ItemSnapshot,
     JsonObject,
+    PullCodeSnapshot,
+    PullCommit,
+    PullPayload,
     RepositoryActivity,
     RepositorySnapshot,
 )
@@ -151,8 +154,34 @@ class FakeSource:
             "updated_at": AT,
             "merged_at": AT if number == 3 else None,
             "head": {"sha": self.head_sha},
+            "base": {"sha": "base"},
+            "commits": 1,
             "draft": False,
         }
+
+    async def pull_code(
+        self, _repo: RepositorySnapshot, _number: int, raw: JsonObject
+    ) -> PullCodeSnapshot:
+        self.calls += 1
+        return PullCodeSnapshot(
+            head_sha=self.head_sha,
+            base_sha=PullPayload.model_validate(raw).base.sha,
+            fetched_at=AT,
+            diff=(
+                "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n"
+                "@@ -1 +1 @@\n-old\n+new\n"
+            ),
+            commits=[
+                PullCommit(
+                    sha=self.head_sha,
+                    message="Update app",
+                    author="Author",
+                    committed_at=AT,
+                    url=f"https://github.com/owner/project/commit/{self.head_sha}",
+                    raw={},
+                )
+            ],
+        )
 
     async def signals(self, ids: list[str]) -> dict[str, JsonObject]:
         self.calls += 1

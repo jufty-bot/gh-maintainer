@@ -1870,3 +1870,181 @@ dialog h2 {
 .github-user-mention:hover {
     text-decoration: underline;
 }
+
+.pr-code .description-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+/* Inherit the dashboard palette so manual theme changes apply to existing diffs. */
+.git-diff .d2h-wrapper,
+.git-diff .d2h-file-list-wrapper {
+    --d2h-bg-color: var(--panel);
+    --d2h-border-color: var(--line);
+    --d2h-dim-color: var(--muted);
+    --d2h-line-border-color: var(--line);
+    --d2h-file-header-bg-color: var(--surface);
+    --d2h-file-header-border-color: var(--line);
+    --d2h-empty-placeholder-bg-color: var(--bg);
+    --d2h-empty-placeholder-border-color: var(--line);
+    --d2h-ins-bg-color: light-dark(#e6f2e5, #233a29);
+    --d2h-ins-border-color: light-dark(#b8d8b5, #426345);
+    --d2h-ins-highlight-bg-color: light-dark(#bddfb7, #3a5a38);
+    --d2h-ins-label-color: light-dark(#31632b, #a5cf9c);
+    --d2h-del-bg-color: light-dark(#f9e9e5, #432b29);
+    --d2h-del-border-color: light-dark(#e9beb3, #75473d);
+    --d2h-del-highlight-bg-color: light-dark(#f0c7bc, #734235);
+    --d2h-del-label-color: light-dark(#9b3d25, #f2b5a1);
+    --d2h-info-bg-color: var(--bg);
+    --d2h-info-border-color: var(--line);
+    --d2h-change-del-color: var(--d2h-del-bg-color);
+    --d2h-change-ins-color: var(--d2h-ins-bg-color);
+    color: var(--text);
+}
+.diff-toolbar,
+.diff-layout-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.diff-toolbar {
+    justify-content: space-between;
+    margin: 18px 0 12px;
+}
+.diff-toolbar .help-text {
+    margin: 0;
+}
+.diff-layout-controls {
+    padding: 3px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+}
+.diff-layout-controls button {
+    padding: 5px 10px;
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid transparent;
+    border-radius: 5px;
+    font-size: 12px;
+}
+.diff-layout-controls button.active {
+    background: var(--panel);
+    color: var(--text);
+    border-color: var(--line);
+}
+.diff-side-labels {
+    display: flex;
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 8px;
+}
+.diff-side-labels span {
+    width: 50%;
+    padding-left: 10px;
+}
+.git-diff {
+    min-width: 0;
+    max-width: 100%;
+    tab-size: 4;
+}
+.git-diff .d2h-file-header {
+    height: auto;
+    min-height: 40px;
+    border-radius: 7px 7px 0 0;
+    align-items: center;
+    gap: 8px;
+}
+.git-diff .d2h-file-header .d2h-file-name-wrapper {
+    flex: 1;
+    min-width: 0;
+}
+.diff-file-toggle {
+    flex: 0 0 auto;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    border-radius: 4px;
+    padding: 3px 5px;
+    font-size: 16px;
+    line-height: 1;
+}
+.diff-file-toggle[aria-expanded="false"] {
+    transform: rotate(-90deg);
+}
+.diff-file-toggle:hover {
+    background: var(--hover);
+    color: var(--text);
+}
+.diff-file-viewed {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--muted);
+    cursor: pointer;
+}
+.diff-file-viewed input {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    accent-color: var(--accent);
+}
+.diff-file-is-viewed .diff-file-viewed {
+    color: var(--positive);
+}
+.git-diff .d2h-file-wrapper {
+    border-radius: 8px;
+    scroll-margin: 12px;
+}
+.git-diff .d2h-file-name-wrapper,
+.git-diff .d2h-file-list-title {
+    font-size: 12px;
+}
+.git-diff .d2h-file-name {
+    color: var(--text);
+}
+.git-diff a.d2h-file-name {
+    color: var(--accent);
+}
+.git-diff .d2h-diff-table {
+    font:
+        11px/1.8 ui-monospace,
+        SFMono-Regular,
+        Consolas,
+        monospace;
+}
+.git-diff .d2h-code-side-linenumber {
+    width: 3em;
+}
+.git-diff .d2h-code-side-line {
+    padding: 0 1em 0 3.5em;
+    width: calc(100% - 4.5em);
+}
+.git-diff .d2h-file-side-diff {
+    min-width: 0;
+}
+.git-diff .d2h-info {
+    color: var(--muted);
+}
+.git-diff-raw {
+    overflow: auto;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font:
+        11px/1.8 ui-monospace,
+        SFMono-Regular,
+        Consolas,
+        monospace;
+}
+.pr-commits {
+    padding-left: 1.5rem;
+}
+.pr-commits li {
+    padding: 0.8rem 0;
+    border-bottom: 1px solid var(--line);
+    overflow-wrap: anywhere;
+}
