@@ -21,14 +21,20 @@ from mcp import Client as MCPClient
 from mcp import StdioServerParameters
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import CallToolResult, TextContent
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from gh_maintainer.cli import main, run
 from gh_maintainer.clock import now
 from gh_maintainer.config import load_config
 from gh_maintainer.context import ContextPacket
 from gh_maintainer.database import Database
-from gh_maintainer.models import Observation
+from gh_maintainer.models import (
+    Item,
+    Observation,
+    PullCode,
+    PullCommitRecord,
+    Repository,
+)
 from gh_maintainer.queries import CatalogQueries
 from gh_maintainer.repositories import SyncLease
 from gh_maintainer.schemas import ItemFilters, Kind, State
@@ -205,6 +211,98 @@ async def test_pr_files_and_commits_share_indexed_contracts(client: MCPClient) -
     assert commits.structured_content["files"]["diff"] is None
     assert commits.structured_content["commits"][0]["sha"] == "demo-head-1-42"
     assert (await client.call_tool("files", {"item_id": "example/orbit#39"})).is_error
+
+
+@pytest.mark.parametrize("coverage", ["fresh", "stale", "mismatch", "missing"])
+async def test_pr_code_cli_mcp_and_dashboard_parity(
+    client: MCPClient, database: Database, coverage: str
+) -> None:
+    await client.call_tool("demo")
+    item_id = "DEMO_1_42"
+    reference = "example/orbit#42"
+    async with database.sessions.begin() as session:
+        latest = await session.get(PullCommitRecord, (item_id, "demo-head-1-42"))
+        latest.position = 2
+        await session.flush()
+        for position in range(2):
+            sha = f"older-{position}"
+            session.add(
+                PullCommitRecord(
+                    item_id=item_id,
+                    sha=sha,
+                    position=position,
+                    message=f"Commit {position}\n\nFull message",
+                    author="contributor",
+                    committed_at=latest.committed_at,
+                    url=f"https://github.com/example/orbit/commit/{sha}",
+                    raw={"sha": sha},
+                )
+            )
+        item = await session.get(Item, item_id)
+        item.pr = {**item.pr, "commits": 3}
+        if coverage == "stale":
+            (await session.get(Repository, "1")).error = "Source fetch failed"
+        elif coverage == "mismatch":
+            item.pr = {**item.pr, "head": {"sha": "new-head"}}
+        elif coverage == "missing":
+            await session.execute(
+                delete(PullCommitRecord).where(PullCommitRecord.item_id == item_id)
+            )
+            await session.execute(delete(PullCode).where(PullCode.item_id == item_id))
+
+    app = create_app("unused", database=database)
+    runner = CliRunner()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app), base_url="http://test"
+    ) as http:
+        for command, options in [
+            ("files", {}),
+            ("commits", {}),
+            ("commits", {"limit": 1, "offset": 1}),
+            ("commits", {"limit": 1, "offset": 3}),
+        ]:
+            cli_args = ["--db", str(database.engine.url.database), command, reference]
+            for key, value in options.items():
+                cli_args += [f"--{key}", str(value)]
+            cli = await asyncio.to_thread(
+                runner.invoke, main, [*cli_args, "--format", "json"]
+            )
+            assert cli.exit_code == 0, cli.output
+            mcp = await client.call_tool(command, {"item_id": reference, **options})
+            dashboard = await http.get(
+                f"/api/items/{item_id}/{command}", params=options
+            )
+            assert not mcp.is_error
+            assert dashboard.status_code == 200
+            data = json.loads(cli.stdout)
+            assert data == mcp.structured_content == dashboard.json()
+            freshness = data if command == "files" else data["files"]
+            assert freshness["stale"] == (coverage != "fresh")
+            if command == "files":
+                assert bool(data["diff"]) == (coverage in {"fresh", "stale"})
+            else:
+                assert data["total"] == (0 if coverage == "missing" else 3)
+                assert data["files"]["diff"] is None
+                expected = (
+                    []
+                    if coverage == "missing"
+                    else ["older-0", "older-1", "demo-head-1-42"]
+                )
+                offset = options.get("offset", 0)
+                assert [row["sha"] for row in data["commits"]] == expected[
+                    offset : offset + options.get("limit", 100)
+                ]
+            rendered = await asyncio.to_thread(runner.invoke, main, cli_args)
+            assert rendered.exit_code == 0, rendered.output
+            if coverage == "missing":
+                assert "unknown" in rendered.stdout and "never" in rendered.stdout
+            else:
+                assert f"Head: {freshness['head_sha']}" in rendered.stdout
+                assert f"base: {freshness['base_sha']}" in rendered.stdout
+                assert "fetched:" in rendered.stdout
+        assert (await http.get(f"/api/items/{item_id}")).json()["item"][
+            "processing_state"
+        ] == "unprocessed"
 
 
 async def test_reports_and_local_decisions_match_cli(
@@ -517,6 +615,15 @@ async def test_stdio_process_has_http_tool_parity_and_shared_index(
             assert detail.structured_content["item"]["note"] == "stdio"
             report = await stdio.call_tool("report", {"format": "json"})
             assert json.loads(text(report))["counts"]["repositories"] == 3
+            for command, options in (
+                ("files", {}),
+                ("commits", {"limit": 1, "offset": 0}),
+            ):
+                arguments = {"item_id": "example/orbit#42", **options}
+                indexed = await stdio.call_tool(command, arguments)
+                http_result = await client.call_tool(command, arguments)
+                assert not indexed.is_error and not http_result.is_error
+                assert indexed.structured_content == http_result.structured_content
             invalid = await stdio.call_tool("list_items", {"limit": 0})
             assert invalid.is_error
             assert not (await stdio.call_tool("overview")).is_error

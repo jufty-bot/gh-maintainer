@@ -17,6 +17,9 @@ Split partial work into separate tasks instead of marking an entire milestone co
 - [x] Retain prior source/code/checkpoints on failure; expose missing, stale and mismatched
   code with SHA/time provenance, hiding a diff that differs from the indexed head/base.
 - [x] Expose offline `files` and paginated `commits` contracts through CLI, HTTP and MCP.
+- [x] Verify CLI JSON, MCP and dashboard payload parity for full diffs, ordered commit
+  pages, missing/stale/mismatched data, both MCP transports and configured defaults;
+  document tool calls and include head/base/fetch provenance in CLI text output.
 - [x] Add PR Conversation / Files Changed / Commits views with escaped additions/removals,
   full commit messages, GitHub commit links, pagination and retry states; seed demo code.
 - [x] Render split/unified diffs with a locally bundled diff2html base viewer: aligned
@@ -25,6 +28,13 @@ Split partial work into separate tasks instead of marking an entire milestone co
 - [x] Add independent file collapse controls and browser-local Viewed checks, persisted
   for one current PR head/base and cleared on new commits/base changes. Marking collapses
   a file; unmarking reopens it; stale code cannot be marked and failed refreshes retain checks.
+
+CLI/MCP parity evidence: `tests/test_mcp.py` compares full JSON payloads across the real
+CLI, MCP and dashboard for fresh/stale/mismatched/missing snapshots, three ordered commits,
+nonzero and exhausted pages, text provenance and read-only processing state. Its stdio
+case compares `files`/`commits` with HTTP; `tests/test_mcp_contracts.py` covers command
+results and configured defaults. All 189 CLI/config/MCP/PR-code tests passed on Python 3.14;
+Ruff lint/format, mypy, strict MkDocs, package builds and `git diff --check` passed.
 
 Viewed-control evidence: `tests/frontend/pr-code.spec.cjs` covers independent files,
 expand/collapse and check toggles, layout changes, reload continuity, head/base invalidation

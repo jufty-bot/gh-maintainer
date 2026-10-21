@@ -65,6 +65,7 @@ GraphQL review-thread resolution state is not currently indexed.
 ```bash
 gh-maintainer files OWNER/REPO#42
 gh-maintainer files OWNER/REPO#42 --format json
+gh-maintainer commits OWNER/REPO#42
 gh-maintainer commits OWNER/REPO#42 --limit 100 --offset 0 --format json
 ```
 
@@ -80,6 +81,11 @@ means a successfully fetched empty diff. Binary changes retain GitHub's binary d
 committer timestamp (`committed_at`), GitHub URL, and raw payload. SQLite applies
 `--limit` (1–500, default 100) and `--offset`. Force pushes replace current membership;
 removed commits and historical diff versions are not separately archived.
+Both commands' text output includes head/base identity, fetch time and freshness, with
+the patch or full commit messages and links. JSON results match the dashboard's REST
+responses and the `files`/`commits` MCP tools over HTTP and stdio; see
+[MCP calls](mcp.md#read-pr-diffs-and-commits) for concrete arguments. Browser-local Viewed
+checkboxes are presentation state; reading through any interface does not acknowledge work.
 
 Both commands reject issues and unknown references. Missing coverage returns a structured
 result with `stale: true`; reads still exit 0, so callers must inspect freshness.

@@ -782,6 +782,8 @@ async def read_command(database: Database, args: SimpleNamespace) -> None:
             commits = await query.commits(args.item_id, args.limit, args.offset)
             lines = [
                 f"Head: {commits.files.head_sha or 'unknown'}; "
+                f"base: {commits.files.base_sha or 'unknown'}; "
+                f"fetched: {commits.files.fetched_at or 'never'}; "
                 f"stale: {commits.files.stale}; "
                 f"coverage error: {commits.files.coverage_error or 'none'}"
             ]

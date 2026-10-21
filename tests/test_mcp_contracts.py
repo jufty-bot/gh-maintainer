@@ -141,6 +141,8 @@ def settings(tmp_path: Path) -> dict[str, Any]:
         "issues": {"limit": 1, "search": "HTTP"},
         "status": {"state": "closed", "sort": "updated"},
         "show": item,
+        "files": {"item_id": "example/orbit#42"},
+        "commits": {"item_id": "example/orbit#42", "limit": 1, "offset": 1},
         "comments": {**item, "limit": 1, "offset": 1, "include_unavailable": True},
         "changes": {**item, "all": True, "limit": 1},
         "classify": {
@@ -201,6 +203,13 @@ async def test_configured_defaults_match_click_and_mcp_discovery(
         ),
         ("status", ["--state", "closed"], {"options": {"state": "closed"}}),
         ("show", ["example/orbit#39"], {"item_id": "example/orbit#39"}),
+        ("files", ["example/orbit#42"], {"item_id": "example/orbit#42"}),
+        ("commits", ["example/orbit#42"], {"item_id": "example/orbit#42"}),
+        (
+            "commits",
+            ["example/orbit#42", "--limit", "1", "--offset", "1"],
+            {"item_id": "example/orbit#42", "limit": 1, "offset": 1},
+        ),
         ("repos", [], {}),
         (
             "comments",
