@@ -182,6 +182,14 @@ and uses GitHub links for individual commit inspection. Its locally bundled diff
 viewer formats split/unified patches, matches changed lines and synchronizes scrolling;
 DOMPurify sanitizes generated HTML before insertion. Raw patches remain accessible.
 The layout choice lasts until page reload; the CLI/storage contract remains unified diff text.
+Per-file Viewed checks use browser local storage keyed by stable PR item ID, with one latest
+head/base identity and a set of viewed paths. A different successfully observed head or base
+replaces that set, resetting every file even if its patch is unchanged. Failed/stale reads
+do not overwrite saved marks, and stale code disables marking. Independent collapse state
+stays in memory; checked files start collapsed on reload. Blocked storage falls back to
+in-memory checks. These presentation aids neither update SQLite/local triage nor acknowledge
+processing. The underlying diff2html controls are replaced with native, labelled checkbox
+and expand buttons using `aria-expanded` and `aria-controls`.
 See
 [contracts and upstream limits](cli.md#pr-files-and-commits) and
 [D22](decisions.md#d22-one-current-pr-diff-and-ordered-commit-membership).

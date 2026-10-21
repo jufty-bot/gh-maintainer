@@ -22,6 +22,17 @@ Split partial work into separate tasks instead of marking an entire milestone co
 - [x] Render split/unified diffs with a locally bundled diff2html base viewer: aligned
   old/new line numbers, word changes, file navigation, synchronized scrolling, raw fallback,
   desktop/mobile defaults and light/dark palettes. Generated HTML passes through DOMPurify.
+- [x] Add independent file collapse controls and browser-local Viewed checks, persisted
+  for one current PR head/base and cleared on new commits/base changes. Marking collapses
+  a file; unmarking reopens it; stale code cannot be marked and failed refreshes retain checks.
+
+Viewed-control evidence: `tests/frontend/pr-code.spec.cjs` covers independent files,
+expand/collapse and check toggles, layout changes, reload continuity, head/base invalidation
+(including unchanged patches and returning to a former head), failure/stale preservation,
+and blocked browser storage. All 14 focused PR-view cases and all 54 desktop/mobile
+dashboard checks passed. Desktop light/mobile dark screenshots were inspected; Ruff
+lint/format, Node syntax validation, strict MkDocs, package builds and `git diff --check`
+passed.
 
 Evidence: `tests/test_pr_code.py` covers pagination, racing head/base/count, failed pages,
 incomplete lists, idempotent polls, force pushes, base changes, failure retention/recovery,

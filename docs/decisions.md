@@ -509,6 +509,15 @@ the base bundle avoids pulling in a syntax-highlighting package. Desktop default
 and narrow screens to unified, with explicit layout controls and original raw patch access.
 Assets and licenses ship with the Python package; rendering requires no CDN or Node.js.
 
+File Viewed checks are browser-local review aids, stored as one latest head/base and path
+set per stable PR item ID. A new successfully synced head or base clears every mark,
+including files with unchanged patches. This conservative reset prevents old checks from
+implying review of a newer commit. Failed/stale reads preserve saved marks and cannot be
+marked viewed. Checks collapse files, with an independent accessible expand control.
+Browser storage supplies reload continuity without introducing a second item-processing
+contract or schema; blocked storage retains checks only in memory. Checks are not shared
+across browsers and never acknowledge processing, finish review, or change GitHub.
+
 Evidence: `github.py:pull_code`, `CatalogRepository.commit_repo`, migration `0007`,
 `CatalogQueries.files/commits`, `tests/test_pr_code.py` and `tests/frontend/pr-code.spec.cjs`.
 See [architecture](architecture.md#pr-code-snapshots),

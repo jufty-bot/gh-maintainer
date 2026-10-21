@@ -155,6 +155,13 @@ PRs, closes issues, sends messages, or changes GitHub labels.
   before/after panes and synchronized horizontal scrolling; mobile opens **Unified**.
   Switch layouts at any time, or choose **Raw diff** for the original patch. The chosen
   layout lasts until page reload and both dashboard themes are supported.
+  Each file has a collapse arrow and a **Viewed** checkbox. Checking a file collapses it;
+  unchecking reopens it, and the arrow can reopen a viewed file without clearing its check.
+  Checks survive layout changes and reloads in this browser. When sync observes a different
+  PR head or base, all file checks clear and files reopen, including unchanged patches.
+  Failed refreshes retain saved checks; stale code cannot be newly marked viewed.
+  If browser storage is blocked, checks last until reload. These are browser review aids;
+  they do not change GitHub or complete the item's processing checkpoint.
   Commits shows the current ordered list, full messages, authors, dates, and
   links to inspect individual commits on GitHub. Both views report missing or stale data
   and fetch errors can be retried. Use **Sync now** to discover newer commits; the dashboard

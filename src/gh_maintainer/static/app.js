@@ -1272,7 +1272,51 @@ function renderFollowUp(item, firstPage) {
     return section;
 }
 let preferredDiffLayout = null;
-function renderDiff(patch) {
+const viewedDiffFiles = new Map();
+function diffFileState(item, code) {
+    const key = `maintainer-viewed-files:${item.id}`;
+    const writable = Boolean(code.head_sha && code.base_sha && !code.stale);
+    const matches = (state) =>
+        state?.head === code.head_sha && state?.base === code.base_sha;
+    let state = writable ? viewedDiffFiles.get(key) : null;
+    if (!state || !matches(state)) {
+        let viewed = [];
+        if (writable) {
+            try {
+                const saved = JSON.parse(localStorage.getItem(key));
+                if (matches(saved) && Array.isArray(saved.viewed))
+                    viewed = saved.viewed.filter(
+                        (path) => typeof path === "string",
+                    );
+            } catch {}
+        }
+        state = {
+            head: code.head_sha,
+            base: code.base_sha,
+            viewed: new Set(viewed),
+            collapsed: new Set(viewed),
+        };
+        if (writable) viewedDiffFiles.set(key, state);
+    }
+    function save() {
+        if (!writable) return;
+        try {
+            localStorage.setItem(
+                key,
+                JSON.stringify({
+                    head: state.head,
+                    base: state.base,
+                    viewed: [...state.viewed],
+                }),
+            );
+        } catch {}
+    }
+    // Replace the previous snapshot even if no files have been marked on the new head.
+    save();
+    return { state, save, writable };
+}
+function renderDiff(patch, item, code) {
+    const { state, save, writable } = diffFileState(item, code);
     const viewer = el("section", undefined, "diff-viewer");
     viewer.setAttribute("aria-label", "Changed files diff");
     const toolbar = el("div", undefined, "diff-toolbar");
@@ -1321,7 +1365,7 @@ function renderDiff(patch) {
                     RETURN_DOM_FRAGMENT: true,
                 }),
             );
-            // These library controls are omitted; layout and navigation stay keyboard accessible.
+            // Supply native, accessible controls with snapshot-bound browser persistence.
             output
                 .querySelectorAll(".d2h-file-switch, .d2h-file-collapse")
                 .forEach((node) => node.remove());
@@ -1331,6 +1375,55 @@ function renderDiff(patch) {
                 return;
             }
             renderer.synchronisedScroll();
+            output.querySelectorAll(".d2h-file-wrapper").forEach((file) => {
+                const header = file.querySelector(".d2h-file-header");
+                const content = file.querySelector(
+                    ".d2h-file-diff, .d2h-files-diff",
+                );
+                const path = header.querySelector(".d2h-file-name").textContent;
+                const toggle = button("▾", "diff-file-toggle", () => {
+                    if (state.collapsed.has(path)) state.collapsed.delete(path);
+                    else state.collapsed.add(path);
+                    update();
+                });
+                content.id = `${file.id}-contents`;
+                toggle.setAttribute("aria-controls", content.id);
+                const label = el("label", undefined, "diff-file-viewed");
+                const check = el("input");
+                check.type = "checkbox";
+                check.setAttribute("aria-label", `Viewed: ${path}`);
+                check.disabled = !writable;
+                label.title = writable
+                    ? "Mark this file as viewed for the current PR commits"
+                    : "Sync current PR code before marking files as viewed";
+                label.append(check, el("span", "Viewed"));
+                check.addEventListener("change", () => {
+                    if (check.checked) {
+                        state.viewed.add(path);
+                        state.collapsed.add(path);
+                    } else {
+                        state.viewed.delete(path);
+                        state.collapsed.delete(path);
+                    }
+                    save();
+                    update();
+                });
+                function update() {
+                    const collapsed = state.collapsed.has(path);
+                    check.checked = state.viewed.has(path);
+                    content.hidden = collapsed;
+                    file.classList.toggle("diff-file-is-viewed", check.checked);
+                    toggle.setAttribute("aria-expanded", String(!collapsed));
+                    toggle.setAttribute(
+                        "aria-label",
+                        `${collapsed ? "Expand" : "Collapse"} ${path}`,
+                    );
+                    toggle.title = `${collapsed ? "Expand" : "Collapse"} ${path}`;
+                }
+                header.prepend(toggle);
+                header.append(label);
+                update();
+            });
             output.querySelectorAll(".d2h-file-name[href]").forEach((link) => {
                 link.addEventListener("click", (event) => {
                     event.preventDefault();
@@ -1424,7 +1517,7 @@ function renderPullCode(item, conversation) {
                         el("p", "No file changes in this PR.", "help-text"),
                     );
                 else {
-                    panel.append(renderDiff(data.diff));
+                    panel.append(renderDiff(data.diff, item, data));
                 }
             } else {
                 const list = el("ol", undefined, "pr-commits");

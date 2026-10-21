@@ -1,5 +1,186 @@
 const { test, expect } = require("@playwright/test");
 
+async function openFiles(page) {
+    await page
+        .getByRole("button", {
+            name: "Upgrade HTTP client and retry transient failures",
+            exact: true,
+        })
+        .click();
+    await page
+        .getByRole("dialog")
+        .getByRole("button", {
+            name: "Files Changed",
+            exact: true,
+        })
+        .click();
+}
+
+test("viewed files collapse, persist, and reset for new heads and bases", async ({
+    page,
+}) => {
+    let head = "review-head-1";
+    let base = "review-base-1";
+    const diff = ["first.txt", "second.txt"]
+        .map(
+            (path) =>
+                `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-old\n+new\n`,
+        )
+        .join("");
+    await page.route("**/api/items/DEMO_1_42/files", (route) =>
+        route.fulfill({
+            json: {
+                head_sha: head,
+                base_sha: base,
+                fetched_at: "2026-10-21T00:00:00Z",
+                stale: false,
+                coverage_error: null,
+                diff,
+            },
+        }),
+    );
+    await page.goto("/");
+    await openFiles(page);
+    const dialog = page.getByRole("dialog");
+    const first = dialog.getByRole("checkbox", {
+        name: "Viewed: first.txt",
+        exact: true,
+    });
+    const second = dialog.getByRole("checkbox", {
+        name: "Viewed: second.txt",
+        exact: true,
+    });
+    const file = dialog.locator(".d2h-file-wrapper").first();
+    const content = file.locator(".d2h-file-diff, .d2h-files-diff");
+    await expect(first).not.toBeChecked();
+    await first.check();
+    await expect(first).toBeChecked();
+    await expect(content).toBeHidden();
+    await expect(second).not.toBeChecked();
+    await dialog
+        .getByRole("button", { name: "Expand first.txt", exact: true })
+        .click();
+    await expect(content).toBeVisible();
+    await expect(first).toBeChecked();
+    await dialog
+        .getByRole("button", { name: "Collapse first.txt", exact: true })
+        .click();
+    await expect(content).toBeHidden();
+    await first.uncheck();
+    await expect(content).toBeVisible();
+    await first.check();
+    for (const layout of [
+        "Side by side",
+        "Unified",
+        "Raw diff",
+        "Side by side",
+    ]) {
+        await dialog.getByRole("button", { name: layout, exact: true }).click();
+        if (layout !== "Raw diff") {
+            await expect(first).toBeChecked();
+            await expect(content).toBeHidden();
+        }
+    }
+    await page.reload();
+    await openFiles(page);
+    await expect(first).toBeChecked();
+    await expect(content).toBeHidden();
+
+    // Every newly synced head reopens files, even when a file's patch is unchanged.
+    head = "review-head-2";
+    await dialog
+        .getByRole("button", { name: "Files Changed", exact: true })
+        .click();
+    await expect(first).not.toBeChecked();
+    await expect(content).toBeVisible();
+    await first.check();
+    base = "review-base-2";
+    await dialog
+        .getByRole("button", { name: "Files Changed", exact: true })
+        .click();
+    await expect(first).not.toBeChecked();
+    await expect(content).toBeVisible();
+
+    // Returning to an earlier head/base cannot revive marks from an old review.
+    head = "review-head-1";
+    base = "review-base-1";
+    await dialog
+        .getByRole("button", { name: "Files Changed", exact: true })
+        .click();
+    await expect(first).not.toBeChecked();
+    await expect(content).toBeVisible();
+});
+
+test("stale code cannot be marked viewed and failed refreshes retain saved marks", async ({
+    page,
+}) => {
+    let stale = false;
+    let failed = false;
+    await page.route("**/api/items/DEMO_1_42/files", async (route) => {
+        if (failed) return route.fulfill({ status: 503, body: "Unavailable" });
+        const response = await route.fetch();
+        const data = await response.json();
+        return route.fulfill({
+            json: {
+                ...data,
+                stale,
+                coverage_error: stale ? "Source unavailable" : null,
+            },
+        });
+    });
+    await page.goto("/");
+    await openFiles(page);
+    const dialog = page.getByRole("dialog");
+    const check = dialog.getByRole("checkbox", {
+        name: "Viewed: src/client.py",
+        exact: true,
+    });
+    await check.check();
+    failed = true;
+    await dialog
+        .getByRole("button", { name: "Files Changed", exact: true })
+        .click();
+    await expect(
+        dialog.getByRole("button", { name: "Retry", exact: true }),
+    ).toBeVisible();
+    failed = false;
+    stale = true;
+    await dialog.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(check).toBeDisabled();
+    await expect(check).not.toBeChecked();
+    stale = false;
+    await dialog
+        .getByRole("button", { name: "Files Changed", exact: true })
+        .click();
+    await expect(check).toBeEnabled();
+    await expect(check).toBeChecked();
+});
+
+test("viewed controls work when browser storage is unavailable", async ({
+    page,
+}) => {
+    await page.addInitScript(() => {
+        Object.defineProperty(window, "localStorage", {
+            get() {
+                throw new Error("Storage blocked");
+            },
+        });
+    });
+    await page.goto("/");
+    await openFiles(page);
+    const dialog = page.getByRole("dialog");
+    const check = dialog.getByRole("checkbox", {
+        name: "Viewed: src/client.py",
+        exact: true,
+    });
+    await check.check();
+    await dialog.getByRole("button", { name: "Unified", exact: true }).click();
+    await expect(check).toBeChecked();
+    await expect(dialog.locator(".d2h-file-diff")).toBeHidden();
+    await check.uncheck();
+    await expect(dialog.locator(".d2h-file-diff")).toBeVisible();
+});
+
 test("PR files and commits are safe, readable, and navigable", async ({
     page,
 }) => {
