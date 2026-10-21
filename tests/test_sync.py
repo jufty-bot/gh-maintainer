@@ -1,323 +1,372 @@
-"""Sync contract parity across the async storage and source boundaries."""
+"""Token-free behavior checks for source reconciliation and local triage preservation."""
 
-import asyncio
+from __future__ import annotations
+
+import copy
+import csv
+import fcntl
+import json
 from pathlib import Path
+from typing import Any
 
+import gh_global_sync as sync
 import pytest
-from sqlalchemy import event, func, select
-
-from gh_maintainer.clock import now
-from gh_maintainer.database import Database
-from gh_maintainer.github import GitHubError
-from gh_maintainer.models import Observation, Setting, SyncRun
-from gh_maintainer.queries import CatalogQueries
-from gh_maintainer.repositories import CatalogRepository, SyncLease
-from gh_maintainer.schemas import ItemFilters, ItemSnapshot, State
-from gh_maintainer.sync import OVERLAP, SyncService
-
-from .fakes import REPO, FakeSource, issue
-
-pytestmark = pytest.mark.anyio
+from fixtures import FixtureGitHub, item, repository
 
 
-async def test_backfill_idempotence_and_merged_state(database: Database) -> None:
-    source, catalog = FakeSource(), CatalogRepository(database)
-    assert (await SyncService(database, source).run()).status == "complete"
-    items = await catalog.items("1")
-    assert len(items) == 3
-    assert next(item for item in items if item.id == "I_3").state == State.MERGED
-    await SyncService(database, source).run(full=True)
-    async with database.sessions() as session:
-        assert await session.scalar(select(func.count()).select_from(Observation)) == 3
+class MemoryBeads(sync.Beads):
+    """Store CLI effects in memory while exercising the production reconciliation policy."""
 
-
-async def test_incremental_ci_refresh_without_issue_timestamp_change(
-    database: Database,
-) -> None:
-    source, catalog = FakeSource(), CatalogRepository(database)
-    await SyncService(database, source).run()
-    checkpoint = (await catalog.repo("1")).synced_at
-    source.items, source.checks = [], "FAILURE"
-    await SyncService(database, source).run()
-    assert source.windows[-1] == checkpoint - OVERLAP
-    async with database.sessions() as session:
-        detail = await CatalogQueries(session).detail("I_2")
-        assert detail.item.checks == "FAILURE"
-        assert "Failing checks" in detail.item.reasons
-        assert await session.scalar(select(func.count()).select_from(Observation)) == 4
-
-
-@pytest.mark.parametrize("after_page", [False, True])
-async def test_failed_fetch_keeps_atomic_checkpoint(
-    database: Database, after_page: bool
-) -> None:
-    source, catalog = FakeSource(), CatalogRepository(database)
-    await SyncService(database, source).run()
-    checkpoint = (await catalog.repo("1")).synced_at
-    source.fail, source.fail_after_page = not after_page, after_page
-    result = await SyncService(database, source).run()
-    assert result.status == "partial"
-    assert (await catalog.repo("1")).synced_at == checkpoint
-    assert len(await catalog.items("1")) == 3
-    source.fail = source.fail_after_page = False
-    assert (await SyncService(database, source).run()).status == "complete"
-    assert (await catalog.repo("1")).error is None
-
-
-async def test_failed_signals_keep_timestamp_and_become_unknown(
-    database: Database,
-) -> None:
-    source, catalog = FakeSource(), CatalogRepository(database)
-    await SyncService(database, source).run()
-    before = (await catalog.repo("1")).signals_at
-    source.fail_signals = True
-    assert (await SyncService(database, source).run()).status == "partial"
-    assert (await catalog.repo("1")).signals_at == before
-    async with database.sessions() as session:
-        detail = await CatalogQueries(session).detail("I_2")
-        assert detail.item.signals_stale
-        assert detail.item.checks == "UNKNOWN"
-
-
-async def test_reconciliation_retains_history_and_missing_inventory(
-    database: Database,
-) -> None:
-    source, catalog = FakeSource(), CatalogRepository(database)
-    await SyncService(database, source).run()
-    source.items = []
-    await SyncService(database, source).run(full=True)
-    assert all(not item.available for item in await catalog.items("1"))
-    source.inventory = []
-    await SyncService(database, source).run()
-    assert not (await catalog.repo("1")).present
-    async with database.sessions() as session:
-        assert (await CatalogQueries(session).overview()).counts.repositories == 0
-
-
-async def test_atomic_lease_claim_and_release(tmp_path: Path) -> None:
-    first, second = (
-        Database(tmp_path / "shared.sqlite"),
-        Database(tmp_path / "shared.sqlite"),
-    )
-    try:
-        await asyncio.gather(first.initialize(), second.initialize())
-        async with SyncLease(first):
-            with pytest.raises(RuntimeError, match="Another sync"):
-                async with SyncLease(second):
-                    pass
-        async with SyncLease(second):
-            pass
-    finally:
-        await first.close()
-        await second.close()
-
-
-async def test_expired_worker_is_fenced_out_of_commit(database: Database) -> None:
-    source, catalog = FakeSource(), CatalogRepository(database)
-    await SyncService(database, source).run()
-    checkpoint = (await catalog.repo("1")).synced_at
-    async with SyncLease(database) as old_lease:
-        async with database.sessions.begin() as session:
-            setting = await session.get(Setting, "sync_lock")
-            setting.value = '{"token":"new-worker","expires":0}'
-        with pytest.raises(RuntimeError, match="lease was lost"):
-            await catalog.commit_repo("1", [], now(), True, None, old_lease)
-    assert (await catalog.repo("1")).synced_at == checkpoint
-    assert all(item.available for item in await catalog.items("1"))
-
-
-async def test_owner_rename_preserves_identity(
-    database: Database,
-) -> None:
-    source, catalog = FakeSource(), CatalogRepository(database)
-    await SyncService(database, source).run()
-    source.login = "other"
-    source.inventory = [
-        {**REPO, "full_name": "other/project", "owner": {"login": "other", "id": 77}}
-    ]
-    await SyncService(database, source).run()
-    assert (await catalog.repo("1")).name == "other/project"
-    async with database.sessions() as session:
-        assert (await CatalogQueries(session).overview()).owner == "other"
-        assert (await CatalogQueries(session).page(ItemFilters())).total == 3
-        runs = (await session.scalars(select(SyncRun).order_by(SyncRun.id))).all()
-        assert [run.status for run in runs] == ["complete", "complete"]
-
-
-async def test_lease_cleans_up_after_heartbeat_failure(database: Database) -> None:
-    async def fail() -> None:
-        raise RuntimeError("Heartbeat failed")
-
-    with pytest.raises(RuntimeError, match="Heartbeat failed"):
-        async with SyncLease(database) as lease:
-            lease.task.cancel()
-            try:
-                await lease.task
-            except asyncio.CancelledError:
-                pass
-            lease.task = asyncio.create_task(fail())
-            await asyncio.sleep(0)
-    async with SyncLease(database):
-        pass
-
-
-async def test_incremental_reuses_closed_pr_details_and_preserves_merged_state(
-    database: Database,
-) -> None:
-    source, catalog = FakeSource(), CatalogRepository(database)
-    await SyncService(database, source).run()
-    source.pull_requests.clear()
-    await SyncService(database, source).run()
-    assert source.pull_requests == [("1", 2)]
-    merged = next(item for item in await catalog.items("1") if item.number == 3)
-    assert merged.state == State.MERGED
-    source.items[-1]["title"] = "Edited closed pull request"
-    source.pull_requests.clear()
-    await SyncService(database, source).run()
-    assert set(source.pull_requests) == {("1", 2), ("1", 3)}
-    source.pull_requests.clear()
-    await SyncService(database, source).run(full=True)
-    assert set(source.pull_requests) == {("1", 2), ("1", 3)}
-
-
-async def test_open_pr_refreshes_head_without_an_issue_update(
-    database: Database,
-) -> None:
-    source, catalog = FakeSource(), CatalogRepository(database)
-    await SyncService(database, source).run()
-    source.items = []
-    source.head_sha = source.signal_head = "new-head"
-    await SyncService(database, source).run()
-    item = next(item for item in await catalog.items("1") if item.number == 2)
-    assert item.pr["head"]["sha"] == "new-head"
-    assert item.signals["commits"]["nodes"][0]["commit"]["oid"] == "new-head"
-
-
-async def test_incremental_reads_only_incoming_items_and_open_prs(
-    database: Database,
-) -> None:
-    source = FakeSource()
-    await SyncService(database, source).run()
-    source.items = []
-    statements = []
-
-    def capture(_conn, _cursor, statement, _parameters, _context, _many):
-        if statement.startswith("SELECT items.id,"):
-            statements.append(statement)
-
-    event.listen(database.engine.sync_engine, "before_cursor_execute", capture)
-    try:
-        await SyncService(database, source).run()
-    finally:
-        event.remove(database.engine.sync_engine, "before_cursor_execute", capture)
-    assert len(statements) == 2
-    assert "items.kind =" in statements[0]
-    assert "items.state =" in statements[0]
-    assert "items.id IN" in statements[1]
-
-
-class ParallelSource(FakeSource):
     def __init__(self) -> None:
-        super().__init__()
-        self.inventory = [
-            {**REPO, "id": number, "full_name": f"owner/project{number}"}
-            for number in range(1, 7)
-        ]
-        self.active = self.peak = 0
-        self.started = asyncio.Event()
-        self.release = asyncio.Event()
-        self.fail_repo: str | None = None
-        self.crash = False
+        """Start with an empty backlog and dependency graph."""
+        self.rows: dict[str, sync.Json] = {}
+        self.edges: set[tuple[str, str]] = set()
 
-    async def issues(self, repo, _since):
-        self.active += 1
-        self.peak = max(self.peak, self.active)
-        if self.active == 2:
-            self.started.set()
-        try:
-            await self.release.wait()
-            if self.crash:
-                raise RuntimeError("Unexpected source failure")
-            if repo.id == self.fail_repo:
-                raise GitHubError("Repository unavailable")
-            raw = {**issue(), "node_id": f"I_repo{repo.id}"}
-            yield [ItemSnapshot.from_github(raw, repo.id)]
-        finally:
-            self.active -= 1
+    def call(self, *args: str) -> Any:
+        """Emulate the bd commands used by the adapter, rejecting unsupported calls."""
+        if args[0] == "list":
+            assert "--limit" in args and args[args.index("--limit") + 1] == "0"
+            return copy.deepcopy(list(self.rows.values()))
+        if args[0] == "create":
+            bead_id = f"hub-{len(self.rows) + 1}"
+            self.rows[bead_id] = {"id": bead_id, "status": "open", "labels": [], "metadata": {}}
+            self._update(self.rows[bead_id], args[1:])
+            return copy.deepcopy(self.rows[bead_id])
+        if args[0] == "dep":
+            action, source = args[1:3]
+            if action == "list":
+                return [{"id": target} for start, target in self.edges if start == source]
+            target = args[3]
+            if action == "add":
+                self.edges.add((source, target))
+            elif action == "remove":
+                self.edges.discard((source, target))
+            else:
+                raise AssertionError(args)
+            return None
+        bead = self.rows[args[1]]
+        if args[0] in {"close", "reopen"}:
+            bead["status"] = "closed" if args[0] == "close" else "open"
+        elif args[0] == "update":
+            self._update(bead, args[2:])
+        else:
+            raise AssertionError(args)
+        return None
+
+    def _update(self, bead: sync.Json, flags: tuple[str, ...]) -> None:
+        """Apply individual flag values without emulating production policy decisions."""
+        if "--if-assignee" in flags:
+            assert (bead.get("assignee") or "") == flags[flags.index("--if-assignee") + 1]
+        if "--if-status" in flags:
+            assert bead["status"] == flags[flags.index("--if-status") + 1]
+        flags = tuple(flag for flag in flags if flag != "--force")
+        for flag, value in zip(flags[::2], flags[1::2], strict=True):
+            if flag.startswith("--if-"):
+                continue
+            if flag == "--metadata":
+                bead["metadata"].update(json.loads(value))
+            elif flag in {"--add-label", "--remove-label"}:
+                label = next(csv.reader([value]))[0]
+                if flag == "--add-label" and label not in bead["labels"]:
+                    bead["labels"].append(label)
+                elif flag == "--remove-label":
+                    bead["labels"].remove(label)
+            else:
+                bead[flag.removeprefix("--").replace("-", "_")] = value
 
 
-async def test_repositories_ingest_in_parallel_with_isolated_failures(
-    database: Database,
+@pytest.mark.parametrize(
+    ("field", "value", "label"),
+    [
+        ("mergeable", "CONFLICTING", "conflict:true"),
+        ("mergeable", "UNKNOWN", "conflict:unknown"),
+        ("reviewDecision", "CHANGES_REQUESTED", "review:changes-requested"),
+        ("reviewDecision", None, "review:needed"),
+    ],
+)
+def test_actionable_pr(field: str, value: str | None, label: str) -> None:
+    """PRs needing work or review join the open queue."""
+    pr = item("pr")
+    pr[field] = value
+    status, labels = sync.evaluate(pr)
+    assert status == "open" and label in labels
+
+
+@pytest.mark.parametrize("state", ["FAILURE", "ERROR", None])
+def test_failing_or_unknown_ci(state: str | None) -> None:
+    """Unknown checks are never described as passing."""
+    pr = item("pr")
+    pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"] = {"state": state} if state else None
+    assert sync.evaluate(pr)[0] == "open"
+
+
+def test_healthy_pr_waits_for_merge() -> None:
+    """Approved passing PRs sit in progress instead of competing for ready work."""
+    assert sync.evaluate(item("pr"))[0] == "in_progress"
+
+
+def test_repeat_sync_preserves_local_triage_and_updates_source() -> None:
+    """Source refresh removes obsolete signals while retaining local triage fields."""
+    pr = item("pr")
+    pr["reviewDecision"] = None
+    source, beads = FixtureGitHub([pr]), MemoryBeads()
+    sync.reconcile(source, beads, "user:@me")
+    local = beads.rows["hub-1"]
+    local.update({"priority": 1, "notes": "Local reasoning", "assignee": "maintainer"})
+    local["labels"].append("category:bug-fix")
+    local["metadata"]["other"] = {"keep": True}
+    source.rows[0].update({"title": "New title", "reviewDecision": "APPROVED", "labels": ["new"]})
+    result = sync.reconcile(source, beads, "user:@me")
+    assert result["status"] == "complete" and len(beads.rows) == 1
+    assert local["title"].endswith("New title")
+    assert local["priority"] == 1 and local["notes"] == "Local reasoning"
+    assert local["assignee"] == "maintainer" and local["status"] == "open"
+    assert set(local["labels"]) == {
+        "category:bug-fix",
+        "repo:example/orbit",
+        "type:pr",
+        "github:new",
+        "ci:passing",
+        "review:approved",
+    }
+    assert local["metadata"]["other"] == {"keep": True}
+
+
+def test_manual_status_survives_sync() -> None:
+    """A locally deferred or closed item stays in its chosen workflow state."""
+    source, beads = FixtureGitHub([item()]), MemoryBeads()
+    sync.reconcile(source, beads, "user:@me")
+    beads.rows["hub-1"]["status"] = "deferred"
+    sync.reconcile(source, beads, "user:@me")
+    assert beads.rows["hub-1"]["status"] == "deferred"
+
+
+def test_absence_requires_explicit_closure_and_reopen() -> None:
+    """Search/scope absence cannot close work; verified closure and reopening propagate."""
+    row = item()
+    source, beads = FixtureGitHub([row]), MemoryBeads()
+    sync.reconcile(source, beads, "user:@me")
+    source.rows = []
+    source.states = {}
+    assert sync.reconcile(source, beads, "user:@me")["status"] == "partial"
+    assert beads.rows["hub-1"]["status"] == "open"
+    source.states[row["id"]] = dict(row, state="CLOSED")
+    assert sync.reconcile(source, beads, "user:@me")["closed"] == 1
+    assert beads.rows["hub-1"]["status"] == "closed"
+    source.rows = [row]
+    sync.reconcile(source, beads, "user:@me")
+    assert len(beads.rows) == 1 and beads.rows["hub-1"]["status"] == "open"
+
+
+def test_scope_change_preserves_other_repo() -> None:
+    """A narrower sync never closes work from an excluded repository."""
+    source, beads = FixtureGitHub([item()]), MemoryBeads()
+    sync.reconcile(source, beads, "user:@me")
+    source.repos = [repository("example/other", "R_2")]
+    source.rows = []
+    source.states = {}
+    assert sync.reconcile(source, beads, "repo:example/other")["status"] == "complete"
+    assert beads.rows["hub-1"]["status"] == "open"
+
+
+def test_repository_rename_uses_node_identity() -> None:
+    """A repository rename updates external references without duplicating beads."""
+    source, beads = FixtureGitHub([item()]), MemoryBeads()
+    sync.reconcile(source, beads, "user:@me")
+    renamed = repository("example/renamed")
+    source.rows = [item(repo=renamed)]
+    source.repos = [renamed]
+    sync.reconcile(source, beads, "user:@me")
+    assert len(beads.rows) == 1
+    assert beads.rows["hub-1"]["external_ref"] == "gh:example/renamed#issue:1"
+    assert "repo:example/orbit" not in beads.rows["hub-1"]["labels"]
+
+
+def test_cross_repo_links_and_removed_references() -> None:
+    """Closing references create issue-to-PR blockers, then remove stale managed edges."""
+    other = repository("example/other", "R_2")
+    issue, pr = item(), item("pr", 2, other)
+    pr["closingIssuesReferences"]["nodes"] = [{"id": issue["id"]}]
+    source, beads = FixtureGitHub([pr, issue], [other, repository()]), MemoryBeads()
+    assert sync.reconcile(source, beads, "user:@me")["status"] == "complete"
+    assert beads.edges == {("hub-2", "hub-1")}
+    beads.edges.add(("hub-2", "manual-blocker"))
+    pr["closingIssuesReferences"]["nodes"] = []
+    sync.reconcile(source, beads, "user:@me")
+    assert beads.edges == {("hub-2", "manual-blocker")}
+
+
+def test_preexisting_manual_link_is_not_owned() -> None:
+    """The reconciler leaves a matching preexisting manual dependency intact."""
+    issue, pr = item(), item("pr", 2)
+    source, beads = FixtureGitHub([issue, pr]), MemoryBeads()
+    sync.reconcile(source, beads, "user:@me")
+    beads.edges.add(("hub-1", "hub-2"))
+    pr["closingIssuesReferences"]["nodes"] = [{"id": issue["id"]}]
+    sync.reconcile(source, beads, "user:@me")
+    pr["closingIssuesReferences"]["nodes"] = []
+    sync.reconcile(source, beads, "user:@me")
+    assert beads.edges == {("hub-1", "hub-2")}
+
+
+def test_incomplete_repo_is_not_written() -> None:
+    """A failed repository leaves old snapshots untouched while other repositories progress."""
+    other = repository("example/other", "R_2")
+    source, beads = FixtureGitHub([item(), item(repo=other)], [repository(), other]), MemoryBeads()
+    source.failed_repos.add("R_1")
+    result = sync.reconcile(source, beads, "user:@me")
+    assert result["status"] == "partial" and result["issues"] == 1
+    assert len(beads.rows) == 1
+    assert beads.rows["hub-1"]["external_ref"] == "gh:example/other#issue:1"
+
+
+def test_dependency_intent_is_repaired() -> None:
+    """A failed/interrupted add is retried from the persisted ownership record."""
+    issue, pr = item(), item("pr", 2)
+    pr["closingIssuesReferences"]["nodes"] = [{"id": issue["id"]}]
+    source, beads = FixtureGitHub([issue, pr]), MemoryBeads()
+    sync.reconcile(source, beads, "user:@me")
+    beads.edges.clear()
+    assert sync.reconcile(source, beads, "user:@me")["status"] == "complete"
+    assert beads.edges == {("hub-1", "hub-2")}
+
+
+def test_interrupted_create_can_reconcile_later_closure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Creation persists enough identity to verify closure before the next open listing."""
+    row = item()
+    source, beads = FixtureGitHub([row]), MemoryBeads()
+    original = beads.call
+
+    def interrupted_update(*args: str) -> Any:
+        """Fail immediately after creating the source-backed bead."""
+        if args[0] == "update":
+            raise RuntimeError("Synthetic interrupted first update")
+        return original(*args)
+
+    monkeypatch.setattr(beads, "call", interrupted_update)
+    assert sync.reconcile(source, beads, "user:@me")["status"] == "partial"
+    monkeypatch.setattr(beads, "call", original)
+    source.rows = []
+    source.states[row["id"]] = dict(row, state="CLOSED")
+    assert sync.reconcile(source, beads, "user:@me")["closed"] == 1
+    assert len(beads.rows) == 1 and beads.rows["hub-1"]["status"] == "closed"
+
+
+def test_status_update_guards_against_new_claim(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A claim made after snapshot loading prevents an automatic status overwrite."""
+    pr = item("pr")
+    pr["reviewDecision"] = None
+    source, beads = FixtureGitHub([pr]), MemoryBeads()
+    sync.reconcile(source, beads, "user:@me")
+    pr["reviewDecision"] = "APPROVED"
+    original = beads.call
+
+    def claim_before_update(*args: str) -> Any:
+        """Simulate bd rejecting a guarded update after a concurrent claim."""
+        if args[0] == "update" and "--status" in args:
+            assert args[args.index("--if-status") + 1] == "open"
+            assert args[args.index("--if-assignee") + 1] == ""
+            beads.rows["hub-1"].update(status="in_progress", assignee="another-maintainer")
+            raise RuntimeError("Synthetic precondition failure")
+        return original(*args)
+
+    monkeypatch.setattr(beads, "call", claim_before_update)
+    assert sync.reconcile(source, beads, "user:@me")["status"] == "partial"
+    assert beads.rows["hub-1"]["assignee"] == "another-maintainer"
+    assert beads.rows["hub-1"]["status"] == "in_progress"
+
+
+def test_rest_pagination_beyond_search_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """More than 1,000 items are read without a search API cutoff."""
+    calls: list[list[str]] = []
+
+    def response(args: list[str]) -> list[sync.Json]:
+        """Return eleven full pages followed by an empty terminal page."""
+        calls.append(args)
+        return [{"number": 1}] * 100 if len(calls) <= 11 else []
+
+    monkeypatch.setattr(sync, "command", response)
+    assert len(sync.GitHub().pages("repos/example/orbit/issues?state=open")) == 1100
+    assert "page=12" in calls[-1][-1]
+
+
+def test_inventory_scopes_deduplicate_and_exclude_archives(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Overlapping user, organization, and explicit scopes import each active repo once."""
+    source = sync.GitHub()
+    active = repository()
+    archived = dict(repository("example/archive", "R_2"), archived=True)
+    monkeypatch.setattr(source, "pages", lambda endpoint: [active, archived])
+    monkeypatch.setattr(sync, "command", lambda args: active)
+    assert source.repositories("user:@me;org:example;repo:example/orbit") == [active]
+
+
+def test_invalid_later_source_row_prevents_repository_writes(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    source = ParallelSource()
-    source.fail_repo = "2"
-    task = asyncio.create_task(SyncService(database, source, concurrency=2).run())
-    try:
-        await asyncio.wait_for(source.started.wait(), timeout=2)
-        assert source.peak == 2
-        source.release.set()
-        result = await task
-    finally:
-        source.release.set()
-        await asyncio.gather(task, return_exceptions=True)
-    assert result.status == "partial"
-    assert result.synced == 5
-    assert source.peak == 2
-    assert result.errors == ["owner/project2: Repository unavailable"]
-    catalog = CatalogRepository(database)
-    assert (await catalog.repo("1")).synced_at is not None
-    assert (await catalog.repo("2")).synced_at is None
-    assert (await catalog.repo("6")).synced_at is not None
+    """Validate the whole REST snapshot before persisting even its earlier valid rows."""
+    source, beads = sync.GitHub(), MemoryBeads()
+    valid = {
+        "node_id": "synthetic",
+        "number": 1,
+        "title": "Synthetic",
+        "body": "",
+        "state": "open",
+        "html_url": "https://github.com/example/orbit/issues/1",
+        "labels": [],
+    }
+    invalid = dict(valid, node_id="invalid", state="unexpected")
+    monkeypatch.setattr(source, "repositories", lambda scopes: [repository()])
+    monkeypatch.setattr(source, "pages", lambda endpoint: [valid, invalid])
+    assert sync.reconcile(source, beads, "user:@me")["status"] == "partial"
+    assert not beads.rows
 
 
-async def test_parallel_workers_are_drained_before_failed_run_finishes(
-    database: Database,
-) -> None:
-    source = ParallelSource()
-    source.crash = True
-    task = asyncio.create_task(SyncService(database, source, concurrency=2).run())
-    try:
-        await asyncio.wait_for(source.started.wait(), timeout=2)
-        source.release.set()
-        with pytest.raises(RuntimeError, match="Unexpected source failure"):
-            await task
-        assert source.active == 0
-        async with database.sessions() as session:
-            assert (await session.scalar(select(SyncRun.status))) == "failed"
-        async with SyncLease(database):
-            pass
-    finally:
-        source.release.set()
-        await asyncio.gather(task, return_exceptions=True)
+@pytest.mark.parametrize("scope", ["", "user:@me is:open", "org:foo/bar", "repo:foo"])
+def test_invalid_scopes_rejected(scope: str) -> None:
+    """Unsupported search syntax fails before touching a backlog."""
+    with pytest.raises(ValueError):
+        sync.GitHub().repositories(scope)
 
 
-async def test_cancelling_sync_drains_workers_and_releases_lease(
-    database: Database,
-) -> None:
-    source = ParallelSource()
-    task = asyncio.create_task(SyncService(database, source, concurrency=2).run())
-    try:
-        await asyncio.wait_for(source.started.wait(), timeout=2)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-        assert source.active == 0
-        async with SyncLease(database):
-            pass
-        async with database.sessions() as session:
-            assert (await session.scalar(select(SyncRun.status))) == "failed"
-    finally:
-        source.release.set()
-        await asyncio.gather(task, return_exceptions=True)
+def test_graphql_partial_errors_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A GraphQL partial result cannot become a successful source snapshot."""
+    monkeypatch.setattr(sync, "command", lambda args: {"data": {}, "errors": [{"message": "x"}]})
+    with pytest.raises(ValueError, match="errors"):
+        sync.GitHub().node("synthetic")
 
 
-async def test_repo_filter_limits_parallel_ingestion(database: Database) -> None:
-    source = ParallelSource()
-    source.release.set()
-    result = await SyncService(database, source).run(only={"owner/project3"})
-    assert result.discovered == 1
-    assert result.synced == 1
-    catalog = CatalogRepository(database)
-    with pytest.raises(ValueError, match="Unknown repository"):
-        await catalog.repo("1")
-    assert (await catalog.repo("3")).synced_at is not None
+def test_reference_pagination(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PR references beyond the first page are retained."""
+    calls: list[list[str]] = []
+
+    def response(args: list[str]) -> sync.Json:
+        """Return two closing-reference pages for a single PR node."""
+        calls.append(args)
+        pr = item("pr")
+        pr["__typename"] = "PullRequest"
+        pr["closingIssuesReferences"] = {
+            "nodes": [{"id": f"issue-{len(calls)}"}],
+            "pageInfo": {"hasNextPage": len(calls) == 1, "endCursor": "next"},
+        }
+        return {"data": {"node": pr}}
+
+    monkeypatch.setattr(sync, "command", response)
+    result = sync.GitHub().node(item("pr")["id"])
+    assert len(result["closingIssuesReferences"]["nodes"]) == 2
+    assert "cursor=next" in calls[-1]
+
+
+def test_concurrent_sync_returns_busy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A second worker cannot interleave creation, closure, or dependency writes."""
+    (tmp_path / ".beads").mkdir()
+    (tmp_path / ".beads/metadata.json").write_text("{}")
+    monkeypatch.setenv("BEADS_WORKING_DIR", str(tmp_path))
+    with (tmp_path / ".github-sync.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert sync.run_sync() == {"status": "busy", "errors": []}
+
+
+def test_uninitialized_hub(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Startup races report an explicit failure without creating a second database."""
+    monkeypatch.setenv("BEADS_WORKING_DIR", str(tmp_path))
+    assert sync.run_sync()["status"] == "partial"

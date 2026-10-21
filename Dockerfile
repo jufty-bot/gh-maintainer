@@ -1,50 +1,47 @@
-ARG PYTHON_VERSION=3.12
-FROM python:${PYTHON_VERSION}-slim-bookworm
+FROM ghcr.io/astral-sh/uv:0.12.1 AS uv
+FROM node:22-bookworm-slim
 
-WORKDIR /app
+ARG TARGETARCH
+ARG BEADS_VERSION=1.3.1
+ARG DOLT_VERSION=2.5.1
+ARG BEADS_UI_VERSION=0.12.6
 
-RUN apt-get update \
-    && apt-get install --no-install-recommends -y gh \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl git python3 gh tini \
     && rm -rf /var/lib/apt/lists/*
+COPY --from=uv /uv /usr/local/bin/uv
 
-# configure uv
-ENV UV_LINK_MODE=copy \
-    UV_LOCKED=1 \
-    UV_COMPILE_BYTECODE=1
+RUN set -eu; \
+    curl -fSL "https://github.com/gastownhall/beads/releases/download/v${BEADS_VERSION}/beads_${BEADS_VERSION}_linux_${TARGETARCH}.tar.gz" -o /tmp/beads.tar.gz; \
+    curl -fSL "https://github.com/gastownhall/beads/releases/download/v${BEADS_VERSION}/checksums.txt" -o /tmp/checksums.txt; \
+    cd /tmp; \
+    expected=$(awk -v file="beads_${BEADS_VERSION}_linux_${TARGETARCH}.tar.gz" '$2 == file { print $1 }' checksums.txt); \
+    test -n "$expected"; \
+    echo "$expected  beads.tar.gz" | sha256sum --check; \
+    tar -xzf beads.tar.gz bd; \
+    install bd /usr/local/bin/bd; \
+    curl -fSL "https://github.com/dolthub/dolt/releases/download/v${DOLT_VERSION}/dolt-linux-${TARGETARCH}.tar.gz" -o /tmp/dolt.tar.gz; \
+    tar -xzf /tmp/dolt.tar.gz; \
+    install "dolt-linux-${TARGETARCH}/bin/dolt" /usr/local/bin/dolt; \
+    rm -rf /tmp/*
 
-# Install dependencies
-RUN --mount=from=ghcr.io/astral-sh/uv,source=/uv,target=/bin/uv \
-    --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --no-install-project --no-dev
-
-# Copy Project
-COPY README.md /app/README.md
-COPY LICENSE /app/LICENSE
-COPY pyproject.toml /app/pyproject.toml
-COPY uv.lock /app/uv.lock
-COPY src/gh_maintainer /app/src/gh_maintainer
-COPY skills /app/skills
-
-# Install project
-RUN --mount=from=ghcr.io/astral-sh/uv,source=/uv,target=/bin/uv \
-    --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --no-dev --all-extras
-
-# Environment Variables
-ENV PATH="/app/.venv/bin:${PATH}" \
-    PYTHONDONTWRITEBYTECODE="1" \
-    PYTHONUNBUFFERED="1"
-
-
-RUN useradd --create-home --uid 10001 maintainer \
-    && mkdir -p /data \
-    && chown maintainer:maintainer /data
-USER maintainer
-ENV GH_MAINTAINER_DB=/data/maintainer.sqlite
-EXPOSE 8765
-ENTRYPOINT ["gh-maintainer"]
-CMD ["serve", "--host", "0.0.0.0"]
+WORKDIR /opt/beads-hub
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --no-dev --no-install-project --python /usr/bin/python3
+RUN npm install -g "beads-ui@${BEADS_UI_VERSION}" && npm cache clean --force
+COPY scripts/ /usr/local/bin/
+ENV PATH="/opt/beads-hub/.venv/bin:$PATH" \
+    BEADS_PATH=/usr/local/bin/bd \
+    BEADS_WORKING_DIR=/var/lib/beads \
+    BEADS_DIR=/var/lib/beads/.beads \
+    BEADS_DOLT_SERVER_MODE=1 \
+    BEADS_DOLT_SERVER_HOST=127.0.0.1 \
+    BEADS_DOLT_SERVER_PORT=3307 \
+    BEADS_DOLT_AUTO_START=0 \
+    BEADS_ACTOR=beads-hub \
+    GH_PROMPT_DISABLED=1 \
+    BD_BIN=/usr/local/bin/bd
+WORKDIR /var/lib/beads
+EXPOSE 3000 3307 8080
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["/usr/local/bin/entrypoint-hub.sh"]

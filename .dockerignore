@@ -1,8 +1,10 @@
 .git
 .venv
-.env
-.data
 __pycache__
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.beads
+.env*
 dist
 site
-*.sqlite*

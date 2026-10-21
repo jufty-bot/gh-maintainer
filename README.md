@@ -1,81 +1,36 @@
-<img src="src/gh_maintainer/static/brand-mark.svg" width="48" height="48" alt="" />
+# beads-hub
 
-# gh-maintainer
+A shared [Beads](https://github.com/gastownhall/beads) backlog for GitHub issues and pull requests across repositories. Categorize, prioritize, and claim either kind of work using the `bd` CLI, the official beads-mcp server, or [Beads UI](https://github.com/mantoni/beads-ui).
 
-**Keep good projects moving.**
+GitHub supplies source text, labels, PR signals, and closure. Beads holds local categories, priorities, assignees, notes, and workflow decisions. Reconciliation reads GitHub; local edits never write back to GitHub.
 
-A CLI for maintaining GitHub repositories, with a local index that humans and agents can query.
-
-Sync issues, pull requests, and their conversations into SQLite. Summarize and classify
-items, rank the queue, record triage decisions, and track what changed since an item was
-last processed. Incremental syncs retain history and flag earlier analysis when new
-activity arrives. FastAPI serves a dashboard with Markdown descriptions, searchable
-maintenance queues, and editable local triage decisions.
-`repos` records each repository's latest default-branch commit, release, PR, and issue,
-with timestamps, links, and sync coverage.
-
-The [bundled skills](docs/skills.md) teach agents to triage and prioritize work, review
-PRs, diagnose CI, reproduce issues, and prepare fixes or maintenance digests. Agents can
-read commit-bound code, checks, logs, and review threads through the CLI, while keeping
-human decisions and repository policy in view.
-
-## Get started
-
-Install a wheel from [releases](docs/releases.md), or work from this checkout. Install [uv](https://docs.astral.sh/uv/getting-started/installation/)
-and authenticate with `gh auth login` or set `GH_TOKEN` / `GITHUB_TOKEN`:
-
-```bash
-uv sync --locked
-uv run gh-maintainer sync --owner OWNER
-uv run gh-maintainer prs --unprocessed
-uv run gh-maintainer show OWNER/REPO#42
-uv run gh-maintainer comments OWNER/REPO#42 --format json
+```mermaid
+flowchart LR
+    GitHub[GitHub repositories] --> Reconciler
+    Reconciler --> CLI[bd CLI]
+    MCP[Official beads-mcp :8080] --> CLI
+    UI[Beads UI :3000] --> CLI
+    Agents[Shell agents] --> Dolt[Dolt :3307]
+    CLI --> Dolt
+    Dolt --> Volume[Compose data volume]
 ```
 
-Omit `--owner` to sync your own repositories, or repeat `--repo OWNER/REPO` to select a
-list across owners. Data lives in your platform’s user data directory; `gh-maintainer db`
-shows the path. Use `--db PATH` for another index. Local queries and decisions work
-offline after sync.
+Issues and PRs are peer tasks with `type:issue` / `type:pr` labels. Actionable PRs enter the open queue. GitHub closing references create dependencies so an open PR blocks its issue until the PR closes. Local labels such as `category:bug-fix` remain yours to manage.
 
-Use `--config maintainer.yaml` to load JSON/YAML command defaults and a shared
-`repositories` list. See [configuration files](docs/configuration.md) for precedence and JSON Schema.
-
-Run `uv run gh-maintainer serve` to open the dashboard at `http://127.0.0.1:8765`.
-**Set up repositories** and **Sync now** guide credential checks, repository selection,
-and sync progress. Review work as a list or **Work board**; **Finish review & next**
-saves your local decision and acknowledges the inspected revision together.
-
-Use `classify`, `summarize`, `rank`, and `triage` to save decisions, then `mark-processed`
-to acknowledge an inspected revision. `changes` shows observed pushes, comments, and
-state changes since that checkpoint. All these commands support JSON output.
-`prune` manages observation retention and database disk space (`--keep`, `--days`, `--vacuum`).
-
-Use `skills --install PATH` to install the bundled agent instructions and `policy` to
-validate repository rules. `context ITEM` fetches live technical evidence through `gh`.
-
-The current CLI reads GitHub and writes local data. Analysis is supplied by a human or
-agent; it does not invoke a model or post changes to GitHub. It reuses `gh` authentication
-for async HTTPX sync and `gh api` context requests. See [CLI workflows](docs/cli.md) for the full loop,
-revision guards, and pagination.
-
-MCP clients can use the same maintenance services over HTTP or stdio:
-
-```bash
-uv run gh-maintainer mcp                   # stdio (default)
-uv run gh-maintainer serve                 # Dashboard, REST, MCP at :8765/mcp
-uv run gh-maintainer mcp --transport http   # http://127.0.0.1:8766/mcp
+```sh
+task install
+task lint
+task check
+task test
+task smoke  # Builds the image; tests a disposable stack without GitHub credentials
 ```
 
-See [MCP setup and tool contracts](docs/mcp.md) for client configuration, background
-watching, revision guards, and the CLI-to-tool mapping.
+Inject `GH_TOKEN` and `BEADS_REMOTE_PASSWORD` into your shell environment, set `GH_SYNC_QUERY` for your repositories, then run `task deploy` (or `docker compose up -d --build --wait`). Docker Compose starts Dolt, UI, official MCP, and sync with a shared persistent volume. UI (`3000`), MCP (`8080`), and SQL (`3307`) are available on localhost. See [Usage](docs/usage.md) for setup and operating commands.
 
-## Documentation
+- [Usage and deployment](docs/usage.md)
+- [Agent connections](AGENTS.md)
+- [Architecture and sync contracts](docs/architecture.md)
+- [Design decisions](docs/decisions.md)
+- [Roadmap](docs/roadmap.md) and [validation checklist](docs/checklist.md)
 
-- [Installation and releases](docs/releases.md), [agent skills](docs/skills.md),
-  [policy](docs/policy.md), and [technical context](docs/context.md).
-- [Usage and deployment](docs/usage.md) — authentication, sync coverage, dashboard, and Docker.
-- [Roadmap](docs/roadmap.md) and [agent skills plan](docs/agent-skills.md) — what comes next.
-- [Project context](docs/project-context.md), [architecture](docs/architecture.md), and
-  [decisions](docs/decisions.md) — how the project fits together and why.
-- [Contributing](docs/contributing.md) and [implementation checklist](docs/checklist.md) —
-  development and tracked work. Agents should start with [AGENTS.md](AGENTS.md).
+This is a fresh design on the orphan `beads-hub` branch. It does not migrate the earlier gh-maintainer SQLite application. The previous implementation remains on its original branch.

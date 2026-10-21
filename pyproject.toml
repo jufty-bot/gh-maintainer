@@ -1,171 +1,25 @@
 [project]
-name = "gh-maintainer"
-version = "0.2.0"
-description = "A CLI for GitHub repository maintenance."
-readme = "README.md"
-requires-python = ">=3.10"
-dependencies = [
-  "fastapi>=0.115,<1",
-  "uvicorn>=0.34,<1",
-  "sqlalchemy[asyncio]>=2.0,<2.1",
-  "aiosqlite>=0.21,<1",
-  "alembic>=1.16,<2",
-  "pydantic>=2.10,<3",
-  "httpx>=0.28,<1",
-  "aiolimiter>=1.3,<2",
-  "platformdirs>=4,<5",
-  "click>=8.1,<9",
-  "structlog>=25,<27",
-  "pyyaml>=6,<7",
-  "mcp>=2.3,<3",
-  "anyio>=4.8,<5",
-]
-authors = [
-  { name = "Justin Flannery", email = "juftin@juftin.com" }
-]
-license = "MIT"
-classifiers = [
-  "Development Status :: 3 - Alpha",
-  "Operating System :: OS Independent",
-  "Programming Language :: Python",
-  "Programming Language :: Python :: 3.10",
-  "Programming Language :: Python :: 3.11",
-  "Programming Language :: Python :: 3.12",
-  "Programming Language :: Python :: 3.13",
-  "Programming Language :: Python :: 3.14",
-  "Programming Language :: Python :: Implementation :: CPython"
-]
-
-[project.urls]
-Documentation = "https://github.com/jufty-bot/gh-maintainer#readme"
-Issues = "https://github.com/jufty-bot/gh-maintainer/issues"
-Source = "https://github.com/jufty-bot/gh-maintainer"
-
-[project.scripts]
-gh-maintainer = "gh_maintainer.cli:main"
+name = "beads-hub"
+version = "0.1.0"
+description = "A shared Beads backlog for GitHub issues and pull requests"
+requires-python = ">=3.11"
+dependencies = ["beads-mcp==1.3.1"]
 
 [dependency-groups]
-dev = [
-  "pytest",
-  "pytest-cov",
-  "mypy>=1,<2",
-  "ruff~=0.12.10",
-  "types-pyyaml>=6,<7",
-]
-docs = [
-  "mkdocs~=1.6.1",
-  "mkdocs-material~=9.6.18",
-  "markdown-callouts~=0.4.0",
-  "markdown-exec~=1.11.0",
-  "mkdocs-section-index~=0.3.10",
-  "mkdocs-autorefs~=1.4.3",
-  "mkdocstrings[python]~=0.30.0",
-  "mkdocs-gen-files~=0.5.0",
-  "mkdocs-literate-nav~=0.6.2",
-  "pymdown-extensions~=10.16.1"
-]
+dev = ["pytest>=8", "ruff>=0.11", "mypy>=1.15", "pyyaml>=6", "types-PyYAML>=6"]
 
 [tool.pytest.ini_options]
-addopts = [
-  "-v",
-  "--cov=src/gh_maintainer",
-  "--cov-report=term-missing",
-  "--cov-report=xml:coverage.xml",
-  "--junitxml=pytest.xml"
-]
-
-[tool.coverage.report]
-exclude_lines = [
-  "no cov",
-  "if __name__ == .__main__.:",
-  "if TYPE_CHECKING:"
-]
-
-[tool.coverage.run]
-branch = true
-omit = [
-  "src/gh_maintainer/__about__.py"
-]
-parallel = true
-
-[tool.mypy]
-check_untyped_defs = true
-disallow_any_generics = true
-disallow_untyped_defs = true
-follow_imports = "silent"
-ignore_missing_imports = true
-no_implicit_reexport = true
-warn_redundant_casts = true
-warn_unused_ignores = true
+pythonpath = ["scripts"]
+testpaths = ["tests"]
 
 [tool.ruff]
-line-length = 88
+target-version = "py311"
+line-length = 100
 
 [tool.ruff.lint]
-ignore = [
-  # Ignore checks for possible passwords
-  "S105",
-  "S106",
-  "S107",
-  # Ignore complexity
-  "C901",
-  "PLR0911",
-  "PLR0912",
-  "PLR0913",
-  "PLR0915",
-  # Boolean-typed positional argument in function definition
-  "FBT001",
-  # Boolean default positional argument in function definition
-  "FBT002",
-  # Allow boolean positional values in function calls, like `dict.get(... True)`
-  "FBT003",
-  # Exception must not use a string literal, assign to variable first
-  "EM101"
-]
-select = [
-  "A",  # flake8-builtins
-  "ARG",  # flake8-unused-arguments
-  "B",  # flake8-bugbear
-  "C",  # mccabe
-  "DTZ",  # flake8-datetimez
-  "E",  # pycodestyle (Error)
-  "EM",  # flake8-errmsg
-  "F",  # Pyflakes
-  "FBT",  # flake8-boolean-trap
-  "I",  # isort
-  "ICN",  # flake8-import-conventions
-  "N",  # pep8-naming
-  "PLC",  # Pylint (Convention message)
-  "PLE",  # Pylint (Error message)
-  "PLR",  # Pylint (Refactor message)
-  "PLW",  # Pylint (Warning message)
-  "Q",  # flake8-quotes
-  "RUF",  # Ruff-specific rules
-  "S",  # flake8-bandit
-  "T",  # flake8-debugger (T10) and flake8-print (T20)
-  "TID",  # flake8-tidy-imports
-  "UP",  # pyupgrade
-  "W",  # pycodestyle (Warning)
-  "YTT"  # flake8-2020
-]
+select = ["E", "F", "I", "UP", "B"]
 
-[tool.ruff.lint.flake8-tidy-imports]
-ban-relative-imports = "all"
-
-[tool.ruff.lint.isort]
-known-first-party = ["gh_maintainer"]
-
-[tool.ruff.lint.per-file-ignores]
-# Tests can use magic values, assertions, and relative imports
-"tests/**/*" = ["PLR2004", "S101", "TID252"]
-"scripts/check_install.py" = ["S101", "S603", "S607"]
-
-[tool.ruff.lint.pydocstyle]
-convention = "numpy"
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.build.targets.wheel.force-include]
-"skills" = "gh_maintainer/skills"
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["scripts", "tests"]
